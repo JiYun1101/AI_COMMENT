@@ -1,0 +1,8 @@
+pandas
+numpy
+scikit-learn
+sentence-transformers
+fastapi
+uvicorn
+joblib
+python-dotenv
