@@ -5,6 +5,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 
+from imblearn.under_sampling import RandomUnderSampler
+
 from src.config import BASE_DIR
 
 
@@ -50,13 +52,28 @@ def train_model():
         stratify=y if len(df) >= 5 else None,
     )
 
+    print("원본 학습 데이터 클래스 분포")
+    print(y_train.value_counts())
+    print()
+
+    sampler = RandomUnderSampler(
+        random_state=42,
+        sampling_strategy="auto",
+    )
+
+    X_train_balanced, y_train_balanced = sampler.fit_resample(X_train, y_train)
+
+    print("언더샘플링 후 학습 데이터 클래스 분포")
+    print(y_train_balanced.value_counts())
+    print()
+
     model = RandomForestClassifier(
         n_estimators=100,
         random_state=42,
-        class_weight="balanced",
+        n_jobs=-1,
     )
 
-    model.fit(X_train, y_train)
+    model.fit(X_train_balanced, y_train_balanced)
 
     y_pred = model.predict(X_test)
 
@@ -71,6 +88,7 @@ def train_model():
         {
             "model": model,
             "feature_columns": FEATURE_COLUMNS,
+            "sampler": sampler,
         },
         MODEL_PATH,
     )

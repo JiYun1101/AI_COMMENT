@@ -25,13 +25,13 @@
 
 만약 requirements.txt가 없다면 아래 패키지를 직접 설치합니다.
 
-pip install fastapi uvicorn pandas scikit-learn joblib
+- pip install fastapi uvicorn pandas scikit-learn joblib
 
 ### 서버 실행 방법
 
 FastAPI 서버를 실행합니다.
 
-uvicorn app.main:app --reload
+uvicorn src.api.main:app --reload
 
 정상 실행되면 아래와 같은 주소에서 API를 확인할 수 있습니다.
 
