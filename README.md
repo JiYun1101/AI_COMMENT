@@ -6,6 +6,41 @@
 
 목표는 자극적인 댓글 생성이 아니라, **안전하고 자연스러운 댓글 후보를 점수화해 추천하는 것**입니다.
 
+### 설치 및 실행 방법
+
+1. 저장소 클론
+   git clone https://github.com/JiYun1101/AI_COMMENT.git
+   cd AI_COMMENT
+
+2. 가상환경 생성
+   Windows
+   python -m venv .venv
+   .venv\Scripts\activate
+   macOS / Linux
+   python3 -m venv .venv
+   source .venv/bin/activate
+
+3. 패키지 설치
+   pip install -r requirements.txt
+
+만약 requirements.txt가 없다면 아래 패키지를 직접 설치합니다.
+
+pip install fastapi uvicorn pandas scikit-learn joblib
+
+### 서버 실행 방법
+
+FastAPI 서버를 실행합니다.
+
+uvicorn app.main:app --reload
+
+정상 실행되면 아래와 같은 주소에서 API를 확인할 수 있습니다.
+
+http://127.0.0.1:8000
+
+Swagger 문서는 아래 주소에서 확인합니다.
+
+http://127.0.0.1:8000/docs
+
 ---
 
 ### 전체 흐름
