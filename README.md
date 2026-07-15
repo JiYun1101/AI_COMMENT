@@ -6,40 +6,236 @@
 
 목표는 자극적인 댓글 생성이 아니라, **안전하고 자연스러운 댓글 후보를 점수화해 추천하는 것**입니다.
 
-### 설치 및 실행 방법
+## YouTube 댓글 데이터 기반 모델 테스트 방법
 
-1. 저장소 클론
-   git clone https://github.com/JiYun1101/AI_COMMENT.git
-   cd AI_COMMENT
+이 프로젝트는 YouTube 댓글 데이터셋을 기반으로 댓글 후보의 예상 반응 점수를 계산합니다.
+`social_issues_comments.csv`, `vlog_comments.csv`를 병합한 뒤 전처리, 피처 생성, 모델 학습, API 테스트 순서로 실행합니다.
 
-2. 가상환경 생성
-   Windows
-   python -m venv .venv
-   .venv\Scripts\activate
-   macOS / Linux
-   python3 -m venv .venv
-   source .venv/bin/activate
+### 1. 브랜치 확인
 
-3. 패키지 설치
-   pip install -r requirements.txt
+```bash
+git branch --show-current
+```
 
-만약 requirements.txt가 없다면 아래 패키지를 직접 설치합니다.
+`develop` 브랜치에서 테스트합니다.
 
-- pip install fastapi uvicorn pandas scikit-learn joblib
+```bash
+git switch develop
+```
 
-### 서버 실행 방법
+### 2. 패키지 설치
 
-FastAPI 서버를 실행합니다.
+```bash
+pip install -r requirements.txt
+```
 
+### 3. YouTube 댓글 데이터 병합
+
+```bash
+python scripts/prepare_combined_comments.py
+```
+
+정상 실행 시 `data/raw/comments.csv`가 생성됩니다.
+
+결과 확인:
+
+```bash
+python -c "import pandas as pd; df=pd.read_csv('data/raw/comments.csv', encoding='utf-8-sig'); print(df.shape); print(df['category'].value_counts()); print(df['is_top_comment'].value_counts()); print(df['post_id'].nunique())"
+```
+
+기대 결과:
+
+```text
+- 댓글 수: 약 1.2만 건
+- category: vlog / social_issues
+- is_top_comment: 0과 1 모두 존재
+- post_id: 수십 개 이상
+```
+
+### 4. 전처리 실행
+
+```bash
+python -m src.data.preprocess
+```
+
+결과 파일:
+
+```text
+data/processed/comments_processed.csv
+```
+
+### 5. 텍스트 피처 생성
+
+```bash
+python -m src.features.text_features
+```
+
+결과 파일:
+
+```text
+data/processed/comments_features.csv
+```
+
+피처 생성 확인:
+
+```bash
+python -c "import pandas as pd; df=pd.read_csv('data/processed/comments_features.csv', encoding='utf-8-sig'); print(df.shape); print(df[['post_id','comment_id','category','is_top_comment','post_comment_overlap_count','post_comment_jaccard','post_comment_coverage','post_comment_length_ratio']].head()); print(df['is_top_comment'].value_counts())"
+```
+
+확인할 것:
+
+```text
+- comments_features.csv가 1만 건 이상인지 확인
+- is_top_comment 0/1 라벨이 모두 존재하는지 확인
+- post_comment_overlap_count, post_comment_jaccard, post_comment_coverage, post_comment_length_ratio 컬럼이 생성되었는지 확인
+```
+
+### 6. 모델 학습
+
+```bash
+python -m src.model.train
+```
+
+정상 실행 시 `models/comment_ranker.joblib`이 생성됩니다.
+
+학습 로그에서 확인할 것:
+
+```text
+- 전체 클래스 분포
+- Train/Test 영상 수
+- Train/Test 영상 중복 수: 0
+- 언더샘플링 후 클래스 분포
+- Accuracy / F1 Score
+- Feature Importance
+- 모델 저장 완료
+```
+
+### 7. 예측 함수 테스트
+
+```bash
+python -m src.model.predict
+```
+
+댓글 후보별 점수가 출력되면 정상입니다.
+
+### 8. API 서버 실행
+
+```bash
 uvicorn src.api.main:app --reload
+```
 
-정상 실행되면 아래와 같은 주소에서 API를 확인할 수 있습니다.
+브라우저에서 Swagger 문서를 엽니다.
 
-http://127.0.0.1:8000
-
-Swagger 문서는 아래 주소에서 확인합니다.
-
+```text
 http://127.0.0.1:8000/docs
+```
+
+### 9. `/score` API 테스트
+
+Swagger의 `/score` 엔드포인트에서 아래 JSON을 입력합니다.
+
+```json
+{
+  "post_text": "퇴근 후 혼자 밥 먹고 집 정리하는 직장인 브이로그",
+  "comments": [
+    "퇴근 후에도 자기 루틴을 지키는 게 진짜 쉽지 않은 것 같아요.",
+    "AI를 잘 쓰려면 질문을 구조화하는 능력이 더 중요해질 것 같습니다.",
+    "좋은 영상 감사합니다.",
+    "ㅋㅋ 그냥 다 때려치우면 됨"
+  ]
+}
+```
+
+정상 응답 예시:
+
+```json
+{
+  "post_text": "퇴근 후 혼자 밥 먹고 집 정리하는 직장인 브이로그",
+  "results": [
+    {
+      "comment": "퇴근 후에도 자기 루틴을 지키는 게 진짜 쉽지 않은 것 같아요.",
+      "score": 0
+    }
+  ]
+}
+```
+
+점수는 학습 결과에 따라 달라질 수 있습니다.
+
+### 10. 맥락 반영 테스트
+
+같은 댓글 후보를 서로 다른 `post_text`에 넣어 점수가 달라지는지 확인합니다.
+
+#### 브이로그 문맥
+
+```json
+{
+  "post_text": "퇴근 후 혼자 밥 먹고 집 정리하는 직장인 브이로그",
+  "comments": [
+    "퇴근 후에도 자기 루틴을 지키는 게 진짜 쉽지 않은 것 같아요.",
+    "AI를 잘 쓰려면 질문을 구조화하는 능력이 더 중요해질 것 같습니다."
+  ]
+}
+```
+
+#### AI/개발 문맥
+
+```json
+{
+  "post_text": "AI 시대에 개발자는 어떤 역량을 키워야 할까?",
+  "comments": [
+    "퇴근 후에도 자기 루틴을 지키는 게 진짜 쉽지 않은 것 같아요.",
+    "AI를 잘 쓰려면 질문을 구조화하는 능력이 더 중요해질 것 같습니다."
+  ]
+}
+```
+
+기대 결과:
+
+```text
+- 브이로그 문맥에서는 직장인/루틴 관련 댓글이 더 높게 평가됨
+- AI/개발 문맥에서는 AI/질문 구조화 관련 댓글의 점수가 상대적으로 올라감
+- post_text가 바뀌면 최종 score가 달라짐
+```
+
+### 11. `/recommend` API 테스트
+
+Swagger의 `/recommend` 엔드포인트에서 아래 JSON을 입력합니다.
+
+```json
+{
+  "post_text": "요즘 직장인 브이로그를 보면 현실적인 고민이 많이 보인다.",
+  "top_k": 5
+}
+```
+
+정상 응답 형태:
+
+```json
+{
+  "post_text": "요즘 직장인 브이로그를 보면 현실적인 고민이 많이 보인다.",
+  "recommendations": [
+    {
+      "rank": 1,
+      "type": "empathy",
+      "comment": "이 부분은 진짜 많은 사람들이 공감할 만한 내용이네요.",
+      "predicted_score": 0
+    }
+  ]
+}
+```
+
+### 12. 생성 파일 주의
+
+아래 파일들은 실행 과정에서 생성되는 산출물이므로 일반적으로 Git 커밋 대상에서 제외합니다.
+
+```text
+data/raw/comments.csv
+data/processed/comments_processed.csv
+data/processed/comments_features.csv
+data/processed/comments_scored_eval.csv
+models/comment_ranker.joblib
+```
 
 ---
 
