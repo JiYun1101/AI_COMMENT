@@ -6,3 +6,4 @@ fastapi
 uvicorn
 joblib
 python-dotenv
+pytest
