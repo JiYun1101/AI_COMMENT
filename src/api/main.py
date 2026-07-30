@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 
 from src.api.schemas import RecommendRequest, ScoreRequest
 from src.recommender.ranker import recommend_comments
@@ -9,6 +10,12 @@ app = FastAPI(
     description="댓글 좋아요 반응 예측 기반 AI 댓글 추천 시스템",
     version="0.1.0",
 )
+
+
+@app.get("/")
+def root():
+    """루트 경로는 Swagger 문서로 리다이렉트해 바로 테스트 가능하도록 한다."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")

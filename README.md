@@ -49,7 +49,8 @@ http://127.0.0.1:8000/docs
 CSV 데이터 입력
 → 전처리
 → 게시글별 좋아요 정규화
-→ 댓글 피처 추출
+→ 댓글 텍스트 피처 추출
+→ 게시글-댓글 임베딩 유사도 피처 추가
 → 반응 예측 모델 학습
 → 댓글 후보 생성
 → 안전 필터링
@@ -65,6 +66,7 @@ CSV 데이터 입력
 | CSV 기반 입력    | 크롤링된 댓글 데이터 사용                    | MVP에서 가장 단순하고 재현 가능             |
 | 좋아요 정규화    | 같은 게시글 내 댓글 반응을 상대 평가         | 게시글 인기 차이로 인한 좋아요 수 왜곡 방지 |
 | 텍스트 피처 추출 | 길이, 질문, 웃음, 공감, 인사이트 표현 분석   | 댓글 반응에 영향을 주는 구조적 특징 반영    |
+| 임베딩 유사도 피처 | sentence-transformers로 게시글-댓글 의미 유사도 계산 | 주제와 무관한 댓글을 낮추고 맥락에 맞는 댓글을 부양 |
 | 유형 분류        | 공감형, 인사이트형, 질문형, 캐주얼형 등 분류 | 추천 결과를 해석하기 쉽게 만들기 위함       |
 | 반응 예측 모델   | 댓글 후보의 예상 반응 점수 계산              | 후보 댓글을 점수순으로 랭킹하기 위함        |
 | 안전 필터        | 욕설, 비방, 혐오, 공격적 표현 제거           | 자극적 댓글 추천 방지                       |
@@ -107,17 +109,54 @@ df["label"] = (df["like_rank_pct"] >= 0.8).astype(int)
 ```text
 comment_length
 word_count
+sentence_count
 question_count
 exclamation_count
 laugh_count
+sad_count
 has_question
-has_laugh
+has_url
+has_number
+casual_score
 empathy_score
 insight_score
-negative_score
+criticism_score
+post_comment_sim   # 게시글-댓글 의미 유사도 (sentence-transformers 코사인)
 ```
 
-이 피처들은 댓글의 길이, 말투, 공감성, 인사이트 여부, 부정 표현 여부를 수치화하기 위한 값입니다.
+이 피처들은 댓글의 길이, 말투, 공감성, 인사이트 여부, 부정 표현 여부, 그리고
+게시글과 댓글의 의미적 유사도를 수치화하기 위한 값입니다.
+
+학습(`src/model/train.py`)과 추론(`src/model/predict.py`)은 동일한 피처
+스키마(`src/features/feature_schema.py`)와 동일한 텍스트 피처 추출기
+(`extract_comment_features`)를 공유해 피처 드리프트를 방지합니다.
+
+---
+
+### 임베딩 유사도 피처
+
+`sentence-transformers` 의 다국어 경량 모델(`paraphrase-multilingual-MiniLM-L12-v2`)로
+게시글과 댓글 각각의 임베딩을 구해 코사인 유사도를 계산합니다. 이 값은
+`post_comment_sim` 피처로 추가되며 [-1, 1] 범위를 가집니다.
+
+- 게시글과 맥락이 잘 맞는 댓글은 유사도가 높아 점수를 높이는 방향으로 작용합니다.
+- 주제와 무관한 일반 댓글("좋은 글 감사합니다" 등)은 유사도가 낮아 상대적으로
+  불이익을 받습니다.
+- 빈 게시글/댓글은 중립값 0.0 으로 처리해 학습·추론이 깨지지 않도록 합니다.
+
+학습 시에는 고유 게시글만 한 번 인코딩해 배치로 계산하고, 추론 시에는 단일
+쌍으로 계산합니다. 두 경로가 같은 값을 내는지는
+`tests/test_feature_schema.py` 에서 검증합니다.
+
+실행 순서:
+
+```bash
+python -m src.data.preprocess
+python -m src.features.like_normalizer
+python -m src.features.text_features
+python -m src.features.embedding_features   # post_comment_sim 추가
+python -m src.model.train
+```
 
 ---
 
@@ -154,7 +193,8 @@ negative_score
 ```text
 CSV 전처리
 좋아요 정규화
-댓글 피처 추출
+댓글 텍스트 피처 추출
+게시글-댓글 임베딩 유사도 피처
 반응 예측 모델 학습
 댓글 후보 생성
 안전 필터링
@@ -168,12 +208,25 @@ FastAPI Swagger 실행
 
 ```text
 데이터셋 확장 (진행 중 — social_issues/vlog 유튜브 댓글 약 1.3만건 수집)
-게시글-댓글 임베딩 유사도 추가
+게시글-댓글 임베딩 유사도 추가 (완료 — post_comment_sim, sentence-transformers)
 유형 분류 모델 고도화
 안전 필터 개선 (완료 — 규칙 기반 v2, 실데이터로 검증)
 LightGBM/XGBoost 등 모델 비교
 LLM 기반 댓글 후보 생성 도입
 ```
+
+**임베딩 유사도 피처 상세** (`src/features/embedding_features.py`)
+
+게시글-댓글 의미 유사도를 `post_comment_sim` 피처로 추가하면서, 학습과
+추론이 서로 다른 피처를 만들던 기존 버그도 함께 고쳤습니다.
+
+- 기존에는 `predict.py` 가 `train.py` 와 다른 피처 집합(`has_laugh`,
+  `negative_score` 등)을 만들어, 학습 피처 중 `sentence_count` ·
+  `sad_count` · `has_url` · `has_number` · `casual_score` ·
+  `criticism_score` 6개가 추론 시 항상 0으로 채워지고 있었습니다.
+- `extract_comment_features` 를 학습·추론이 공유하고, 피처 목록을
+  `feature_schema.py` 한 곳에서 파생시켜 구조적으로 재발을 막았습니다.
+- `tests/test_feature_schema.py` 로 두 경로의 피처가 일치하는지 고정합니다.
 
 **안전 필터 개선 상세** (`src/recommender/safety_filter.py`)
 
@@ -204,12 +257,13 @@ LLM 기반 댓글 후보 생성 도입
 [완료] CSV 기반 전처리
 [완료] 좋아요 정규화
 [완료] 텍스트 피처 추출
+[완료] 임베딩 유사도 피처 추가 (sentence-transformers)
 [완료] 모델 학습 및 저장
 [완료] 댓글 후보 점수화
 [완료] 댓글 추천 랭킹
 [완료] FastAPI 서버 구동
 [완료] Swagger 문서 확인
-[다음] /score, /recommend 실제 응답 테스트
-[다음] 임베딩 피처 저장 확인
+[완료] /score, /recommend 실제 응답 테스트
+[완료] 임베딩 피처 저장 확인
 [다음] 데이터셋 확장
 [다음] README 정리

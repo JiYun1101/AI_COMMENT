@@ -8,28 +8,11 @@ from sklearn.metrics import accuracy_score, f1_score, classification_report
 from imblearn.under_sampling import RandomUnderSampler
 
 from src.config import BASE_DIR
+from src.features.feature_schema import FEATURE_COLUMNS
 
 
 INPUT_PATH = BASE_DIR / "data" / "processed" / "comments_features.csv"
 MODEL_PATH = BASE_DIR / "models" / "comment_ranker.joblib"
-
-
-FEATURE_COLUMNS = [
-    "comment_length",
-    "word_count",
-    "sentence_count",
-    "question_count",
-    "exclamation_count",
-    "laugh_count",
-    "sad_count",
-    "has_question",
-    "has_url",
-    "has_number",
-    "casual_score",
-    "empathy_score",
-    "insight_score",
-    "criticism_score",
-]
 
 
 TARGET_COLUMN = "is_top_comment"

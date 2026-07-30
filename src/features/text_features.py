@@ -14,33 +14,71 @@ INSIGHT_WORDS = ["결국", "핵심", "문제는", "이유는", "중요한 건", 
 CRITICISM_WORDS = ["별로", "문제", "아쉽", "싫", "망", "비판", "이상한"]
 
 
+# 학습-추론 피처 드리프트 방지용 단일 텍스트 피처 컬럼 정의.
+# extract_comment_features 가 이 목록과 정확히 일치하는 키를 반환한다.
+TEXT_FEATURE_COLUMNS = [
+    "comment_length",
+    "word_count",
+    "sentence_count",
+    "question_count",
+    "exclamation_count",
+    "laugh_count",
+    "sad_count",
+    "has_question",
+    "has_url",
+    "has_number",
+    "casual_score",
+    "empathy_score",
+    "insight_score",
+    "criticism_score",
+]
+
+
 def count_matches(text: str, words: list[str]) -> int:
     text = str(text)
     return sum(text.count(word) for word in words)
+
+
+def extract_comment_features(comment: str) -> dict:
+    """단일 댓글에서 텍스트 피처를 추출해 dict로 반환한다.
+
+    학습 파이프라인(extract_text_features)과 추론 경로(predict.py)가 모두
+    이 함수를 호출하므로 학습-추론 피처 드리프트가 발생하지 않는다.
+    """
+    text = str(comment or "")
+
+    question_count = len(re.findall(r"\?", text))
+    exclamation_count = len(re.findall(r"!", text))
+
+    return {
+        "comment_length": len(text),
+        "word_count": len(text.split()),
+        "sentence_count": max(1, len(re.findall(r"[.!?。！？]", text)) + 1),
+        "question_count": question_count,
+        "exclamation_count": exclamation_count,
+        "laugh_count": text.count("ㅋㅋ") + text.count("ㅎㅎ"),
+        "sad_count": text.count("ㅠㅠ") + text.count("ㅜㅜ"),
+        "has_question": int(question_count > 0),
+        "has_url": int(bool(re.search(r"http|www\.", text))),
+        "has_number": int(bool(re.search(r"\d", text))),
+        "casual_score": count_matches(text, CASUAL_WORDS),
+        "empathy_score": count_matches(text, EMPATHY_WORDS),
+        "insight_score": count_matches(text, INSIGHT_WORDS),
+        "criticism_score": count_matches(text, CRITICISM_WORDS),
+    }
 
 
 def extract_text_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     text = df["comment_text"].fillna("").astype(str)
+    feature_df = pd.DataFrame(
+        text.apply(extract_comment_features).tolist(),
+        index=df.index,
+    )
 
-    df["comment_length"] = text.str.len()
-    df["word_count"] = text.apply(lambda x: len(x.split()))
-    df["sentence_count"] = text.apply(lambda x: max(1, len(re.findall(r"[.!?。！？]", x)) + 1))
-
-    df["question_count"] = text.str.count(r"\?")
-    df["exclamation_count"] = text.str.count(r"!")
-    df["laugh_count"] = text.apply(lambda x: x.count("ㅋㅋ") + x.count("ㅎㅎ"))
-    df["sad_count"] = text.apply(lambda x: x.count("ㅠㅠ") + x.count("ㅜㅜ"))
-
-    df["has_question"] = (df["question_count"] > 0).astype(int)
-    df["has_url"] = text.str.contains(r"http|www\.", regex=True).astype(int)
-    df["has_number"] = text.str.contains(r"\d", regex=True).astype(int)
-
-    df["casual_score"] = text.apply(lambda x: count_matches(x, CASUAL_WORDS))
-    df["empathy_score"] = text.apply(lambda x: count_matches(x, EMPATHY_WORDS))
-    df["insight_score"] = text.apply(lambda x: count_matches(x, INSIGHT_WORDS))
-    df["criticism_score"] = text.apply(lambda x: count_matches(x, CRITICISM_WORDS))
+    for column in TEXT_FEATURE_COLUMNS:
+        df[column] = feature_df[column]
 
     return df
 

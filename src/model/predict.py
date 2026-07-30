@@ -2,42 +2,27 @@ import joblib
 import pandas as pd
 from pathlib import Path
 
+from src.features.embedding_features import (
+    SIMILARITY_COLUMN,
+    compute_post_comment_similarity,
+)
+from src.features.feature_schema import FEATURE_COLUMNS
+from src.features.text_features import extract_comment_features
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = BASE_DIR / "models" / "comment_ranker.joblib"
 
-FEATURE_COLUMNS = [
-    "comment_length",
-    "word_count",
-    "question_count",
-    "exclamation_count",
-    "laugh_count",
-    "has_question",
-    "has_laugh",
-    "empathy_score",
-    "insight_score",
-    "negative_score",
-]
 
+def extract_feature_row(post_text: str, comment: str) -> dict:
+    """단일 (게시글, 댓글) 쌍에 대한 전체 피처 행을 반환한다.
 
-def extract_simple_features(comment: str) -> dict:
-    return {
-        "comment_length": len(comment),
-        "word_count": len(comment.split()),
-        "question_count": comment.count("?"),
-        "exclamation_count": comment.count("!"),
-        "laugh_count": comment.count("ㅋㅋ") + comment.count("ㅎㅎ"),
-        "has_question": int("?" in comment),
-        "has_laugh": int(("ㅋㅋ" in comment) or ("ㅎㅎ" in comment)),
-        "empathy_score": int(
-            any(word in comment for word in ["공감", "와닿", "맞아요", "진짜"])
-        ),
-        "insight_score": int(
-            any(word in comment for word in ["핵심", "결국", "중요", "관점", "설계", "정의"])
-        ),
-        "negative_score": int(
-            any(word in comment for word in ["별로", "최악", "싫다", "꺼져", "멍청"])
-        ),
-    }
+    텍스트 피처는 학습 파이프라인과 동일한 ``extract_comment_features`` 를,
+    임베딩 유사도는 ``compute_post_comment_similarity`` 를 사용하므로
+    학습-추론 피처 드리프트가 발생하지 않는다.
+    """
+    features = extract_comment_features(comment)
+    features[SIMILARITY_COLUMN] = compute_post_comment_similarity(post_text, comment)
+    return features
 
 
 def load_ranker_model():
@@ -60,11 +45,7 @@ def load_ranker_model():
 def score_comments(post_text: str, comments: list[str]) -> list[dict]:
     model, feature_columns = load_ranker_model()
 
-    rows = []
-
-    for comment in comments:
-        features = extract_simple_features(comment)
-        rows.append(features)
+    rows = [extract_feature_row(post_text, comment) for comment in comments]
 
     X = pd.DataFrame(rows)
 
