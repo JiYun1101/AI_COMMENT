@@ -1,0 +1,230 @@
+/* AI_COMMENT Design System — Foundations
+   Colors + Type tokens for a minimal, professional B2B CRM.
+   Source: GenSpark design handoff (design_handoff_comment_recommend).
+   ------------------------------------------------------------ */
+
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
+:root {
+  /* ---------- Neutrals (cool-gray) ---------- */
+  --neutral-0: #ffffff;
+  --neutral-50: #f7f8fa;
+  --neutral-100: #f1f3f5;
+  --neutral-150: #e8ebef;
+  --neutral-200: #dde1e6;
+  --neutral-300: #c1c7cf;
+  --neutral-400: #9aa3ad;
+  --neutral-500: #6b7481;
+  --neutral-600: #4a5361;
+  --neutral-700: #333b47;
+  --neutral-800: #1f2530;
+  --neutral-900: #0f141c;
+
+  /* ---------- Brand blue (trustworthy point color) ---------- */
+  --brand-50: #eef4ff;
+  --brand-100: #dbe6ff;
+  --brand-200: #b7ceff;
+  --brand-300: #8aafff;
+  --brand-400: #5a8bfa;
+  --brand-500: #2c6ef2;
+  --brand-600: #1f57cf;
+  --brand-700: #1846a6;
+  --brand-800: #143a85;
+  --brand-900: #0f2b64;
+
+  /* ---------- Semantic ---------- */
+  --success-50: #e8f6ee;
+  --success-100: #c9ecd6;
+  --success-500: #1f9d55;
+  --success-600: #158048;
+  --success-700: #0f6337;
+
+  --warning-50: #fff6e5;
+  --warning-500: #d98b0a;
+  --warning-700: #a56506;
+
+  --danger-50: #fdecec;
+  --danger-500: #d93b3b;
+  --danger-700: #a52626;
+
+  --info-50: #e6f2fb;
+  --info-500: #2b87c7;
+
+  /* ---------- Comment type accents (from ML labels) ---------- */
+  --tag-empathy: #ec4899;
+  --tag-insight: #7c3aed;
+  --tag-question: #2c6ef2;
+  --tag-casual: #14b8a6;
+  --tag-negative: #d93b3b;
+  --tag-general: #6b7481;
+
+  /* ---------- Surface / semantic aliases ---------- */
+  --bg: var(--neutral-50);
+  --bg-subtle: var(--neutral-100);
+  --surface: var(--neutral-0);
+  --surface-hover: var(--neutral-50);
+  --border: var(--neutral-200);
+  --border-strong: var(--neutral-300);
+  --border-focus: var(--brand-500);
+
+  --fg1: var(--neutral-900);
+  --fg2: var(--neutral-700);
+  --fg3: var(--neutral-500);
+  --fg-disabled: var(--neutral-400);
+  --fg-inverse: var(--neutral-0);
+
+  --link: var(--brand-600);
+  --link-hover: var(--brand-700);
+
+  /* ---------- Type stacks ---------- */
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', 'Malgun Gothic', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Menlo', 'Consolas', monospace;
+
+  /* ---------- Type scale (px @ 16 base) ---------- */
+  --fs-display: 40px;
+  --fs-h1: 28px;
+  --fs-h2: 22px;
+  --fs-h3: 18px;
+  --fs-body: 14px;
+  --fs-body-sm: 13px;
+  --fs-caption: 12px;
+  --fs-micro: 11px;
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.5;
+  --lh-loose: 1.65;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: -0.005em;
+  --tracking-wide: 0.02em;
+
+  /* ---------- Spacing (4pt grid) ---------- */
+  --sp-0: 0;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 48px;
+  --sp-10: 64px;
+  --sp-11: 80px;
+  --sp-12: 96px;
+
+  /* ---------- Radii ---------- */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  /* ---------- Shadows / elevation ---------- */
+  --shadow-xs: 0 1px 2px rgba(15, 20, 28, 0.04);
+  --shadow-sm: 0 2px 6px rgba(15, 20, 28, 0.06), 0 1px 2px rgba(15, 20, 28, 0.04);
+  --shadow-md: 0 6px 16px rgba(15, 20, 28, 0.08), 0 2px 4px rgba(15, 20, 28, 0.04);
+  --shadow-lg: 0 16px 32px rgba(15, 20, 28, 0.1), 0 4px 8px rgba(15, 20, 28, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(44, 110, 242, 0.18);
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+}
+
+/* ---------- Base ---------- */
+html,
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--fg1);
+  background: var(--bg);
+  font-feature-settings: 'ss18' on, 'cv11' on;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Semantic type ---------- */
+.t-display {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+}
+h1,
+.t-h1 {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+}
+h2,
+.t-h2 {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-normal);
+}
+h3,
+.t-h3 {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+}
+p,
+.t-body {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-normal);
+}
+.t-body-sm {
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-normal);
+}
+.t-caption {
+  font-size: var(--fs-caption);
+  color: var(--fg3);
+  line-height: var(--lh-normal);
+}
+.t-label {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--fg3);
+}
+.t-mono,
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-feature-settings: 'zero' on;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
