@@ -1,96 +1,80 @@
 import joblib
 import pandas as pd
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+from src.config import BASE_DIR
+from src.features.embedding_features import (
+    SIMILARITY_COLUMN,
+    compute_post_comment_similarity,
+)
+from src.features.feature_schema import FEATURE_COLUMNS
+from src.features.text_features import extract_feature_row as extract_lexical_features
+
+
 MODEL_PATH = BASE_DIR / "models" / "comment_ranker.joblib"
 
-FEATURE_COLUMNS = [
-    "comment_length",
-    "word_count",
-    "question_count",
-    "exclamation_count",
-    "laugh_count",
-    "has_question",
-    "has_laugh",
-    "empathy_score",
-    "insight_score",
-    "negative_score",
-]
 
-
-def extract_simple_features(comment: str) -> dict:
-    return {
-        "comment_length": len(comment),
-        "word_count": len(comment.split()),
-        "question_count": comment.count("?"),
-        "exclamation_count": comment.count("!"),
-        "laugh_count": comment.count("ㅋㅋ") + comment.count("ㅎㅎ"),
-        "has_question": int("?" in comment),
-        "has_laugh": int(("ㅋㅋ" in comment) or ("ㅎㅎ" in comment)),
-        "empathy_score": int(
-            any(word in comment for word in ["공감", "와닿", "맞아요", "진짜"])
-        ),
-        "insight_score": int(
-            any(word in comment for word in ["핵심", "결국", "중요", "관점", "설계", "정의"])
-        ),
-        "negative_score": int(
-            any(word in comment for word in ["별로", "최악", "싫다", "꺼져", "멍청"])
-        ),
-    }
+def extract_feature_row(post_text: str, comment: str) -> dict:
+    features = extract_lexical_features(post_text, comment)
+    features[SIMILARITY_COLUMN] = compute_post_comment_similarity(
+        post_text,
+        comment,
+    )
+    return features
 
 
 def load_ranker_model():
     loaded = joblib.load(MODEL_PATH)
 
-    if isinstance(loaded, dict):
-        model = loaded.get("model")
+    if not isinstance(loaded, dict):
+        raise ValueError(
+            "기존 단일 객체 모델 형식은 현재 피처 스키마와 호환되지 않습니다. "
+            "python -m src.model.train 으로 모델을 다시 학습하세요."
+        )
 
-        if model is None:
-            raise ValueError(
-                "comment_ranker.joblib이 dict로 저장되어 있지만 'model' 키가 없습니다."
-            )
+    model = loaded.get("model")
+    if model is None:
+        raise ValueError("comment_ranker.joblib에 'model' 키가 없습니다.")
 
-        feature_columns = loaded.get("feature_columns", FEATURE_COLUMNS)
-        return model, feature_columns
+    saved_columns = loaded.get("feature_columns")
+    if saved_columns != FEATURE_COLUMNS:
+        raise ValueError(
+            "저장된 모델의 피처 스키마가 현재 코드와 다릅니다. "
+            "python -m src.model.train 으로 모델을 다시 학습하세요."
+        )
 
-    return loaded, FEATURE_COLUMNS
+    return model
 
 
 def score_comments(post_text: str, comments: list[str]) -> list[dict]:
-    model, feature_columns = load_ranker_model()
+    model = load_ranker_model()
 
-    rows = []
-
-    for comment in comments:
-        features = extract_simple_features(comment)
-        rows.append(features)
-
+    rows = [
+        extract_feature_row(post_text, comment)
+        for comment in comments
+    ]
     X = pd.DataFrame(rows)
 
-    for column in feature_columns:
-        if column not in X.columns:
-            X[column] = 0
+    missing_columns = [
+        column for column in FEATURE_COLUMNS if column not in X.columns
+    ]
+    if missing_columns:
+        raise ValueError(f"추론 피처 누락: {missing_columns}")
 
-    X = X[feature_columns]
+    X = X[FEATURE_COLUMNS].fillna(0)
 
     if hasattr(model, "predict_proba"):
         scores = model.predict_proba(X)[:, 1]
     else:
         scores = model.predict(X)
 
-    results = []
-
-    for comment, score in zip(comments, scores):
-        results.append(
-            {
-                "comment": comment,
-                "score": round(float(score) * 100, 2),
-            }
-        )
-
+    results = [
+        {
+            "comment": comment,
+            "score": round(float(score) * 100, 2),
+        }
+        for comment, score in zip(comments, scores)
+    ]
     results.sort(key=lambda item: item["score"], reverse=True)
-
     return results
 
 
@@ -102,12 +86,5 @@ if __name__ == "__main__":
         "이건 생각보다 현실적인 문제라 더 와닿네요 ㅋㅋ",
     ]
 
-    result = score_comments(
-        post_text=sample_post,
-        comments=sample_comments,
-    )
-
-    print("댓글 후보 점수화 결과")
-
-    for item in result:
+    for item in score_comments(sample_post, sample_comments):
         print(item)

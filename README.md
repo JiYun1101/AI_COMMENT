@@ -1,215 +1,117 @@
-## 프로젝트 로직 요약
+# AI Comment Recommender
 
-### 프로젝트 개요
+YouTube 댓글 데이터에서 **반응이 좋았던 댓글의 패턴**을 학습하고, 새 게시글에 대해 안전하고 맥락에 맞는 댓글 후보를 점수화해 추천하는 MVP입니다.
 
-**AI Comment Recommender**는 크롤링된 게시글·댓글 데이터를 분석해, 같은 게시글 안에서 상대적으로 반응이 좋았던 댓글 패턴을 학습하고 새 게시글에 적합한 댓글 후보를 추천하는 FastAPI 기반 MVP입니다.
+현재 저장소는 다음 작업을 하나로 통합합니다.
 
-목표는 자극적인 댓글 생성이 아니라, **안전하고 자연스러운 댓글 후보를 점수화해 추천하는 것**입니다.
+- social issues / vlog YouTube 댓글 약 1.3만 건
+- 실데이터 기반 safety filter v2
+- 댓글 자체의 텍스트 피처
+- 게시글-댓글 lexical context 피처
+- sentence-transformers 기반 semantic similarity
+- 게시글 단위 train/test 분리
+- FastAPI `/score`, `/recommend`
+- React + TypeScript + Vite 프론트엔드
 
-### 설치 및 실행 방법
+## 설치
 
-1. 저장소 클론
-   git clone https://github.com/JiYun1101/AI_COMMENT.git
-   cd AI_COMMENT
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-2. 가상환경 생성
-   Windows
-   python -m venv .venv
-   .venv\Scripts\activate
-   macOS / Linux
-   python3 -m venv .venv
-   source .venv/bin/activate
+프론트엔드:
 
-3. 패키지 설치
-   pip install -r requirements.txt
+```bash
+cd frontend
+npm ci
+```
 
-만약 requirements.txt가 없다면 아래 패키지를 직접 설치합니다.
+임베딩 모델은 첫 실행 시 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`를 다운로드합니다.
 
-- pip install fastapi uvicorn pandas scikit-learn joblib
+## 데이터 준비와 학습
 
-### 서버 실행 방법
+```bash
+python scripts/prepare_combined_comments.py
+python -m src.data.preprocess
+python -m src.features.text_features
+python -m src.features.embedding_features
+python -m src.model.train
+```
 
-FastAPI 서버를 실행합니다.
+`prepare_combined_comments.py`는 `social_issues_comments.csv`와 `vlog_comments.csv`를 합쳐 `data/raw/comments.csv`를 생성합니다. 이 파일은 생성 산출물이므로 Git에서 추적하지 않습니다.
 
+수집 데이터의 기존 `is_top_comment` 라벨을 그대로 사용합니다. `src.features.like_normalizer`는 분석/레거시용이며 기존 라벨이 있으면 덮어쓰지 않습니다.
+
+## 모델 피처
+
+모델은 세 종류의 피처를 사용합니다.
+
+1. 댓글 텍스트: 길이, 문장/질문/감탄, 웃음/슬픔, URL/숫자, casual/empathy/insight/criticism score
+2. lexical context: `post_comment_overlap_count`, `post_comment_jaccard`, `post_comment_coverage`, `post_comment_length_ratio`
+3. semantic context: `post_comment_sim`
+
+학습과 추론은 `src/features/feature_schema.py`의 동일한 피처 목록을 공유합니다. 저장된 모델 스키마가 현재 코드와 다르면 0으로 조용히 채우지 않고 재학습을 요구합니다.
+
+같은 영상의 댓글이 train/test에 동시에 들어가는 누수를 막기 위해 `post_id` 기준 `GroupShuffleSplit`을 사용하고, 클래스 불균형은 학습 데이터에만 `RandomUnderSampler`를 적용합니다.
+
+## Backend
+
+```bash
 uvicorn src.api.main:app --reload
+```
 
-정상 실행되면 아래와 같은 주소에서 API를 확인할 수 있습니다.
+- Swagger: `http://127.0.0.1:8000/docs`
+- `GET /health`
+- `POST /score`
+- `POST /recommend`
+- 점수는 0~100 범위
 
-http://127.0.0.1:8000
+개발 프론트(`localhost:5173`, `127.0.0.1:5173`)에서 API를 호출할 수 있도록 CORS가 설정되어 있습니다.
 
-Swagger 문서는 아래 주소에서 확인합니다.
+## Frontend
 
-http://127.0.0.1:8000/docs
+```bash
+cd frontend
+npm run dev
+```
 
----
+기본 API 주소는 `http://localhost:8000`이며 `VITE_API_BASE_URL`로 변경할 수 있습니다.
 
-### 전체 흐름
+현재 댓글 추천 화면은 실제 `POST /recommend`와 연결되어 있습니다. 다만 URL 미리보기는 아직 mock 데이터이고 Dashboard의 KPI/댓글 테이블은 seed data입니다.
+
+## 테스트
+
+```bash
+pytest
+cd frontend
+npm run lint
+npm run build
+```
+
+테스트에는 safety filter 회귀 케이스, 학습/추론 피처 스키마 일관성, 기존 `is_top_comment` 라벨 보존 검증이 포함됩니다.
+
+## 전체 흐름
 
 ```text
-CSV 데이터 입력
+YouTube raw datasets
+→ comments.csv 생성
 → 전처리
-→ 게시글별 좋아요 정규화
-→ 댓글 피처 추출
-→ 반응 예측 모델 학습
-→ 댓글 후보 생성
-→ 안전 필터링
+→ shared text + lexical context features
+→ embedding similarity
+→ post_id 단위 train/test split
+→ RandomForest 학습
+→ 안전한 후보 생성/필터링
+→ 동일한 feature schema로 추론
 → 점수순 추천
+→ FastAPI
+→ React/Vite UI
 ```
 
----
+## 현재 한계
 
-### 주요 로직
-
-| 로직             | 역할                                         | 선정 이유                                   |
-| ---------------- | -------------------------------------------- | ------------------------------------------- |
-| CSV 기반 입력    | 크롤링된 댓글 데이터 사용                    | MVP에서 가장 단순하고 재현 가능             |
-| 좋아요 정규화    | 같은 게시글 내 댓글 반응을 상대 평가         | 게시글 인기 차이로 인한 좋아요 수 왜곡 방지 |
-| 텍스트 피처 추출 | 길이, 질문, 웃음, 공감, 인사이트 표현 분석   | 댓글 반응에 영향을 주는 구조적 특징 반영    |
-| 유형 분류        | 공감형, 인사이트형, 질문형, 캐주얼형 등 분류 | 추천 결과를 해석하기 쉽게 만들기 위함       |
-| 반응 예측 모델   | 댓글 후보의 예상 반응 점수 계산              | 후보 댓글을 점수순으로 랭킹하기 위함        |
-| 안전 필터        | 욕설, 비방, 혐오, 공격적 표현 제거           | 자극적 댓글 추천 방지                       |
-| FastAPI API      | `/score`, `/recommend` 제공                  | 실제 서비스 형태로 테스트 가능              |
-
----
-
-### 좋아요 정규화
-
-댓글 좋아요 수는 게시글의 노출량과 인기 영향을 크게 받습니다.
-따라서 절대 좋아요 수가 아니라 **같은 게시글 안에서 상위 반응 댓글인지**를 기준으로 라벨을 만듭니다.
-
-```python
-df["like_rank_pct"] = df.groupby("post_id")["like_count"].rank(pct=True)
-df["label"] = (df["like_rank_pct"] >= 0.8).astype(int)
-```
-
----
-
-### 댓글 유형 분류
-
-| 유형       | 설명                                      |
-| ---------- | ----------------------------------------- |
-| `empathy`  | 공감형 댓글                               |
-| `insight`  | 게시글에 대한 해석이나 관점을 더하는 댓글 |
-| `question` | 대화를 유도하는 질문형 댓글               |
-| `casual`   | 자연스러운 구어체 댓글                    |
-| `negative` | 부정적이거나 위험할 수 있는 표현          |
-| `general`  | 특정 유형에 강하게 속하지 않는 일반 댓글  |
-
-1차 MVP에서는 데이터가 적기 때문에 복잡한 분류 모델 대신 **키워드 기반 분류**를 사용했습니다.
-이 방식은 구현이 빠르고, 결과를 해석하기 쉽다는 장점이 있습니다.
-
----
-
-### 댓글 피처
-
-모델은 댓글에서 다음과 같은 피처를 추출합니다.
-
-```text
-comment_length
-word_count
-question_count
-exclamation_count
-laugh_count
-has_question
-has_laugh
-empathy_score
-insight_score
-negative_score
-```
-
-이 피처들은 댓글의 길이, 말투, 공감성, 인사이트 여부, 부정 표현 여부를 수치화하기 위한 값입니다.
-
----
-
-### 추천 방식
-
-댓글 추천은 다음 순서로 동작합니다.
-
-```text
-1. 게시글 입력
-2. 안전한 템플릿 기반 댓글 후보 생성
-3. 위험 표현 필터링
-4. 후보별 반응 점수 예측
-5. 점수 높은 순으로 top_k 댓글 반환
-```
-
----
-
-### API 구조
-
-| API               | 역할                              |
-| ----------------- | --------------------------------- |
-| `GET /health`     | 서버 상태 확인                    |
-| `POST /score`     | 사용자가 입력한 댓글 후보 점수화  |
-| `POST /recommend` | 게시글에 맞는 댓글 후보 자동 추천 |
-
----
-
-### 현재 MVP 범위
-
-현재 버전은 모델 성능보다 **전체 추천 파이프라인이 끝까지 동작하는 것**에 초점을 둔 1차 MVP입니다.
-
-구현된 기능은 다음과 같습니다.
-
-```text
-CSV 전처리
-좋아요 정규화
-댓글 피처 추출
-반응 예측 모델 학습
-댓글 후보 생성
-안전 필터링
-추천 랭킹
-FastAPI Swagger 실행
-```
-
----
-
-### 향후 개선 방향
-
-```text
-데이터셋 확장 (진행 중 — social_issues/vlog 유튜브 댓글 약 1.3만건 수집)
-게시글-댓글 임베딩 유사도 추가
-유형 분류 모델 고도화
-안전 필터 개선 (완료 — 규칙 기반 v2, 실데이터로 검증)
-LightGBM/XGBoost 등 모델 비교
-LLM 기반 댓글 후보 생성 도입
-```
-
-**안전 필터 개선 상세** (`src/recommender/safety_filter.py`)
-
-기존에는 키워드 8개로만 걸러냈지만, 실제 수집한 유튜브 댓글 데이터로
-필터를 검증하며 문제를 데이터 기반으로 찾아 고쳤습니다.
-
-- 욕설/혐오 표현 키워드를 실데이터에서 발견된 사례(시발/지랄/미친놈,
-  한남충/틀딱 등)로 확장
-- 스팸(구독·좋아요 유도, 링크, 연락처) 패턴 추가
-- 명확한 위협 표현만 남기고 오탐 유발 표현 제거 — "죽어라 노력해라"(관용구),
-  "이 노래 죽인다"(슬랭으로 최고라는 뜻) 등은 위협이 아니므로 제외
-- "혐오"/"최악" 같은 단순 주제·감정 단어는 목록에서 제거 — "혐오와 갈등은
-  어디서 생기는가" 같은 정상적인 사회 논의나 단순 부정적 리뷰까지 막는
-  오탐이 실데이터에서 다수 확인됨
-- "착한남편"이 "한남"을, "다시 발리에"가 "시발"을 우연히 포함하는 것처럼
-  단어 경계를 넘나드는 오탐을 유발하는 공백 제거 매칭은 제거
-- `tests/test_safety_filter.py`에 회귀 테스트 추가, `scripts/evaluate_safety_filter.py`로
-  기존 필터 대비 차단율·차단 사유를 실데이터 기준으로 비교 검증
-
----
-
-### 한 줄 요약
-
-크롤링된 댓글 데이터를 기반으로 게시글 내 상대적 반응이 좋은 댓글 패턴을 학습하고, 새 게시글에 대해 안전한 댓글 후보를 점수화해 추천하는 FastAPI 기반 AI 댓글 추천 MVP입니다.
-
-#현재 진행도
-[완료] 프로젝트 폴더 구조
-[완료] CSV 기반 전처리
-[완료] 좋아요 정규화
-[완료] 텍스트 피처 추출
-[완료] 모델 학습 및 저장
-[완료] 댓글 후보 점수화
-[완료] 댓글 추천 랭킹
-[완료] FastAPI 서버 구동
-[완료] Swagger 문서 확인
-[다음] /score, /recommend 실제 응답 테스트
-[다음] 임베딩 피처 저장 확인
-[다음] 데이터셋 확장
-[다음] README 정리
+- 후보 댓글 생성은 아직 템플릿 기반입니다.
+- 임베딩 모델 첫 실행에는 네트워크가 필요합니다.
+- URL preview와 Dashboard는 일부 mock/seed data를 사용합니다.
+- 모델 성능은 데이터 분포와 라벨 품질에 따라 추가 검증이 필요합니다.
