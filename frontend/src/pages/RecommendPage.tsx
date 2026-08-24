@@ -131,11 +131,11 @@ export function RecommendPage() {
                   <div className="result-meta">
                     <TypeTag type={r.type} />
                     <span className="result-score">
-                      예상 점수 {r.predicted_score.toFixed(3)}
+                      예상 점수 {r.predicted_score.toFixed(1)}%
                       <span className="result-score-bar">
                         <span
                           className="result-score-fill"
-                          style={{ width: `${Math.min(100, Math.max(0, r.predicted_score * 100))}%` }}
+                          style={{ width: `${Math.min(100, Math.max(0, r.predicted_score))}%` }}
                         />
                       </span>
                     </span>
