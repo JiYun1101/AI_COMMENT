@@ -2,6 +2,16 @@ import type { RecommendRequest, RecommendResponse, VideoPreviewData } from '../t
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
+async function getErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: string };
+    if (body.detail) return body.detail;
+  } catch {
+    // Ignore invalid/non-JSON error bodies and use the fallback below.
+  }
+  return `${fallback} (${res.status})`;
+}
+
 /**
  * Wired to the real backend: POST /recommend
  * (src/api/main.py::recommend_comment_candidates)
@@ -14,25 +24,20 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
   });
 
   if (!res.ok) {
-    throw new Error(`추천 요청이 실패했습니다 (${res.status})`);
+    throw new Error(await getErrorMessage(res, '추천 요청이 실패했습니다'));
   }
 
   return res.json();
 }
 
-/**
- * NOT wired to a real endpoint yet — the backend has no /videos/preview route.
- * Returns a fixed mock so the composer's preview card can be demoed end to end.
- * Replace with a real call once the backend exposes YouTube metadata lookup.
- */
-export async function getVideoPreview(_url: string): Promise<VideoPreviewData> {
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  return {
-    title: 'AI 시대에 개발자는 어떻게 살아남아야 할까? — 실무자 인터뷰',
-    channel: '테크살롱',
-    subs: '38.2만',
-    views: '284,120회',
-    age: '3일 전',
-    duration: '14:22',
-  };
+/** Fetches real YouTube metadata from the backend reference-context endpoint. */
+export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
+  const params = new URLSearchParams({ url });
+  const res = await fetch(`${API_BASE}/videos/preview?${params.toString()}`);
+
+  if (!res.ok) {
+    throw new Error(await getErrorMessage(res, '영상 정보를 불러오지 못했습니다'));
+  }
+
+  return res.json();
 }

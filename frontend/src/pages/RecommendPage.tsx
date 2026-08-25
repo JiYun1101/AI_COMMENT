@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
@@ -11,7 +11,7 @@ import type { Category, CommentRecommendation, VideoPreviewData } from '../types
 
 type Mode = 'url' | 'manual';
 
-const YOUTUBE_URL_RE = /youtu\.?be/i;
+const YOUTUBE_URL_RE = /(?:youtube\.com\/(?:watch|shorts|embed|live)|youtu\.be\/)/i;
 
 export function RecommendPage() {
   const navigate = useNavigate();
@@ -26,41 +26,76 @@ export function RecommendPage() {
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isEmpty = !url.trim() && !manual.trim();
+  const isEmpty = mode === 'url' ? !url.trim() : !manual.trim();
 
   const looksLikeYoutubeUrl = useMemo(() => {
     const trimmed = url.trim();
-    return mode === 'url' && !!trimmed && (YOUTUBE_URL_RE.test(trimmed) || /youtube\.com\/watch/i.test(trimmed));
+    return mode === 'url' && !!trimmed && YOUTUBE_URL_RE.test(trimmed);
   }, [mode, url]);
+
+  useEffect(() => {
+    if (!looksLikeYoutubeUrl) {
+      setPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      getVideoPreview(url.trim())
+        .then((nextPreview) => {
+          if (cancelled) return;
+          setPreview(nextPreview);
+          setError(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setPreview(null);
+          setError(err instanceof Error ? err.message : '영상 정보를 불러오지 못했습니다.');
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [looksLikeYoutubeUrl, url]);
 
   const applyUrl = (nextUrl: string) => {
     setUrl(nextUrl);
-    if (YOUTUBE_URL_RE.test(nextUrl) || /youtube\.com\/watch/i.test(nextUrl)) {
-      getVideoPreview(nextUrl).then(setPreview).catch(() => setPreview(null));
-    }
+    setPreview(null);
+    setError(null);
   };
 
   const clearPreview = () => {
     setUrl('');
     setPreview(null);
+    setError(null);
   };
 
   const pickExample = (example: ExampleVideo) => {
-    setMode('url');
+    setMode('manual');
     setCategory(example.category);
-    applyUrl('https://youtube.com/watch?v=' + Math.random().toString(36).slice(2, 13));
+    setManual(`${example.title}\n채널: ${example.channel}`);
+    setUrl('');
+    setPreview(null);
+    setError(null);
   };
 
   const submit = async () => {
-    const postText = mode === 'url' ? preview?.title ?? url : manual;
-    if (!postText.trim()) return;
+    const hasInput = mode === 'url' ? url.trim() : manual.trim();
+    if (!hasInput) return;
 
     setSubmitting(true);
     setError(null);
     setResults(null);
     try {
-      const response = await recommend({ post_text: postText, top_k: count });
+      const response = await recommend(
+        mode === 'url'
+          ? { youtube_url: url.trim(), top_k: count }
+          : { post_text: manual.trim(), top_k: count },
+      );
       setResults(response.recommendations);
+      if (response.youtube_context) setPreview(response.youtube_context);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {

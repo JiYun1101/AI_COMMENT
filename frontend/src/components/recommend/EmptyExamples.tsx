@@ -26,7 +26,7 @@ export function EmptyExamples({ onPick }: EmptyExamplesProps) {
       <div className="examples-h">
         <Sparkles size={14} strokeWidth={1.75} />
         <h3>이런 영상으로 시작해보세요</h3>
-        <span className="sub">클릭하면 예시 URL이 자동 입력됩니다</span>
+        <span className="sub">클릭하면 예시 제목이 직접 입력에 채워집니다</span>
       </div>
       <div className="example-list">
         {EXAMPLES.map((example) => (

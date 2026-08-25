@@ -13,5 +13,12 @@ class ScoreRequest(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    post_text: str = Field(..., example="AI 시대에 개발자는 어떻게 살아남아야 할까?")
+    post_text: str | None = Field(
+        default=None,
+        example="AI 시대에 개발자는 어떻게 살아남아야 할까?",
+    )
+    youtube_url: str | None = Field(
+        default=None,
+        example="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
     top_k: int = Field(default=5, ge=1, le=10)
