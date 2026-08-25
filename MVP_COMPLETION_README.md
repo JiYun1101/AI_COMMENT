@@ -1,171 +1,127 @@
 # MVP Completion Worklog
 
-Branch: `feature/complete-mvp-gaps`
-Base: `main` @ `7bb9590825098255dda156c8d1b74dee6ff0fda4`
+Branch: `feature/complete-mvp-gaps`  
+Base: `main` @ `7bb9590825098255dda156c8d1b74dee6ff0fda4`  
 Started: 2026-08-25
 
-This document is the working source of truth for closing the incomplete or misleading parts of the current AI Comment Recommender MVP. Every implementation step in this branch should update this file so that the branch can be resumed from the repository without relying on chat history.
+This document is the working source of truth for closing incomplete or misleading parts of the AI Comment Recommender MVP. Every implementation tranche updates this file so work can be resumed from Git without chat history.
 
 ## Product contract
 
-The completed MVP should do the following:
+The completed MVP must accept a supported single-video YouTube URL or manual text, resolve real metadata plus best-effort transcript context, generate enough context/category-aware candidates for the requested count, safety-filter and rank them, persist real analyses/recommendations/feedback, and expose only UI controls that genuinely work.
 
-1. Accept a supported YouTube video URL or manually supplied video text.
-2. Resolve real video context from YouTube and optionally enrich it with a transcript when publicly available.
-3. Generate enough context-aware, category-aware comment candidates for the requested `top_k` instead of reusing a fixed six-comment list.
-4. Safety-filter and rank those candidates with the existing reaction model.
-5. Make UI options truthful: every visible category/count/action either affects the request or is explicitly unavailable/removed.
-6. Persist recommendation analyses so recent history and the dashboard are backed by actual data rather than seed/mock data.
-7. Avoid misleading dead navigation, fake credits, fake usage counts, unsupported URL claims, and stale results.
-8. Provide frontend validation/loading/fallback states and useful result actions.
-9. Avoid unnecessary repeated YouTube lookups with a bounded cache.
-10. Cover the critical backend flow with tests and keep project setup/documentation aligned with actual behavior.
+## Baseline gap checklist
 
-## Baseline gaps found on `main`
+Legend: `[x]` complete, `[~]` backend/partial complete, `[ ]` pending.
 
-### P0 — correctness / product-contract gaps
+### P0 — correctness / product contract
 
-- [ ] Candidate generation ignores input context and always returns the same six comments.
-- [ ] UI allows 3–10 recommendations but backend can return at most six candidates.
-- [ ] Category selector changes local UI state only; category is not sent to or used by the backend.
-- [ ] Changing URL/manual input/mode can leave stale recommendation results visible.
-- [ ] UI advertises playlist URLs although backend does not support playlist lookup.
+- [x] Replace fixed six-comment generator with context-aware candidate generation.
+- [x] Generate enough candidates for requested counts up to 10.
+- [~] Category affects backend generation; frontend wiring pending.
+- [ ] Clear stale recommendations when input/mode changes.
+- [~] Backend supports single-video URLs only; frontend playlist claim still pending removal.
 
-### P1 — usability / context-quality gaps
+### P1 — usability / context quality
 
-- [ ] URL validity is checked too late; any non-empty URL enables submission.
-- [ ] Public transcript/caption context is not attempted.
-- [ ] Preview and recommendation independently re-fetch the same YouTube video/channel metadata.
-- [ ] Preview lookup has no loading indicator.
-- [ ] YouTube lookup failures do not offer retry/manual-input fallback.
-- [ ] URL mode has no optional user-supplied context field to supplement sparse metadata.
-- [ ] Result cards have no copy/regenerate/save/feedback actions.
+- [ ] Frontend URL validation before submit.
+- [x] Best-effort public transcript enrichment with metadata fallback.
+- [x] 10-minute in-process YouTube context cache prevents normal preview/recommend duplicate lookup.
+- [ ] Preview loading state.
+- [ ] Preview retry/manual fallback UI.
+- [~] Backend accepts `additional_context`; frontend field pending.
+- [~] Feedback persistence API exists; frontend copy/regenerate/feedback actions pending.
 
-### P2 — misleading mock / incomplete product-shell gaps
+### P2 — product shell / misleading mocks
 
-- [ ] Recent-analysis cards are hard-coded mock data and do not open real analyses.
-- [ ] Dashboard KPIs/table/filter controls use seed data instead of backend data.
-- [ ] Most sidebar destinations are dead buttons with no route.
-- [ ] Comment count, credit balance, and monthly usage are hard-coded decorative values.
-- [ ] Root README still says YouTube preview is mocked even though it is now real.
-- [ ] Critical `/recommend` integration path and frontend interactions lack dedicated tests.
-- [ ] Model artifact bootstrapping/deployment expectations are not explicit enough for a fresh checkout.
+- [~] SQLite persistence + real history APIs implemented; HistoryStrip UI pending.
+- [~] Real comments/KPI APIs implemented; dashboard UI pending.
+- [ ] Remove/hide dead sidebar destinations.
+- [ ] Remove fake comment count, credits and monthly usage.
+- [ ] Update root README.
+- [~] Backend integration tests added; frontend interaction tests pending.
+- [x] Model artifact readiness is explicit through `/health`; missing/incompatible artifacts yield actionable 503 errors.
 
 ## Implementation decisions
 
-These decisions keep the branch useful without introducing a mandatory paid LLM dependency.
-
 ### Candidate generation
 
-Implement a deterministic context-aware generator that:
+No mandatory paid LLM was introduced. The generator extracts a title/topic/keywords, resolves `social` vs `vlog` when `auto` is used, emits insight/empathy/question/casual/general variants, deduplicates them and expands the pool beyond `top_k`. The existing Safety Filter and reaction ranker stay downstream. A future LLM can replace the generator behind the same interface.
 
-- extracts salient title/description/transcript terms,
-- uses category-specific candidate families,
-- creates more candidates than `top_k`,
-- includes insight, empathy, question, casual, and general variants,
-- deduplicates candidates,
-- remains fully testable/offline,
-- preserves the existing safety-filter + model-ranking pipeline.
+### Transcript enrichment and cache
 
-A future LLM provider may replace this generator behind the same interface, but this branch must not require one to satisfy the MVP contract.
-
-### Transcript enrichment
-
-Attempt public transcript retrieval as best-effort enrichment. Failure to retrieve captions must never block preview or recommendation; title/channel/description remain the fallback reference context. The UI/API should make transcript availability explicit rather than pretending it is guaranteed.
+`youtube-transcript-api==1.2.4` is a best-effort enrichment. Korean/English are preferred and another available transcript is attempted as fallback. Transcript failures are non-fatal. Full transcript text is used only in server-side reference context; the browser receives availability/language metadata. YouTube context is cached by video ID for 10 minutes. Injected test sessions bypass the shared cache.
 
 ### Persistence
 
-Use a lightweight local SQLite store built on Python's standard library. It will persist recommendation analyses and recommendation rows without requiring an external database. Runtime DB files must remain ignored by Git.
+`src/storage/analysis_store.py` uses SQLite. Default DB is `data/runtime/ai_comment.db`, overridable with `AI_COMMENT_DB_PATH`; runtime DB files are ignored by Git. Analyses store source/video/category/timestamp data. Recommendations store rank/type/text/predicted score/feedback.
 
-### Dashboard/history
+### Real data APIs
 
-Back both from the same persisted analyses. Filters should affect real data. Features that are not part of this MVP (organization/team admin, brand management, full export center, etc.) should be hidden or clearly disabled rather than rendered as fake working controls.
+Implemented:
 
-### Credits
-
-Remove fake credit accounting from the current UI until there is a real billing/usage source. Do not replace one mock with another.
-
-### Model artifact readiness
-
-The codebase currently ignores trained `models/*.joblib`/`*.pkl` artifacts. This branch will make startup/readiness behavior and setup instructions explicit, and expose a readiness endpoint/state where practical. It will not commit a large trained artifact or fabricate one.
-
-## Target API additions/changes
-
-Planned shape (may be refined during implementation):
-
-- `POST /recommend`
-  - input: `post_text?`, `youtube_url?`, `additional_context?`, `category`, `top_k`
-  - output: recommendations + resolved context + persisted `analysis_id`
-- `GET /videos/preview?url=...`
-  - cached metadata, transcript availability summary
-- `GET /analyses?limit=...`
-  - real recent analyses
+- `GET /analyses?limit=`
 - `GET /analyses/{analysis_id}`
-  - analysis detail
-- `GET /comments`
-  - persisted recommendation rows with filters
+- `GET /comments?query=&type=&category=&min_score=&limit=&offset=`
 - `GET /dashboard/summary`
-  - real KPI summary derived from persisted analyses
 - `POST /recommendations/{id}/feedback`
-  - lightweight useful/not-useful feedback persistence
-- `GET /health` / readiness information
 
-## Target frontend behavior
+`POST /recommend` now accepts `post_text?`, `youtube_url?`, `additional_context?`, `category: auto|social|vlog`, and `top_k: 1..10`. It returns an `analysis_id`, resolved category, metadata/transcript availability, persisted recommendation IDs and generation/safety counts.
 
-- Valid YouTube URL required before URL-mode submit is enabled.
-- Preview shows an explicit loading state and error state with retry + switch-to-manual actions.
-- Input/mode changes clear stale results.
-- URL mode includes optional extra context.
-- Category selection is included in requests and affects generation.
-- Request count is always satisfiable when enough safe candidates remain; response count is shown truthfully otherwise.
-- Result cards support copy and useful/not-useful feedback; rerun uses current input/options.
-- Recent analyses and dashboard use backend data.
-- Unsupported/dead product-shell controls are removed or disabled with honest labeling.
-- Fake credits/usage/counts are removed.
+### Model readiness
 
-## Verification plan
+Trained model files remain deployment artifacts rather than Git-tracked source. `load_ranker_model()` caches the loaded artifact and raises `ModelNotReadyError` with `python -m src.model.train` guidance when missing/incompatible. `/health` reports degraded status and readiness explicitly.
 
-Backend:
-
-- unit tests for context-aware candidate generation
-- URL parsing/YouTube context regression tests
-- API integration tests with YouTube/model dependencies mocked
-- persistence/filter/KPI tests
-- safety-filter regression suite
-- Python compile checks
-
-Frontend:
-
-- TypeScript build/typecheck
-- lint where dependencies are available
-- interaction logic review for validation/loading/stale-result behavior
-
-Environment constraints encountered in prior work:
-
-- GitHub connector is available for repository reads/writes.
-- The execution container may not have outbound GitHub/network access and may not have repo `node_modules` or `sentence-transformers` preinstalled.
-- When full runtime tests are impossible in the container, this document must record exactly what was and was not run; no green status should be implied without execution.
-
-## Work log
+## Verification log
 
 ### 2026-08-25 — branch setup
 
-- [x] Confirmed latest `main` head: `7bb9590825098255dda156c8d1b74dee6ff0fda4`.
-- [x] Created `feature/complete-mvp-gaps` from that exact commit.
-- [x] Added this worklog before implementation changes.
-- [ ] Inspect remaining backend/frontend files needed for implementation.
-- [ ] Implement backend completion work.
-- [ ] Implement frontend completion work.
-- [ ] Add/update tests.
-- [ ] Update root README/setup docs.
-- [ ] Run available verification.
-- [ ] Open PR, merge to `main`, and keep this feature branch after merge as requested.
+- [x] Confirmed latest `main`: `7bb9590825098255dda156c8d1b74dee6ff0fda4`.
+- [x] Created `feature/complete-mvp-gaps` from that commit.
+- [x] Added this worklog before implementation.
 
-## Final completion checklist
+### 2026-08-25 — backend completion tranche
 
-This branch is complete only when every baseline gap above is either:
+Implemented:
 
-1. implemented and tested, or
-2. intentionally removed/disabled with an explicit rationale recorded here so the UI no longer misrepresents support.
+- context/category-aware candidate generator and top-10-capable pool
+- best-effort public transcript enrichment
+- 10-minute YouTube context cache
+- SQLite analysis/recommendation/feedback persistence
+- real history/comments/dashboard summary APIs
+- category/additional-context recommend contract
+- explicit model readiness/actionable 503 behavior
+- transcript dependency and runtime DB gitignore
 
-Do not delete `feature/complete-mvp-gaps` after merge.
+Verification executed in an isolated local package using the real new modules and minimal stubs only for unrelated heavy model dependencies:
+
+- `test_candidate_generator.py`
+- `test_analysis_store.py`
+- `test_youtube_context.py`
+- `test_api_integration.py`
+- Result: **21 passed**
+- Python `py_compile` on changed backend modules: **passed**
+
+The API integration test mocks only model ranking; it exercises FastAPI validation, 10-item recommendation persistence, history, filtering, feedback and KPI summary against temporary SQLite.
+
+## Remaining frontend tranche
+
+- [ ] truthful URL validation/supported-format hint
+- [ ] preview loading + retry + manual fallback
+- [ ] optional extra context in URL mode
+- [ ] category request wiring/resolved-category display
+- [ ] stale result clearing
+- [ ] copy/regenerate/feedback; persistence is automatic save
+- [ ] real HistoryStrip using `/analyses`
+- [ ] real dashboard using `/comments` + `/dashboard/summary`
+- [ ] functional dashboard filters/pagination/CSV export
+- [ ] remove fake credits/counts/usage and dead navigation/search/notification shell
+- [ ] frontend Node/TypeScript interaction tests and build/type checks
+- [ ] root README update and final verification
+- [ ] PR → `main` merge; keep this branch after merge
+
+## Completion rule
+
+Every baseline gap must be implemented/tested or intentionally removed/disabled so the UI never claims unsupported behavior.
+
+**Do not delete `feature/complete-mvp-gaps` after merge.**
