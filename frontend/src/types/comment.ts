@@ -21,7 +21,8 @@ export const COMMENT_TYPE_COLOR: Record<CommentType, { bg: string; fg: string; d
 
 // Mirrors src/api/schemas.py::RecommendRequest
 export interface RecommendRequest {
-  post_text: string;
+  post_text?: string;
+  youtube_url?: string;
   top_k: number;
 }
 
@@ -33,19 +34,25 @@ export interface CommentRecommendation {
   predicted_score: number;
 }
 
+export interface YouTubeVideoContext {
+  video_id: string;
+  url: string;
+  title: string;
+  description: string;
+  channel: string;
+  subscriber_count: number | null;
+  view_count: number | null;
+  published_at: string | null;
+  duration_seconds: number | null;
+  thumbnail_url: string | null;
+}
+
 export interface RecommendResponse {
   post_text: string;
+  youtube_context?: YouTubeVideoContext | null;
   recommendations: CommentRecommendation[];
 }
 
 export type Category = 'auto' | 'social' | 'vlog';
 
-export interface VideoPreviewData {
-  title: string;
-  channel: string;
-  subs: string;
-  views: string;
-  age: string;
-  duration: string;
-  thumbUrl?: string;
-}
+export type VideoPreviewData = YouTubeVideoContext;
