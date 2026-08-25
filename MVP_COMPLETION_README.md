@@ -177,6 +177,14 @@ Implemented:
 - [ ] GitHub Actions results will be recorded here; failures will be fixed before merge.
 - [ ] After CI, final diff/README gap audit will be run before PR merge.
 
+### 2026-08-25 — CI attempt 1
+
+- Frontend dependency install: **passed**.
+- Frontend `npm test`: **failed before executing tests** with TypeScript 6 `TS5112` because a source file was passed directly while `tsconfig.json` exists.
+- Root cause: the zero-dependency URL test compile command was compatible with the local global TypeScript used during scratch verification but not the repository TypeScript 6 compiler.
+- Fix plan: add a dedicated `frontend/tsconfig.test.json` and compile with `tsc -p tsconfig.test.json`; then re-run CI.
+- Backend job was still running when this failure was recorded.
+
 ### Remaining finalization
 
 - [ ] Commit frontend/docs/CI tranche to `feature/complete-mvp-gaps`.
