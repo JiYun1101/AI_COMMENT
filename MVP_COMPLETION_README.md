@@ -185,6 +185,12 @@ Implemented:
 - Fix plan: add a dedicated `frontend/tsconfig.test.json` and compile with `tsc -p tsconfig.test.json`; then re-run CI.
 - Backend job was still running when this failure was recorded.
 
+### 2026-08-25 — CI attempt 2
+
+- Dedicated test tsconfig was picked up correctly, but TypeScript 6 then failed with `TS5011` because the test config did not explicitly declare `rootDir`.
+- This is a compiler-layout requirement, not a URL validation logic failure; no tests executed yet.
+- Fix plan: set `rootDir` to `src/utils` so `youtube.ts` emits exactly to `.test-dist/youtube.js`, matching the Node test import.
+
 ### Remaining finalization
 
 - [ ] Commit frontend/docs/CI tranche to `feature/complete-mvp-gaps`.
