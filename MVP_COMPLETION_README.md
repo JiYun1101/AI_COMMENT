@@ -191,7 +191,7 @@ CI was hardened to:
 - `actions/setup-node@v7`
 - `npm audit --omit=dev --audit-level=high`
 
-GitHub Actions run `32830699389` on `5f3ea4601ea242c9ff3c38d33b138b81b2f94d1a` completed green:
+GitHub Actions run `32830699389` completed green:
 
 - frontend dependency install: **passed**
 - production dependency audit: **0 vulnerabilities**
@@ -203,14 +203,23 @@ GitHub Actions run `32830699389` on `5f3ea4601ea242c9ff3c38d33b138b81b2f94d1a` c
 
 Therefore the one high advisory printed by the unfiltered npm install is confined to dev/build tooling, not the shipped production dependency set. The production audit remains a CI gate for high-severity runtime advisories.
 
-### Final branch comparison
+### Final branch comparison and PR validation
 
-Immediately before PR preparation:
+Before PR creation, the branch comparison was:
 
-- branch status vs `main`: **ahead**
-- ahead by: **13 commits**
+- status vs `main`: **ahead**
+- ahead by: **14 commits**
 - behind by: **0 commits**
 - merge base: `7bb9590825098255dda156c8d1b74dee6ff0fda4`
+
+PR #4, `Complete MVP gaps and replace misleading mocks`, was opened from `feature/complete-mvp-gaps` to `main`. GitHub recomputed the PR as **mergeable**.
+
+PR-triggered CI run `32831018588` on code/worklog head `19c56ac2a9027742f9f5f66efa5b8f60ac19335b` completed green:
+
+- frontend: dependency install, production dependency audit, 2 URL tests, lint, and production build all **passed**
+- backend: dependency install and full pytest suite **passed**
+
+This final README-only commit records that validation; it intentionally uses `[skip ci]` because it changes no executable source, dependency, workflow, or test code.
 
 ## Remaining finalization
 
@@ -219,9 +228,9 @@ Immediately before PR preparation:
 - [x] Clean frontend tests/lint/build green.
 - [x] Production dependency audit green.
 - [x] CI action-runtime deprecation cleaned up by moving to v7 actions.
-- [x] Final branch audit completed with `behind_by = 0` before PR preparation.
-- [ ] Open PR and verify PR-triggered CI on the final head.
-- [ ] Merge PR to `main`.
+- [x] Final branch audit completed with `behind_by = 0` before PR creation.
+- [x] PR #4 created, mergeable, and PR-triggered CI green on the executable-code head.
+- [ ] Merge PR #4 to `main` using the final feature-head SHA guard.
 - [ ] Verify merged `main` commit and verify `feature/complete-mvp-gaps` still exists.
 
 ## Completion rule
