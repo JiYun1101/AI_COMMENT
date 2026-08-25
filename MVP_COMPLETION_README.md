@@ -173,7 +173,7 @@ Implemented:
 ### 2026-08-25 — finalization resumed
 
 - [x] Re-read branch HEAD and this worklog before resuming.
-- [~] Frontend/docs/CI tranche is prepared locally and is being committed next.
+- [x] Frontend/docs/CI tranche committed to the feature branch.
 - [ ] GitHub Actions results will be recorded here; failures will be fixed before merge.
 - [ ] After CI, final diff/README gap audit will be run before PR merge.
 
@@ -182,20 +182,42 @@ Implemented:
 - Frontend dependency install: **passed**.
 - Frontend `npm test`: **failed before executing tests** with TypeScript 6 `TS5112` because a source file was passed directly while `tsconfig.json` exists.
 - Root cause: the zero-dependency URL test compile command was compatible with the local global TypeScript used during scratch verification but not the repository TypeScript 6 compiler.
-- Fix plan: add a dedicated `frontend/tsconfig.test.json` and compile with `tsc -p tsconfig.test.json`; then re-run CI.
-- Backend job was still running when this failure was recorded.
+- Fix: added dedicated `frontend/tsconfig.test.json` and changed the script to `tsc -p tsconfig.test.json`.
 
 ### 2026-08-25 — CI attempt 2
 
 - Dedicated test tsconfig was picked up correctly, but TypeScript 6 then failed with `TS5011` because the test config did not explicitly declare `rootDir`.
 - This is a compiler-layout requirement, not a URL validation logic failure; no tests executed yet.
-- Fix plan: set `rootDir` to `src/utils` so `youtube.ts` emits exactly to `.test-dist/youtube.js`, matching the Node test import.
+- Fix: set `rootDir` to `src/utils` so `youtube.ts` emits exactly to `.test-dist/youtube.js`, matching the Node test import.
+
+### 2026-08-25 — CI attempt 3 / frontend green
+
+- Latest frontend clean runner: **success**.
+- `npm ci`: passed.
+- `npm test`: passed.
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- This closes the earlier TypeScript 6 test-runner issues and confirms the modified React/TypeScript application builds in a clean dependency environment.
+
+### 2026-08-25 — backend clean-runner failure discovered
+
+- Python dependency installation: **passed**.
+- `pytest -q`: failed during collection before any test body ran.
+- All seven collected test modules failed with `ModuleNotFoundError: No module named 'src'` on the clean runner.
+- Root cause: repository-root import resolution was implicit in the earlier local environment instead of declared in pytest configuration.
+- Fix plan: add repository `pytest.ini` with `pythonpath = .` and `testpaths = tests`, then re-run the complete backend suite. This makes the documented `pytest -q` command work from a clean checkout rather than fixing CI with a runner-only environment variable.
+
+### Final audit in progress
+
+- [x] Compared frontend API/types against actual FastAPI/SQLite response shapes.
+- [x] Searched the prepared source for `mock`, `seed`, playlist-support claims, fake credits/counts/usage and dead-button patterns. Remaining `mock`/`fake` matches are test doubles or documentation explaining removed mocks; playlist wording explicitly says unsupported.
+- [x] All visible button elements in the revised MVP pages have real handlers or submit behavior.
 
 ### Remaining finalization
 
-- [ ] Commit frontend/docs/CI tranche to `feature/complete-mvp-gaps`.
-- [ ] Confirm GitHub Actions backend/frontend jobs.
-- [ ] Compare final branch against current `main`.
+- [ ] Add clean-checkout pytest path configuration and get backend CI green.
+- [ ] Confirm latest branch CI backend + frontend are both green.
+- [ ] Compare final branch against current `main` and confirm it is not behind.
 - [ ] Open PR and merge to `main`.
 - [ ] Verify `main` merge commit and verify `feature/complete-mvp-gaps` still exists after merge.
 
