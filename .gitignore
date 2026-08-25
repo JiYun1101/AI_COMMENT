@@ -13,3 +13,4 @@ models/*.pkl
 .DS_Store
 .vscode/
 .idea/
+frontend/.test-dist/

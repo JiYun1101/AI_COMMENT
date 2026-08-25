@@ -1,4 +1,14 @@
-import { Link2, Menu, Clipboard, Info, Shield, Star } from 'lucide-react';
+import {
+  AlertCircle,
+  Clipboard,
+  Info,
+  Link2,
+  LoaderCircle,
+  Menu,
+  RefreshCw,
+  Shield,
+  Star,
+} from 'lucide-react';
 import { VideoPreview } from './VideoPreview';
 import type { Category, VideoPreviewData } from '../../types/comment';
 
@@ -15,13 +25,20 @@ interface ComposerProps {
   setMode: (mode: Mode) => void;
   url: string;
   setUrl: (url: string) => void;
+  urlValid: boolean;
   manual: string;
   setManual: (manual: string) => void;
+  additionalContext: string;
+  setAdditionalContext: (value: string) => void;
   category: Category;
   setCategory: (category: Category) => void;
   count: number;
   setCount: (count: number) => void;
   preview: VideoPreviewData | null;
+  previewLoading: boolean;
+  previewError: string | null;
+  onRetryPreview: () => void;
+  onSwitchToManual: () => void;
   onClearPreview: () => void;
   onSubmit: () => void;
   submitting?: boolean;
@@ -32,25 +49,32 @@ export function Composer({
   setMode,
   url,
   setUrl,
+  urlValid,
   manual,
   setManual,
+  additionalContext,
+  setAdditionalContext,
   category,
   setCategory,
   count,
   setCount,
   preview,
+  previewLoading,
+  previewError,
+  onRetryPreview,
+  onSwitchToManual,
   onClearPreview,
   onSubmit,
   submitting,
 }: ComposerProps) {
-  const canSubmit = mode === 'url' ? url.trim().length > 0 : manual.trim().length >= 5;
+  const canSubmit = mode === 'url' ? urlValid : manual.trim().length >= 5;
 
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) setUrl(text);
     } catch {
-      // clipboard permission denied — no-op, user can type/paste manually
+      // Clipboard permissions are optional; manual paste remains available.
     }
   };
 
@@ -70,7 +94,7 @@ export function Composer({
       <div className="tab-body">
         {mode === 'url' ? (
           <>
-            <div className="url-row">
+            <div className={`url-row${url && !urlValid ? ' invalid' : ''}`}>
               <svg className="lead" viewBox="0 0 24 24" fill="none" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M23 7l-7 5 7 5V7z" />
                 <rect x="1" y="5" width="15" height="14" rx="2" />
@@ -78,31 +102,60 @@ export function Composer({
               <input placeholder="https://youtube.com/watch?v=..." value={url} onChange={(e) => setUrl(e.target.value)} />
               {!url && (
                 <button type="button" className="paste-btn" onClick={handlePaste}>
-                  <Clipboard size={12} strokeWidth={2} />
-                  붙여넣기
+                  <Clipboard size={12} strokeWidth={2} /> 붙여넣기
                 </button>
               )}
             </div>
             <div className="url-hint">
               <Info size={12} strokeWidth={1.75} />
-              지원 형식: <code>youtube.com/watch</code> · <code>youtu.be</code> · 재생목록 URL
+              단일 영상 지원: <code>watch?v=</code> · <code>youtu.be</code> · <code>shorts</code> · <code>live</code>
             </div>
-            {preview && <VideoPreview data={preview} onClear={onClearPreview} />}
+            {url && !urlValid && (
+              <div className="inline-status error">
+                <AlertCircle size={14} /> 지원되는 단일 YouTube 영상 URL을 입력해주세요. 재생목록은 현재 지원하지 않습니다.
+              </div>
+            )}
+            {previewLoading && (
+              <div className="preview-loading">
+                <LoaderCircle size={16} className="spin" /> 영상 정보와 공개 자막을 확인하고 있습니다…
+              </div>
+            )}
+            {previewError && !previewLoading && (
+              <div className="preview-error">
+                <div><AlertCircle size={15} /> {previewError}</div>
+                <div className="preview-error-actions">
+                  <button type="button" className="btn secondary sm" onClick={onRetryPreview}>
+                    <RefreshCw size={12} /> 다시 시도
+                  </button>
+                  <button type="button" className="btn ghost sm" onClick={onSwitchToManual}>직접 입력으로 계속</button>
+                </div>
+              </div>
+            )}
+            {preview && !previewLoading && <VideoPreview data={preview} onClear={onClearPreview} />}
+            <div className="composer-extra">
+              <label htmlFor="additional-context">추가 맥락 <span>선택</span></label>
+              <textarea
+                id="additional-context"
+                value={additionalContext}
+                onChange={(e) => setAdditionalContext(e.target.value)}
+                maxLength={4000}
+                placeholder="영상 설명이나 자막에 없는 관점, 댓글 대상, 꼭 반영할 내용을 적어주세요."
+              />
+              <small>{additionalContext.length} / 4,000</small>
+            </div>
           </>
         ) : (
           <>
             <textarea
               className="manual-area"
-              placeholder={
-                '영상 제목 또는 스크립트를 붙여넣으세요.\n\n예) AI 시대에 개발자는 어떻게 살아남아야 할까? 이번 영상에서는 실무자 3인과 함께 앞으로의 커리어 전략을 이야기합니다.'
-              }
+              placeholder={'영상 제목 또는 스크립트를 붙여넣으세요.\n\n예) AI 시대에 개발자는 어떻게 살아남아야 할까? 이번 영상에서는 실무자 3인과 함께 앞으로의 커리어 전략을 이야기합니다.'}
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              maxLength={2000}
+              maxLength={10000}
             />
             <div className="manual-meta">
-              <span>제목만 입력해도 추천이 가능합니다.</span>
-              <span>{manual.length} / 2,000</span>
+              <span>5자 이상이면 추천할 수 있습니다.</span>
+              <span>{manual.length} / 10,000</span>
             </div>
           </>
         )}
@@ -128,31 +181,15 @@ export function Composer({
           <div className="opt-row">
             <label className="opt-label">추천 개수</label>
             <div className="slider-row">
-              <input
-                type="range"
-                min={3}
-                max={10}
-                value={count}
-                onChange={(e) => setCount(Number(e.target.value))}
-                className="slider"
-              />
-              <span className="slider-value">
-                <b>{count}</b>
-                <span>&nbsp;/ 10</span>
-              </span>
+              <input type="range" min={3} max={10} value={count} onChange={(e) => setCount(Number(e.target.value))} className="slider" />
+              <span className="slider-value"><b>{count}</b><span>&nbsp;/ 10</span></span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="composer-ft">
-        <span className="cost">
-          예상 크레딧 <b>{count * 20}</b>
-        </span>
-        <span className="safety">
-          <Shield size={12} strokeWidth={2} />
-          안전 필터 켜짐
-        </span>
+        <span className="safety"><Shield size={12} strokeWidth={2} /> 안전 필터 항상 적용</span>
         <button type="button" className="cta" disabled={!canSubmit || submitting} onClick={onSubmit}>
           <Star size={16} strokeWidth={2} />
           {submitting ? '추천 생성 중…' : '댓글 추천받기'}

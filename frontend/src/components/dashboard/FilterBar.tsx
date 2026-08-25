@@ -1,64 +1,85 @@
-import { ChevronDown, ListFilter } from 'lucide-react';
+import { ListFilter, RotateCcw } from 'lucide-react';
 
-export interface FilterChip {
-  k: string;
-  v: string;
-}
-
-interface FilterFieldProps {
-  label: string;
-  value?: string;
-  placeholder?: string;
-}
-
-function FilterField({ label, value, placeholder }: FilterFieldProps) {
-  return (
-    <div className="ff">
-      <label className="ff-k">{label}</label>
-      <div className="ff-input">
-        <span>{value || <em>{placeholder}</em>}</span>
-        <ChevronDown size={12} strokeWidth={2} />
-      </div>
-    </div>
-  );
+export interface DashboardFilters {
+  query: string;
+  type: string;
+  category: string;
+  minScore: string;
 }
 
 interface FilterBarProps {
-  activeChips: FilterChip[];
-  onRemoveChip: (chip: FilterChip) => void;
+  value: DashboardFilters;
+  onChange: (next: DashboardFilters) => void;
+  onApply: () => void;
   onReset: () => void;
 }
 
-export function FilterBar({ activeChips, onRemoveChip, onReset }: FilterBarProps) {
+export function FilterBar({ value, onChange, onApply, onReset }: FilterBarProps) {
+  const update = (key: keyof DashboardFilters, nextValue: string) => {
+    onChange({ ...value, [key]: nextValue });
+  };
+
   return (
-    <div className="filterbar">
+    <form
+      className="filterbar real-filterbar"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply();
+      }}
+    >
       <div className="ff-row">
-        <FilterField label="브랜드" value="그린티코스메틱" />
-        <FilterField label="키워드" value="여름 신제품" />
-        <FilterField label="댓글 유형" placeholder="전체 유형" />
-        <FilterField label="점수" placeholder="≥ 0.60" />
-        <FilterField label="기간" value="7월 1 – 26일" />
+        <div className="ff grow">
+          <label className="ff-k" htmlFor="filter-query">검색</label>
+          <input
+            id="filter-query"
+            className="filter-native"
+            value={value.query}
+            onChange={(event) => update('query', event.target.value)}
+            placeholder="댓글 · 영상 제목 검색"
+          />
+        </div>
+        <div className="ff">
+          <label className="ff-k" htmlFor="filter-type">댓글 유형</label>
+          <select id="filter-type" className="filter-native" value={value.type} onChange={(event) => update('type', event.target.value)}>
+            <option value="">전체 유형</option>
+            <option value="insight">인사이트</option>
+            <option value="empathy">공감형</option>
+            <option value="question">질문형</option>
+            <option value="casual">캐주얼</option>
+            <option value="general">일반</option>
+          </select>
+        </div>
+        <div className="ff">
+          <label className="ff-k" htmlFor="filter-category">카테고리</label>
+          <select id="filter-category" className="filter-native" value={value.category} onChange={(event) => update('category', event.target.value)}>
+            <option value="">전체</option>
+            <option value="social">사회이슈</option>
+            <option value="vlog">브이로그</option>
+          </select>
+        </div>
+        <div className="ff score-filter">
+          <label className="ff-k" htmlFor="filter-score">최소 점수</label>
+          <input
+            id="filter-score"
+            className="filter-native"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={value.minScore}
+            onChange={(event) => update('minScore', event.target.value)}
+            placeholder="0–100"
+          />
+        </div>
         <div className="ff-actions">
           <button type="button" className="btn secondary sm" onClick={onReset}>
-            초기화
+            <RotateCcw size={13} /> 초기화
           </button>
-          <button type="button" className="btn primary sm">
-            <ListFilter size={13} strokeWidth={2} />
-            필터 적용
+          <button type="submit" className="btn primary sm">
+            <ListFilter size={13} strokeWidth={2} /> 필터 적용
           </button>
         </div>
       </div>
-      <div className="chip-row">
-        {activeChips.map((c) => (
-          <span key={c.k + c.v} className="chip active">
-            <span className="chip-k">{c.k}:</span>&nbsp;{c.v}
-            <span className="chip-x" onClick={() => onRemoveChip(c)}>
-              ×
-            </span>
-          </span>
-        ))}
-        <span className="chip add">＋ 조건 추가</span>
-      </div>
-    </div>
+    </form>
   );
 }

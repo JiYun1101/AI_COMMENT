@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/recommend.css';
+import './styles/completion.css';
 import App from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(

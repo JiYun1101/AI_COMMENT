@@ -1,4 +1,4 @@
-import { Play, X } from 'lucide-react';
+import { Captions, Play, X } from 'lucide-react';
 import type { VideoPreviewData } from '../../types/comment';
 
 interface VideoPreviewProps {
@@ -33,29 +33,20 @@ export function VideoPreview({ data, onClear }: VideoPreviewProps) {
     <div className="video-preview">
       <div
         className="vp-thumb"
-        style={
-          data.thumbnail_url
-            ? {
-                backgroundImage: `url(${data.thumbnail_url})`,
-                backgroundPosition: 'center',
-                backgroundSize: 'cover',
-              }
-            : undefined
-        }
+        style={data.thumbnail_url ? { backgroundImage: `url(${data.thumbnail_url})`, backgroundPosition: 'center', backgroundSize: 'cover' } : undefined}
       >
-        <span className="play">
-          <Play size={12} fill="currentColor" />
-        </span>
+        <span className="play"><Play size={12} fill="currentColor" /></span>
         <span className="dur">{formatDuration(data.duration_seconds)}</span>
       </div>
       <div className="vp-body">
         <div className="vp-title">{data.title}</div>
-        <div className="vp-channel">
-          <span className="ch-avatar" />
-          {data.channel} · 구독자 {formatCount(data.subscriber_count)}
-        </div>
-        <div className="vp-meta">
-          조회수 {formatCount(data.view_count)} · {formatPublishedAt(data.published_at)}
+        <div className="vp-channel"><span className="ch-avatar" />{data.channel} · 구독자 {formatCount(data.subscriber_count)}</div>
+        <div className="vp-meta">조회수 {formatCount(data.view_count)} · {formatPublishedAt(data.published_at)}</div>
+        <div className={`transcript-badge${data.transcript_available ? ' on' : ''}`}>
+          <Captions size={12} />
+          {data.transcript_available
+            ? `공개 자막 반영${data.transcript_language ? ` · ${data.transcript_language}` : ''}`
+            : '공개 자막 없음 · 제목/설명으로 추천'}
         </div>
       </div>
       <button type="button" className="vp-clear" onClick={onClear} title="지우기">

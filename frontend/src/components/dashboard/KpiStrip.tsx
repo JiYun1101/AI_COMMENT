@@ -1,35 +1,33 @@
+import type { DashboardSummary } from '../../types/comment';
+
 interface KpiProps {
   label: string;
   value: string;
-  delta?: string;
-  deltaDir?: 'up' | 'down';
   sub: string;
 }
 
-function Kpi({ label, value, delta, deltaDir, sub }: KpiProps) {
+function Kpi({ label, value, sub }: KpiProps) {
   return (
     <div className="kpi">
       <div className="kpi-k">{label}</div>
-      <div className="kpi-v">
-        {value}
-        {delta && (
-          <span className={`kpi-delta ${deltaDir}`}>
-            {deltaDir === 'up' ? '▲' : '▼'} {delta}
-          </span>
-        )}
-      </div>
+      <div className="kpi-v">{value}</div>
       <div className="kpi-sub">{sub}</div>
     </div>
   );
 }
 
-export function KpiStrip() {
+export function KpiStrip({ summary, loading }: { summary: DashboardSummary | null; loading?: boolean }) {
+  const value = (input: string) => (loading ? '…' : input);
   return (
     <div className="kpi-strip">
-      <Kpi label="총 생성 댓글" value="128,402" delta="12.4%" deltaDir="up" sub="지난 7일 대비" />
-      <Kpi label="활성 브랜드" value="37" delta="2" deltaDir="up" sub="이번 주 신규 3개 등록" />
-      <Kpi label="이번 달 크레딧" value="80,041" delta="4.2%" deltaDir="up" sub="한도의 80% 사용" />
-      <Kpi label="안전 필터 차단" value="1,204" delta="3.1%" deltaDir="down" sub="차단율 0.94%" />
+      <Kpi label="분석 횟수" value={value(String(summary?.analysis_count ?? 0))} sub="저장된 실제 분석" />
+      <Kpi label="추천 댓글" value={value(String(summary?.recommendation_count ?? 0))} sub="누적 생성 결과" />
+      <Kpi label="평균 예상 점수" value={value(`${(summary?.average_score ?? 0).toFixed(1)}%`)} sub="저장된 추천 평균" />
+      <Kpi
+        label="도움됨 피드백"
+        value={value(summary?.helpful_rate == null ? '—' : `${summary.helpful_rate.toFixed(1)}%`)}
+        sub={summary?.feedback_count ? `피드백 ${summary.feedback_count}건 기준` : '아직 피드백 없음'}
+      />
     </div>
   );
 }
