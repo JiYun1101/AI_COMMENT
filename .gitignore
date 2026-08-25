@@ -7,8 +7,10 @@ venv/
 .env*.local
 data/raw/comments.csv
 data/processed/*.csv
+data/runtime/
 models/*.joblib
 models/*.pkl
 .DS_Store
 .vscode/
 .idea/
+frontend/.test-dist/

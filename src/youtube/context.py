@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -18,6 +21,11 @@ ISO8601_DURATION_RE = re.compile(
     r"^PT(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?$"
 )
 MAX_DESCRIPTION_CHARS = 4_000
+MAX_TRANSCRIPT_CHARS = 6_000
+CACHE_TTL_SECONDS = 10 * 60
+
+_CACHE: dict[str, tuple[float, "YouTubeVideoContext"]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 class YouTubeContextError(Exception):
@@ -48,13 +56,22 @@ class YouTubeVideoContext:
     published_at: str | None
     duration_seconds: int | None
     thumbnail_url: str | None
+    transcript: str | None = None
+    transcript_language: str | None = None
+
+    @property
+    def transcript_available(self) -> bool:
+        return bool(self.transcript)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("transcript", None)
+        data["transcript_available"] = self.transcript_available
+        return data
 
 
 def extract_video_id(url: str) -> str:
-    """Extract an 11-character YouTube video id from common URL shapes."""
+    """Extract an 11-character YouTube video id from common single-video URL shapes."""
     raw = url.strip()
     if not raw:
         raise InvalidYouTubeUrlError("YouTube URL이 비어 있습니다.")
@@ -77,7 +94,7 @@ def extract_video_id(url: str) -> str:
                 video_id = parts[1]
 
     if not video_id or not VIDEO_ID_RE.fullmatch(video_id):
-        raise InvalidYouTubeUrlError("지원되는 YouTube 영상 URL이 아닙니다.")
+        raise InvalidYouTubeUrlError("지원되는 단일 YouTube 영상 URL이 아닙니다.")
 
     return video_id
 
@@ -125,13 +142,81 @@ def _best_thumbnail(snippet: dict) -> str | None:
     return None
 
 
+def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None]:
+    """Best-effort public caption lookup; failures intentionally return no enrichment."""
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ImportError:
+        return None, None
+
+    try:
+        api = YouTubeTranscriptApi()
+        fetched = None
+        language = None
+        try:
+            fetched = api.fetch(video_id, languages=("ko", "en"))
+            language = getattr(fetched, "language_code", None)
+        except Exception:
+            transcript_list = api.list(video_id)
+            transcript = next(iter(transcript_list), None)
+            if transcript is None:
+                return None, None
+            language = getattr(transcript, "language_code", None)
+            fetched = transcript.fetch()
+
+        snippets = getattr(fetched, "snippets", fetched)
+        parts = []
+        for snippet in snippets:
+            text = getattr(snippet, "text", None)
+            if text is None and isinstance(snippet, dict):
+                text = snippet.get("text")
+            if text:
+                parts.append(str(text).strip())
+        transcript_text = re.sub(r"\s+", " ", " ".join(parts)).strip()
+        return (transcript_text or None), language
+    except Exception:
+        return None, None
+
+
+def _cache_get(video_id: str) -> YouTubeVideoContext | None:
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        cached = _CACHE.get(video_id)
+        if cached is None:
+            return None
+        expires_at, context = cached
+        if expires_at <= now:
+            _CACHE.pop(video_id, None)
+            return None
+        return context
+
+
+def _cache_set(video_id: str, context: YouTubeVideoContext) -> None:
+    with _CACHE_LOCK:
+        _CACHE[video_id] = (time.monotonic() + CACHE_TTL_SECONDS, context)
+
+
+def clear_context_cache() -> None:
+    with _CACHE_LOCK:
+        _CACHE.clear()
+
+
 def fetch_youtube_context(
     url: str,
     *,
     api_key: str | None = None,
     session=None,
+    include_transcript: bool = True,
+    use_cache: bool = True,
+    transcript_fetcher: Callable[[str], tuple[str | None, str | None]] | None = None,
 ) -> YouTubeVideoContext:
     video_id = extract_video_id(url)
+    can_use_shared_cache = use_cache and session is None and api_key is None and transcript_fetcher is None
+    if can_use_shared_cache:
+        cached = _cache_get(video_id)
+        if cached is not None:
+            return cached
+
     key = api_key or os.getenv("YOUTUBE_API_KEY")
     if not key:
         raise YouTubeConfigurationError("YOUTUBE_API_KEY가 설정되어 있지 않습니다.")
@@ -140,10 +225,7 @@ def fetch_youtube_context(
     video_payload = _api_get(
         http,
         "videos",
-        {
-            "part": "snippet,contentDetails,statistics",
-            "id": video_id,
-        },
+        {"part": "snippet,contentDetails,statistics", "id": video_id},
         key,
     )
     items = video_payload.get("items") or []
@@ -175,7 +257,14 @@ def fetch_youtube_context(
     raw_view_count = statistics.get("viewCount")
     view_count = int(raw_view_count) if raw_view_count is not None else None
 
-    return YouTubeVideoContext(
+    transcript = None
+    transcript_language = None
+    should_fetch_transcript = include_transcript and (session is None or transcript_fetcher is not None)
+    if should_fetch_transcript:
+        fetcher = transcript_fetcher or _default_transcript_fetcher
+        transcript, transcript_language = fetcher(video_id)
+
+    context = YouTubeVideoContext(
         video_id=video_id,
         url=f"https://www.youtube.com/watch?v={video_id}",
         title=(snippet.get("title") or "").strip(),
@@ -186,15 +275,21 @@ def fetch_youtube_context(
         published_at=snippet.get("publishedAt"),
         duration_seconds=parse_duration_seconds(content_details.get("duration")),
         thumbnail_url=_best_thumbnail(snippet),
+        transcript=transcript,
+        transcript_language=transcript_language,
     )
+    if can_use_shared_cache:
+        _cache_set(video_id, context)
+    return context
 
 
 def build_reference_text(context: YouTubeVideoContext) -> str:
-    """Create the text that existing lexical/embedding ranking features consume."""
+    """Create the text consumed by candidate generation and ranking features."""
     parts = [f"제목: {context.title}"]
     if context.channel:
         parts.append(f"채널: {context.channel}")
     if context.description:
-        description = context.description[:MAX_DESCRIPTION_CHARS]
-        parts.append(f"설명: {description}")
+        parts.append(f"설명: {context.description[:MAX_DESCRIPTION_CHARS]}")
+    if context.transcript:
+        parts.append(f"자막: {context.transcript[:MAX_TRANSCRIPT_CHARS]}")
     return "\n".join(parts)

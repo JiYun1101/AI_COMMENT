@@ -1,24 +1,45 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+Category = Literal["auto", "social", "vlog"]
 
 
 class ScoreRequest(BaseModel):
-    post_text: str = Field(..., example="AI 시대에 개발자는 어떻게 살아남아야 할까?")
+    post_text: str = Field(
+        ...,
+        min_length=1,
+        json_schema_extra={"example": "AI 시대에 개발자는 어떻게 살아남아야 할까?"},
+    )
     comments: list[str] = Field(
         ...,
-        example=[
+        min_length=1,
+        json_schema_extra={"example": [
             "결국 문제를 정의하는 능력이 중요해질 것 같아요.",
             "좋은 글 감사합니다.",
-        ],
+        ]},
     )
 
 
 class RecommendRequest(BaseModel):
     post_text: str | None = Field(
         default=None,
-        example="AI 시대에 개발자는 어떻게 살아남아야 할까?",
+        max_length=10_000,
+        json_schema_extra={"example": "AI 시대에 개발자는 어떻게 살아남아야 할까?"},
     )
     youtube_url: str | None = Field(
         default=None,
-        example="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        max_length=500,
+        json_schema_extra={"example": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
     )
+    additional_context: str | None = Field(
+        default=None,
+        max_length=4_000,
+        description="URL metadata/captions에 추가할 사용자 제공 맥락",
+    )
+    category: Category = Field(default="auto")
     top_k: int = Field(default=5, ge=1, le=10)
+
+
+class FeedbackRequest(BaseModel):
+    useful: bool

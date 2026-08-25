@@ -1,90 +1,88 @@
-import { ChevronRight, MessageSquare } from 'lucide-react';
+import { ChevronRight, LoaderCircle, MessageSquare } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { listAnalyses } from '../../api/client';
+import type { AnalysisSummary } from '../../types/comment';
 
-interface HistoryItem {
-  id: string;
-  title: string;
-  duration: string;
-  count: number;
-  time: string;
-  tag: string;
-  c1: string;
-  c2: string;
+interface HistoryStripProps {
+  refreshKey?: string | null;
+  onSelect: (analysisId: string) => void;
 }
 
-const HISTORY: HistoryItem[] = [
-  {
-    id: 'h1',
-    title: '결국 문제 정의 능력이 자산이 되는 시대 — 시니어 개발자의 관점',
-    duration: '18:04',
-    count: 8,
-    time: '2시간 전',
-    tag: '사회이슈',
-    c1: '#1e40af',
-    c2: '#7c3aed',
-  },
-  {
-    id: 'h2',
-    title: '스몰 브랜드 마케터가 매일 하는 3가지 — 브이로그 EP.12',
-    duration: '09:47',
-    count: 5,
-    time: '어제',
-    tag: '브이로그',
-    c1: '#0f766e',
-    c2: '#14b8a6',
-  },
-  {
-    id: 'h3',
-    title: '올해 여름 신제품 언박싱 & 실사용 후기 (한 달 사용)',
-    duration: '11:23',
-    count: 10,
-    time: '3일 전',
-    tag: '브이로그',
-    c1: '#be185d',
-    c2: '#f472b6',
-  },
-];
+function relativeTime(value: string): string {
+  const date = new Date(value);
+  const diff = Date.now() - date.getTime();
+  if (Number.isNaN(diff)) return '';
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return '방금 전';
+  if (minutes < 60) return `${minutes}분 전`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  return `${days}일 전`;
+}
 
-// Real API: GET /me/recent-analyses?limit=3 (not yet exposed by the backend — mocked for now)
-export function HistoryStrip() {
+export function HistoryStrip({ refreshKey, onSelect }: HistoryStripProps) {
+  const [items, setItems] = useState<AnalysisSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listAnalyses(3)
+      .then((nextItems) => {
+        if (cancelled) return;
+        setItems(nextItems);
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '최근 분석 기록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
   return (
     <section>
       <div className="section-h">
         <div>
-          <h2>최근 분석한 영상</h2>
-          <div className="sub" style={{ marginTop: 3 }}>
-            최근 3건 · 최대 30일 보관
-          </div>
+          <h2>최근 분석</h2>
+          <div className="sub" style={{ marginTop: 3 }}>실제 저장된 최근 3건</div>
         </div>
-        <a href="#recent">
-          전체 보기
-          <ChevronRight size={12} strokeWidth={2} />
-        </a>
+        <a href="/dashboard">대시보드에서 보기 <ChevronRight size={12} strokeWidth={2} /></a>
       </div>
-      <div className="history">
-        {HISTORY.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="hist-card"
-            style={{ '--c1': item.c1, '--c2': item.c2 } as React.CSSProperties}
-          >
-            <div className="hist-thumb">
-              <span className="badge">{item.tag}</span>
-              <span className="dur">{item.duration}</span>
-            </div>
-            <div className="hist-body">
-              <div className="hist-title">{item.title}</div>
-              <div className="hist-meta">
-                <span className="count">
-                  <MessageSquare size={11} strokeWidth={2} />
-                  추천 {item.count}개
-                </span>
-                <span className="time">{item.time}</span>
+
+      {loading && <div className="history-empty"><LoaderCircle size={16} className="spin" /> 최근 기록을 불러오는 중…</div>}
+      {!loading && error && <div className="history-empty error">{error}</div>}
+      {!loading && !error && items.length === 0 && (
+        <div className="history-empty">아직 저장된 분석이 없습니다. 첫 추천을 생성하면 여기에 자동으로 기록됩니다.</div>
+      )}
+      {!loading && !error && items.length > 0 && (
+        <div className="history">
+          {items.map((item) => (
+            <button key={item.id} type="button" className="hist-card" onClick={() => onSelect(item.id)}>
+              <div
+                className="hist-thumb"
+                style={item.thumbnail_url ? { backgroundImage: `url(${item.thumbnail_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+              >
+                <span className="badge">{item.category === 'vlog' ? '브이로그' : '사회이슈'}</span>
               </div>
-            </div>
-          </button>
-        ))}
-      </div>
+              <div className="hist-body">
+                <div className="hist-title">{item.video_title || item.source_text}</div>
+                <div className="hist-meta">
+                  <span className="count"><MessageSquare size={11} strokeWidth={2} /> 추천 {item.recommendation_count}개</span>
+                  <span className="time">{relativeTime(item.created_at)}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

@@ -1,38 +1,75 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getDashboardSummary, listComments } from '../api/client';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { KpiStrip } from '../components/dashboard/KpiStrip';
-import { FilterBar, type FilterChip } from '../components/dashboard/FilterBar';
-import { DataTable, type CommentRow } from '../components/dashboard/DataTable';
-import { GeneratePanel } from '../components/dashboard/GeneratePanel';
+import { FilterBar, type DashboardFilters } from '../components/dashboard/FilterBar';
+import { DataTable } from '../components/dashboard/DataTable';
+import type { DashboardComment, DashboardSummary } from '../types/comment';
 
-const SEED_ROWS: CommentRow[] = [
-  { id: 'c_88291', text: '결국 문제를 정의하는 능력이 중요해질 것 같아요. 툴 자체보다 문제 감각이 자산이 되는 시대네요.', type: 'insight', brand: '그린티코스메틱', score: 0.847, date: '2026-07-26' },
-  { id: 'c_88290', text: '와 이거 진짜 공감돼요. 저도 처음엔 비슷하게 접근했는데 결과가 훨씬 좋았어요.', type: 'empathy', brand: '그린티코스메틱', score: 0.812, date: '2026-07-26' },
-  { id: 'c_88289', text: '혹시 여기서 참고하신 논문이나 자료 링크 공유 가능할까요? 팀에서도 스터디하고 싶어요.', type: 'question', brand: '스마트홈랩', score: 0.774, date: '2026-07-25' },
-  { id: 'c_88288', text: '영상 편집 진짜 깔끔해요 ㅋㅋㅋ 다음 편도 기대 중', type: 'casual', brand: '스마트홈랩', score: 0.731, date: '2026-07-25' },
-  { id: 'c_88287', text: '이런 프로젝트는 포트폴리오로도 좋아 보이네요. 신입 관점에서 배울 점이 많습니다.', type: 'insight', brand: '커리어콘', score: 0.702, date: '2026-07-25' },
-  { id: 'c_88286', text: '좋은 영상 잘 봤습니다. 항상 감사드립니다.', type: 'general', brand: '커리어콘', score: 0.641, date: '2026-07-24' },
-  { id: 'c_88285', text: '진짜 정보 밀도 미쳤네요. 두 번 봤어요.', type: 'empathy', brand: '그린티코스메틱', score: 0.628, date: '2026-07-24' },
-  { id: 'c_88284', text: '초반 인트로 부분 다시 만들면 훨씬 좋을 것 같은데, 편집 시간이 문제겠죠?', type: 'question', brand: '스마트홈랩', score: 0.594, date: '2026-07-24' },
-];
+const EMPTY_FILTERS: DashboardFilters = { query: '', type: '', category: '', minScore: '' };
+const PAGE_SIZE = 25;
 
-const INITIAL_CHIPS: FilterChip[] = [
-  { k: '브랜드', v: '그린티코스메틱' },
-  { k: '키워드', v: '여름 신제품' },
-  { k: '유형', v: '인사이트' },
-  { k: '기간', v: '7월 1–26일' },
-];
+function csvEscape(value: string | number | null): string {
+  const text = value == null ? '' : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
 
-// NOTE: rows/KPIs are seed data — the backend has no /comments listing or
-// /kpis endpoint yet. Wire this page up once those routes exist.
 export function DashboardPage() {
   const navigate = useNavigate();
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [rows, setRows] = useState<DashboardComment[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [chips, setChips] = useState<FilterChip[]>(INITIAL_CHIPS);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const rows = SEED_ROWS;
+  const [draftFilters, setDraftFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
+  const [page, setPage] = useState(1);
+
+  const loadSummary = useCallback(() => {
+    setSummaryLoading(true);
+    getDashboardSummary()
+      .then(setSummary)
+      .catch((err) => setError(err instanceof Error ? err.message : '대시보드 요약을 불러오지 못했습니다.'))
+      .finally(() => setSummaryLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const parsedScore = filters.minScore.trim() ? Number(filters.minScore) : undefined;
+    listComments({
+      query: filters.query.trim() || undefined,
+      type: filters.type || undefined,
+      category: filters.category || undefined,
+      minScore: parsedScore !== undefined && Number.isFinite(parsedScore) ? parsedScore : undefined,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setRows(response.items);
+        setTotal(response.total);
+        setSelected(new Set());
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : '댓글 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filters, page]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -44,14 +81,58 @@ export function DashboardPage() {
   };
 
   const toggleAll = () => {
-    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))));
+    setSelected((prev) => {
+      const currentPageIds = rows.map((row) => row.id);
+      const allSelected = currentPageIds.length > 0 && currentPageIds.every((id) => prev.has(id));
+      const next = new Set(prev);
+      currentPageIds.forEach((id) => (allSelected ? next.delete(id) : next.add(id)));
+      return next;
+    });
   };
 
-  const removeChip = (chip: FilterChip) => setChips((prev) => prev.filter((c) => c !== chip));
+  const applyFilters = () => {
+    setPage(1);
+    setFilters({ ...draftFilters });
+  };
+
+  const resetFilters = () => {
+    setDraftFilters(EMPTY_FILTERS);
+    setFilters(EMPTY_FILTERS);
+    setPage(1);
+  };
+
+  const exportCsv = () => {
+    const exportRows = selected.size > 0 ? rows.filter((row) => selected.has(row.id)) : rows;
+    if (exportRows.length === 0) return;
+    const header = ['id', 'comment', 'type', 'source', 'channel', 'category', 'predicted_score', 'feedback', 'created_at'];
+    const lines = [header.map(csvEscape).join(',')];
+    exportRows.forEach((row) => {
+      lines.push(
+        [
+          row.id,
+          row.comment,
+          row.type,
+          row.video_title || '직접 입력',
+          row.channel,
+          row.category,
+          row.predicted_score,
+          row.feedback,
+          row.created_at,
+        ].map(csvEscape).join(','),
+      );
+    });
+    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = `ai-comment-results-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(href);
+  };
 
   const handleNav = (key: SidebarKey) => {
     if (key === 'comments') navigate('/');
-    // other nav targets have no route yet
+    if (key === 'dashboard') navigate('/dashboard');
   };
 
   return (
@@ -59,17 +140,28 @@ export function DashboardPage() {
       <Sidebar current="dashboard" onNav={handleNav} />
       <div className="main">
         <Header
-          title="댓글"
-          subtitle="유튜브 영상에서 생성 · 수집된 댓글을 브랜드/키워드로 필터링하고 CSV로 내보냅니다."
-          onGenerate={() => setDrawerOpen(true)}
+          title="대시보드"
+          subtitle="실제로 생성·저장된 추천 댓글을 검색하고 점수·유형·카테고리로 필터링합니다."
+          onGenerate={() => navigate('/')}
         />
         <div className="content">
-          <KpiStrip />
-          <FilterBar activeChips={chips} onRemoveChip={removeChip} onReset={() => setChips([])} />
-          <DataTable rows={rows} selected={selected} onToggle={toggle} onToggleAll={toggleAll} />
+          <KpiStrip summary={summary} loading={summaryLoading} />
+          <FilterBar value={draftFilters} onChange={setDraftFilters} onApply={applyFilters} onReset={resetFilters} />
+          {error && <div className="dashboard-state error">{error}</div>}
+          <DataTable
+            rows={rows}
+            total={total}
+            selected={selected}
+            onToggle={toggle}
+            onToggleAll={toggleAll}
+            onExport={exportCsv}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPage={setPage}
+            loading={loading}
+          />
         </div>
       </div>
-      <GeneratePanel open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
   );
 }
