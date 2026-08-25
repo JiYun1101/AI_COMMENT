@@ -140,7 +140,7 @@ Frontend clean runner reached dependency install, then `npm test` failed before 
 
 Fix: added dedicated `frontend/tsconfig.test.json` and changed the test command to `tsc -p tsconfig.test.json`.
 
-Backend clean runner also exposed a separate portability problem later: all tests failed collection with `ModuleNotFoundError: No module named 'src'`.
+Backend clean runner separately exposed a portability problem: all tests failed collection with `ModuleNotFoundError: No module named 'src'`.
 
 ### CI attempt 2
 
@@ -148,18 +148,9 @@ Dedicated frontend test config was read, but TypeScript 6 raised `TS5011` becaus
 
 Fix: set `rootDir: src/utils`, making the compiled test target deterministic at `.test-dist/youtube.js`.
 
-### Clean CI after frontend fixes
-
-Frontend clean runner became green:
-
-- `npm ci`: passed
-- `npm test`: **2/2 passed**
-- `npm run lint`: **0 warnings, 0 errors**
-- `npm run build`: passed (`tsc -b && vite build`)
-
 ### Backend clean-checkout portability fix
 
-The collection failure was caused by implicit local import-path behavior. Added repository `pytest.ini`:
+The backend collection failure was caused by implicit local import-path behavior. Added repository `pytest.ini`:
 
 ```ini
 [pytest]
@@ -167,18 +158,18 @@ pythonpath = .
 testpaths = tests
 ```
 
-This fixes the documented `pytest -q` command itself instead of adding a CI-only `PYTHONPATH` workaround.
+This fixes the documented `pytest -q` command itself rather than adding a CI-only `PYTHONPATH` workaround.
 
-### Clean CI after backend fix — green
+### Clean CI after functional fixes
 
-GitHub Actions run `32830244389` completed successfully on branch head `90972e328853f5b1594eb7113be3140126e77be7`:
+GitHub Actions run `32830244389` became fully green:
 
 - backend: **37 passed, 1 warning in 4.75s**
 - frontend URL tests: **2/2 passed**
 - frontend lint: **0 warnings, 0 errors**
 - frontend production build: **passed**
 
-The one Python warning is an upstream `StarletteDeprecationWarning` emitted by FastAPI/Starlette test-client internals about `httpx`; it does not indicate an application test failure. It is recorded rather than hidden.
+The Python warning is an upstream `StarletteDeprecationWarning` emitted by FastAPI/Starlette test-client internals about `httpx`; it does not indicate an application test failure and is recorded rather than hidden.
 
 ### Final source audit
 
@@ -187,29 +178,49 @@ The one Python warning is an upstream `StarletteDeprecationWarning` emitted by F
 - [x] Remaining `mock`/`fake` mentions are test doubles or documentation explaining removed mocks.
 - [x] Playlist wording explicitly states unsupported.
 - [x] Visible revised MVP buttons have actual handlers or submit behavior.
-- [x] Rechecked `main`; it remained at the branch base during this audit, so the feature branch was not behind.
+- [x] `main` remained at the branch base during the audit.
 
-### Final dependency / CI hygiene audit — in progress
+### Final dependency / CI hygiene audit
 
-Clean `npm ci` reports one high-severity advisory somewhere in the full dependency tree. Before merge, CI will distinguish production dependencies from dev/build tooling by running:
+The full `npm ci` dependency tree reports one high-severity advisory, so production dependencies were separately audited instead of assuming it was runtime-relevant.
 
-```bash
-npm audit --omit=dev --audit-level=high
-```
+CI was hardened to:
 
-- [ ] If production audit is green, record the install warning as dev-tooling-only and do not block the MVP.
-- [ ] If production audit fails, identify and fix/document the exact runtime package before merge.
-- [ ] Update GitHub Actions to current Node-24-based action majors so old action-runtime Node 20 deprecation warnings are not carried into the final CI definition.
-- [ ] Re-run complete backend + frontend CI after this hygiene change.
+- `actions/checkout@v7`
+- `actions/setup-python@v7`
+- `actions/setup-node@v7`
+- `npm audit --omit=dev --audit-level=high`
+
+GitHub Actions run `32830699389` on `5f3ea4601ea242c9ff3c38d33b138b81b2f94d1a` completed green:
+
+- frontend dependency install: **passed**
+- production dependency audit: **0 vulnerabilities**
+- frontend URL tests: **2/2 passed**
+- frontend lint: **0 warnings, 0 errors**
+- frontend production build: **passed**
+- backend dependency install: **passed**
+- backend `pytest -q`: **passed**
+
+Therefore the one high advisory printed by the unfiltered npm install is confined to dev/build tooling, not the shipped production dependency set. The production audit remains a CI gate for high-severity runtime advisories.
+
+### Final branch comparison
+
+Immediately before PR preparation:
+
+- branch status vs `main`: **ahead**
+- ahead by: **13 commits**
+- behind by: **0 commits**
+- merge base: `7bb9590825098255dda156c8d1b74dee6ff0fda4`
 
 ## Remaining finalization
 
 - [x] All baseline product gaps implemented or intentionally removed.
 - [x] Clean backend tests green.
 - [x] Clean frontend tests/lint/build green.
-- [ ] Finish dependency/CI hygiene audit and record result here.
-- [ ] Compare final branch against latest `main`, confirm `behind_by = 0`.
-- [ ] Open PR and verify PR CI.
+- [x] Production dependency audit green.
+- [x] CI action-runtime deprecation cleaned up by moving to v7 actions.
+- [x] Final branch audit completed with `behind_by = 0` before PR preparation.
+- [ ] Open PR and verify PR-triggered CI on the final head.
 - [ ] Merge PR to `main`.
 - [ ] Verify merged `main` commit and verify `feature/complete-mvp-gaps` still exists.
 
