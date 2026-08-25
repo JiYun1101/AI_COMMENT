@@ -4,83 +4,76 @@ Branch: `feature/complete-mvp-gaps`
 Base: `main` @ `7bb9590825098255dda156c8d1b74dee6ff0fda4`  
 Started: 2026-08-25
 
-This document is the working source of truth for closing the incomplete or misleading parts of the AI Comment Recommender MVP. Every implementation tranche updates this file so the work can be resumed from Git alone without relying on chat history.
+This file is the durable source of truth for closing the incomplete or misleading parts of the AI Comment Recommender MVP. Implementation decisions, failures, fixes, tests, and final verification are recorded here so the work is recoverable from Git alone.
 
-## Product contract
+## Completion contract
 
 The completed MVP must:
 
 1. Accept a supported single-video YouTube URL or manually supplied video text.
 2. Resolve real YouTube metadata and best-effort public transcript context.
-3. Generate enough context-aware/category-aware candidates for `top_k` rather than ranking a fixed six-comment list.
-4. Safety-filter and rank the generated pool with the existing reaction model.
-5. Keep UI controls truthful: visible options either affect behavior or are removed/disabled explicitly.
-6. Persist analyses/recommendations/feedback so history and dashboard are backed by actual data.
+3. Generate enough context-aware/category-aware candidates for `top_k`, instead of ranking a fixed six-comment list.
+4. Safety-filter and rank generated candidates with the existing reaction model.
+5. Ensure every visible option affects behavior, or remove it.
+6. Persist analyses, recommendations, and feedback so history/dashboard are real.
 7. Remove fake credits, fake usage/counts, unsupported URL claims, dead navigation, and stale-result states.
-8. Provide validation/loading/fallback/result actions needed for normal use.
-9. Avoid repeated YouTube metadata calls with a bounded cache.
-10. Keep tests/setup/runtime documentation aligned with the implementation.
+8. Provide validation, loading, fallback, copy/regenerate/feedback actions needed for normal use.
+9. Avoid duplicate preview/recommend YouTube metadata work with bounded caching.
+10. Keep tests, CI, runtime behavior, and README documentation aligned.
 
-## Baseline gap checklist
-
-Legend: `[x]` complete, `[~]` backend/partial complete, `[ ]` pending.
+## Gap checklist
 
 ### P0 — correctness / product contract
 
-- [x] Replace fixed six-comment generator with deterministic context-aware candidate generation.
-- [x] Generate a pool large enough for requested counts up to 10.
-- [x] Category affects backend generation and is sent from the frontend; resolved category is shown with results.
-- [x] URL/manual/additional-context/category/count/mode changes clear stale recommendation state.
-- [x] Backend and frontend now consistently support single-video URLs only; the misleading playlist claim is removed.
+- [x] Fixed six-comment generator replaced by deterministic context-aware candidate generation.
+- [x] Candidate pool is large enough for requested counts up to 10.
+- [x] `auto/social/vlog` category changes backend candidate generation and is sent by the frontend.
+- [x] URL/manual/additional-context/category/count/mode changes invalidate stale results.
+- [x] Frontend/backend consistently support single-video URLs only; misleading playlist support removed.
 
 ### P1 — usability / context quality
 
-- [x] Frontend validates the same supported single-video URL shapes before enabling submit.
-- [x] Best-effort public transcript/caption enrichment; failures fall back to metadata without failing the request.
-- [x] 10-minute in-process YouTube context cache prevents preview + recommend from immediately repeating Data API calls.
-- [x] Preview has an explicit loading state.
-- [x] Preview errors expose retry and switch-to-manual fallback actions.
-- [x] URL mode exposes optional `additional_context` and sends it to the backend.
-- [x] Result cards support copy, regenerate, and persisted useful/not-useful feedback. Successful recommendations are automatically persisted.
+- [x] Frontend validates the same single-video URL forms as backend before enabling submit.
+- [x] Best-effort public transcript enrichment; transcript failure falls back to metadata without failing the request.
+- [x] 10-minute in-process YouTube context cache avoids normal preview → recommend duplicate lookup.
+- [x] Preview loading state, retry, and switch-to-manual fallback implemented.
+- [x] URL mode supports optional `additional_context`.
+- [x] Result cards support copy, regenerate, persisted useful/not-useful feedback, and automatic analysis persistence.
 
-### P2 — product shell / misleading mocks
+### P2 — misleading shell / mock removal
 
-- [x] HistoryStrip uses persisted `/analyses` data and can restore a previous analysis.
-- [x] Dashboard uses real `/comments` and `/dashboard/summary` data with working filters, pagination, selection, and CSV export.
-- [x] Sidebar shows only real MVP destinations: recommendation and dashboard.
-- [x] Fake comment counts, credits, usage, brand controls, search/notification shell and the mock generation drawer are removed.
-- [x] Root README documents the real URL/transcript/cache/persistence/model-readiness/runtime behavior and limitations.
-- [x] Backend integration tests and frontend URL-validation regression tests are added; clean-environment test/lint/build runs in GitHub Actions CI.
-- [x] Model artifact readiness is explicit through `/health`; missing/incompatible artifacts return actionable 503 errors rather than an opaque crash.
+- [x] Recent-history strip is backed by persisted `/analyses` data and restores an analysis.
+- [x] Dashboard is backed by `/comments` and `/dashboard/summary` with real filters, pagination, selection, and CSV export.
+- [x] Sidebar exposes only implemented MVP destinations.
+- [x] Fake comment counts, credits, usage, brand/tone controls, search/notification shell, and mock generation drawer removed.
+- [x] Root README updated to real URL/transcript/cache/persistence/model-readiness behavior.
+- [x] Backend integration/regression tests and frontend URL-validation tests added.
+- [x] Model artifact readiness is explicit through `/health`; missing/incompatible artifacts return actionable 503 errors.
 
 ## Implementation decisions
 
 ### Candidate generation
 
-The MVP remains provider-free: no mandatory paid LLM was introduced. `candidate_generator.py` now extracts a title/topic/keywords, resolves `social` vs `vlog` when `auto` is used, emits insight/empathy/question/casual/general variants, deduplicates them, and expands the pool past `top_k`. The existing Safety Filter and trained reaction ranker remain downstream.
+The MVP remains provider-free: no mandatory paid LLM was introduced. `candidate_generator.py` extracts title/topic/keywords, resolves `social` vs `vlog` when `auto` is selected, emits insight/empathy/question/casual/general variants, deduplicates the pool, and expands it beyond `top_k`. The existing Safety Filter and trained reaction ranker remain downstream.
 
-A future LLM can replace this generator behind the same interface without changing the ranker contract.
+A future LLM can replace the generator behind the same interface without changing the ranking contract.
 
-### Transcript enrichment
+### YouTube context and transcript
 
-`youtube-transcript-api==1.2.4` is used as best-effort enrichment. Korean/English are preferred; another available transcript is attempted as fallback. Transcript failures are intentionally non-fatal. Full transcript text is used only inside reference context and is not returned to the browser; the browser receives only availability/language metadata.
+`youtube-transcript-api==1.2.4` provides best-effort public caption enrichment. Korean/English are preferred and another available transcript is attempted as fallback. Transcript failures are non-fatal. Transcript text is used in ranking reference context but not returned to the browser; the browser receives only availability/language metadata.
 
-### YouTube cache
-
-Real YouTube context is cached in-process by video ID for 10 minutes. Custom/injected sessions bypass the shared cache so tests remain deterministic. This removes the normal preview → recommend duplicate lookup without trusting browser-supplied metadata.
+Real YouTube context is cached in-process by video ID for 10 minutes. Injected sessions bypass shared cache so tests remain deterministic.
 
 ### Persistence
 
-`src/storage/analysis_store.py` uses SQLite from the Python standard library. Default DB: `data/runtime/ai_comment.db`, overridable with `AI_COMMENT_DB_PATH`. Runtime DB files are ignored by Git.
+`src/storage/analysis_store.py` uses SQLite. Default database: `data/runtime/ai_comment.db`, overridable by `AI_COMMENT_DB_PATH`; runtime DBs are gitignored.
 
-Stored entities:
+Stored data:
 
 - analyses: source type/text, YouTube identity/display metadata, resolved category, timestamp
 - recommendations: rank/type/text/predicted score/feedback/timestamp
 
-### Dashboard/history data API
-
-Implemented backend routes:
+Implemented data APIs:
 
 - `GET /analyses?limit=`
 - `GET /analyses/{analysis_id}`
@@ -90,139 +83,138 @@ Implemented backend routes:
 
 ### Model readiness
 
-Trained model files remain deployment artifacts rather than Git-tracked source. `load_ranker_model()` now caches the loaded artifact and raises `ModelNotReadyError` with `python -m src.model.train` guidance when the artifact is missing or incompatible. `/health` reports degraded status and model readiness explicitly.
+Model files remain deployment artifacts rather than Git-tracked source. `load_ranker_model()` caches the loaded artifact and raises `ModelNotReadyError` with `python -m src.model.train` guidance when the artifact is missing or incompatible. `/health` reports `degraded` instead of allowing an opaque recommendation crash.
 
-## API contract after backend tranche
+## Recommendation API contract
 
 `POST /recommend` accepts:
 
 - `post_text?`
 - `youtube_url?`
 - `additional_context?`
-- `category`: `auto | social | vlog`
-- `top_k`: 1–10
+- `category: auto | social | vlog`
+- `top_k: 1..10`
 
 It returns:
 
 - `analysis_id`
-- resolved reference excerpt
+- reference-text excerpt
 - `resolved_category`
-- `youtube_context` (metadata + transcript availability, not transcript body)
-- persisted recommendations containing stable recommendation IDs
+- YouTube metadata + transcript availability metadata
+- persisted recommendations with stable IDs
 - candidate/safety generation counts
 
-## Verification log
+## Change / verification log
 
 ### 2026-08-25 — branch setup
 
-- [x] Confirmed latest `main`: `7bb9590825098255dda156c8d1b74dee6ff0fda4`.
+- [x] Confirmed `main` at `7bb9590825098255dda156c8d1b74dee6ff0fda4`.
 - [x] Created `feature/complete-mvp-gaps` from that exact commit.
 - [x] Added this worklog before implementation changes.
 
-### 2026-08-25 — backend completion tranche
+### Backend tranche
 
-Implemented locally and prepared for branch commit:
+Implemented context/category candidate generation, variable candidate pool, transcript enrichment, YouTube cache, SQLite persistence, history/dashboard APIs, category/additional-context contract, and explicit model readiness.
 
-- context-aware/category-aware candidate generator
-- variable candidate pool sufficient for top 10
-- best-effort transcript enrichment
-- 10-minute YouTube context cache
-- SQLite analysis/recommendation/feedback persistence
-- real history/comments/dashboard summary APIs
-- category/additional-context recommend contract
-- explicit model readiness and actionable 503 behavior
-- `youtube-transcript-api==1.2.4` dependency
-- runtime DB gitignore rule
-
-Verification executed in an isolated local package using real new modules and minimal stubs only for unrelated heavy model dependencies:
+Initial isolated verification:
 
 - `test_candidate_generator.py`
 - `test_analysis_store.py`
 - `test_youtube_context.py`
 - `test_api_integration.py`
-- Result: **21 passed**
-- Python `py_compile` on changed backend modules: **passed**
+- **21 passed**
+- changed backend modules `py_compile`: **passed**
 
-The API integration test mocks only the model ranking function; it exercises FastAPI request validation, recommendation persistence, 10-item responses, history, comment filtering, feedback and KPI summary end-to-end against a temporary SQLite DB.
+### Frontend tranche
 
-## Frontend completion tranche
+Implemented truthful URL validation, preview loading/retry/fallback, additional context, category wiring, stale-result invalidation, copy/regenerate/feedback, real history, real dashboard/filter/pagination/CSV, shell cleanup, root README update, and CI.
 
-Implemented:
+Initial local verification:
 
-- [x] Truthful single-video URL validation and supported-format hint
-- [x] preview loading + retry + manual fallback
-- [x] optional additional context in URL mode
-- [x] category request wiring and resolved-category display
-- [x] stale-result invalidation when inputs/options change
-- [x] copy/regenerate/feedback actions; recommendation persistence is automatic
-- [x] real HistoryStrip using `/analyses` and analysis restore
-- [x] real dashboard using `/comments` + `/dashboard/summary`
-- [x] functional dashboard filters/pagination/selection/CSV export
-- [x] removed fake credits/counts/usage, fake brand/tone drawer, dead navigation/search/notification shell
-- [x] frontend URL-validation regression test
-- [x] root README update
-- [x] CI workflow added for clean-environment backend pytest + frontend test/lint/build
+- syntax diagnostics across 14 changed TS/TSX files: **passed**
+- frontend URL validation: **2/2 passed**
 
-### 2026-08-25 — frontend local verification
+### CI attempt 1
 
-- TypeScript `transpileModule` syntax diagnostics over **14 changed TS/TSX files: PASS**.
-- `npm test`: **2/2 passed** (supported single-video forms; playlist/other-host/malformed rejection).
-- Local full `npm ci` / lint / Vite build could not be executed because repository `node_modules` are not installed in the execution container. This is not treated as a green build; the new GitHub Actions workflow performs those checks in a clean dependency environment.
-- `frontend/.test-dist/` is ignored because the zero-dependency test script compiles the URL utility there before Node's built-in test runner executes.
+Frontend clean runner reached dependency install, then `npm test` failed before tests with TypeScript 6 `TS5112`: direct source compilation conflicted with repository `tsconfig.json`.
 
-### 2026-08-25 — finalization resumed
+Fix: added dedicated `frontend/tsconfig.test.json` and changed the test command to `tsc -p tsconfig.test.json`.
 
-- [x] Re-read branch HEAD and this worklog before resuming.
-- [x] Frontend/docs/CI tranche committed to the feature branch.
-- [ ] GitHub Actions results will be recorded here; failures will be fixed before merge.
-- [ ] After CI, final diff/README gap audit will be run before PR merge.
+Backend clean runner also exposed a separate portability problem later: all tests failed collection with `ModuleNotFoundError: No module named 'src'`.
 
-### 2026-08-25 — CI attempt 1
+### CI attempt 2
 
-- Frontend dependency install: **passed**.
-- Frontend `npm test`: **failed before executing tests** with TypeScript 6 `TS5112` because a source file was passed directly while `tsconfig.json` exists.
-- Root cause: the zero-dependency URL test compile command was compatible with the local global TypeScript used during scratch verification but not the repository TypeScript 6 compiler.
-- Fix: added dedicated `frontend/tsconfig.test.json` and changed the script to `tsc -p tsconfig.test.json`.
+Dedicated frontend test config was read, but TypeScript 6 raised `TS5011` because `rootDir` was not explicit.
 
-### 2026-08-25 — CI attempt 2
+Fix: set `rootDir: src/utils`, making the compiled test target deterministic at `.test-dist/youtube.js`.
 
-- Dedicated test tsconfig was picked up correctly, but TypeScript 6 then failed with `TS5011` because the test config did not explicitly declare `rootDir`.
-- This is a compiler-layout requirement, not a URL validation logic failure; no tests executed yet.
-- Fix: set `rootDir` to `src/utils` so `youtube.ts` emits exactly to `.test-dist/youtube.js`, matching the Node test import.
+### Clean CI after frontend fixes
 
-### 2026-08-25 — CI attempt 3 / frontend green
+Frontend clean runner became green:
 
-- Latest frontend clean runner: **success**.
-- `npm ci`: passed.
-- `npm test`: passed.
-- `npm run lint`: passed.
-- `npm run build`: passed.
-- This closes the earlier TypeScript 6 test-runner issues and confirms the modified React/TypeScript application builds in a clean dependency environment.
+- `npm ci`: passed
+- `npm test`: **2/2 passed**
+- `npm run lint`: **0 warnings, 0 errors**
+- `npm run build`: passed (`tsc -b && vite build`)
 
-### 2026-08-25 — backend clean-runner failure discovered
+### Backend clean-checkout portability fix
 
-- Python dependency installation: **passed**.
-- `pytest -q`: failed during collection before any test body ran.
-- All seven collected test modules failed with `ModuleNotFoundError: No module named 'src'` on the clean runner.
-- Root cause: repository-root import resolution was implicit in the earlier local environment instead of declared in pytest configuration.
-- Fix plan: add repository `pytest.ini` with `pythonpath = .` and `testpaths = tests`, then re-run the complete backend suite. This makes the documented `pytest -q` command work from a clean checkout rather than fixing CI with a runner-only environment variable.
+The collection failure was caused by implicit local import-path behavior. Added repository `pytest.ini`:
 
-### Final audit in progress
+```ini
+[pytest]
+pythonpath = .
+testpaths = tests
+```
 
-- [x] Compared frontend API/types against actual FastAPI/SQLite response shapes.
-- [x] Searched the prepared source for `mock`, `seed`, playlist-support claims, fake credits/counts/usage and dead-button patterns. Remaining `mock`/`fake` matches are test doubles or documentation explaining removed mocks; playlist wording explicitly says unsupported.
-- [x] All visible button elements in the revised MVP pages have real handlers or submit behavior.
+This fixes the documented `pytest -q` command itself instead of adding a CI-only `PYTHONPATH` workaround.
 
-### Remaining finalization
+### Clean CI after backend fix — green
 
-- [ ] Add clean-checkout pytest path configuration and get backend CI green.
-- [ ] Confirm latest branch CI backend + frontend are both green.
-- [ ] Compare final branch against current `main` and confirm it is not behind.
-- [ ] Open PR and merge to `main`.
-- [ ] Verify `main` merge commit and verify `feature/complete-mvp-gaps` still exists after merge.
+GitHub Actions run `32830244389` completed successfully on branch head `90972e328853f5b1594eb7113be3140126e77be7`:
+
+- backend: **37 passed, 1 warning in 4.75s**
+- frontend URL tests: **2/2 passed**
+- frontend lint: **0 warnings, 0 errors**
+- frontend production build: **passed**
+
+The one Python warning is an upstream `StarletteDeprecationWarning` emitted by FastAPI/Starlette test-client internals about `httpx`; it does not indicate an application test failure. It is recorded rather than hidden.
+
+### Final source audit
+
+- [x] Compared frontend request/response types against FastAPI and SQLite response shapes.
+- [x] Re-searched source for `mock`, `seed`, unsupported playlist claims, fake credits/counts/usage, and dead-button patterns.
+- [x] Remaining `mock`/`fake` mentions are test doubles or documentation explaining removed mocks.
+- [x] Playlist wording explicitly states unsupported.
+- [x] Visible revised MVP buttons have actual handlers or submit behavior.
+- [x] Rechecked `main`; it remained at the branch base during this audit, so the feature branch was not behind.
+
+### Final dependency / CI hygiene audit — in progress
+
+Clean `npm ci` reports one high-severity advisory somewhere in the full dependency tree. Before merge, CI will distinguish production dependencies from dev/build tooling by running:
+
+```bash
+npm audit --omit=dev --audit-level=high
+```
+
+- [ ] If production audit is green, record the install warning as dev-tooling-only and do not block the MVP.
+- [ ] If production audit fails, identify and fix/document the exact runtime package before merge.
+- [ ] Update GitHub Actions to current Node-24-based action majors so old action-runtime Node 20 deprecation warnings are not carried into the final CI definition.
+- [ ] Re-run complete backend + frontend CI after this hygiene change.
+
+## Remaining finalization
+
+- [x] All baseline product gaps implemented or intentionally removed.
+- [x] Clean backend tests green.
+- [x] Clean frontend tests/lint/build green.
+- [ ] Finish dependency/CI hygiene audit and record result here.
+- [ ] Compare final branch against latest `main`, confirm `behind_by = 0`.
+- [ ] Open PR and verify PR CI.
+- [ ] Merge PR to `main`.
+- [ ] Verify merged `main` commit and verify `feature/complete-mvp-gaps` still exists.
 
 ## Completion rule
 
-The branch is complete only when every baseline gap is either implemented and tested, or intentionally removed/disabled with its rationale documented here so the UI never claims unsupported behavior.
+The work is complete only when every baseline gap is implemented/tested or intentionally removed with rationale documented here, final CI is green, the PR is merged to `main`, and `feature/complete-mvp-gaps` remains available after merge.
 
 **Do not delete `feature/complete-mvp-gaps` after merge.**
