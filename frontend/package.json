@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "rm -rf .test-dist && tsc src/utils/youtube.ts --target ES2022 --module ES2022 --outDir .test-dist --skipLibCheck && node --test tests/*.test.mjs",
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test tests/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
