@@ -24,6 +24,24 @@ def test_historical_profile_prefers_relevant_top_comments(tmp_path: Path):
     assert profile["question_ratio"] > 0
 
 
+def test_historical_profile_filters_unsafe_reference_text(tmp_path: Path):
+    csv_path = tmp_path / "vlog_comments.csv"
+    csv_path.write_text(
+        "post_id,post_text,comment_id,comment_text,like_count,created_at,platform,category,reply_count,parent_id,video_view_count,is_top_comment\n"
+        "v1,제주 여행 브이로그,c1,제주 맛집 정보 너무 유용해요!,50,2026-01-01T00:00:00Z,youtube,vlog,1,,10000,1\n"
+        "v1,제주 여행 브이로그,c2,제주 여행 개새끼 진짜 싫다,999,2026-01-01T00:00:00Z,youtube,vlog,10,,10000,1\n",
+        encoding="utf-8",
+    )
+    profile = build_historical_profile(
+        "제주 여행 브이로그",
+        topics=["travel"],
+        content_styles=["vlog"],
+        dataset_paths=[csv_path],
+    )
+    assert profile["matched_count"] == 1
+    assert profile["reference_examples"] == ["제주 맛집 정보 너무 유용해요!"]
+
+
 def test_historical_profile_tolerates_missing_dataset(tmp_path: Path):
     profile = build_historical_profile(
         "테스트",
