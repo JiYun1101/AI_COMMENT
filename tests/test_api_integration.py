@@ -15,11 +15,31 @@ def _fake_ranked(post_text: str, *, generation_context: dict, top_k: int):
         }
         for index in range(1, top_k + 1)
     ]
+    trace_candidates = [
+        {
+            "sequence": index,
+            "attempt": 1,
+            "type": item["type"],
+            "comment": item["comment"],
+            "safety": "passed",
+            "safety_reason": None,
+            "duplicate": False,
+            "ranker_score": item["predicted_score"],
+            "selected": True,
+            "final_rank": item["rank"],
+        }
+        for index, item in enumerate(recommendations, start=1)
+    ]
     return {
         "recommendations": recommendations,
         "candidate_count": top_k * 2,
         "safe_candidate_count": top_k * 2,
         "blocked_candidate_count": 0,
+        "trace": {
+            "safety_blocked_count": 0,
+            "duplicate_candidate_count": 0,
+            "candidates": trace_candidates,
+        },
     }
 
 
@@ -49,6 +69,9 @@ def test_recommend_persists_context_and_dashboard_uses_real_data(tmp_path, monke
     assert len(body["recommendations"]) == 10
     assert body["analysis_id"].startswith("a_")
     assert all(item["id"].startswith("r_") for item in body["recommendations"])
+    assert len(body["trace"]["candidates"]) == 10
+    assert all(item["selected"] for item in body["trace"]["candidates"])
+    assert body["trace"]["safety_blocked_count"] == 0
 
     analyses = client.get("/analyses?limit=3")
     assert analyses.json()["items"][0]["id"] == body["analysis_id"]
