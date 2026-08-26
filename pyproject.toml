@@ -1,0 +1,97 @@
+[project]
+name = "ai-comment-recommender"
+version = "0.1.0"
+description = "YouTube 댓글 추천 파이프라인 (Act Operator / LangGraph 기반)"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+# 주의: 런타임 의존성은 현재 requirements.txt 와 이중 관리 상태입니다.
+# CI(.github/workflows/ci.yml)는 pip + requirements.txt 경로를 쓰고,
+# `uv run langgraph dev` 는 이 목록을 씁니다. uv 단일화는 후속 작업입니다.
+dependencies = [
+    "langchain>=1.0.0",
+    "langgraph>=1.0.0",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "imbalanced-learn",
+    "sentence-transformers",
+    "fastapi",
+    "uvicorn",
+    "joblib",
+    "python-dotenv",
+    "requests",
+    "youtube-transcript-api==1.2.4",
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "langgraph-cli[inmem]",
+]
+lint = [
+    "pre-commit",
+    "ruff",
+]
+dev = [
+    "act-operator>=0.6.4",
+    {include-group = "test"},
+    {include-group = "lint"},
+]
+
+[tool.pyright]
+include = ["casts", "src", "tests"]
+exclude = [
+    "**/__pycache__/*",
+    ".venv",
+    "**/.venv"
+]
+
+# pytest 설정은 기존 pytest.ini 를 단일 소스로 유지한다.
+# (여기에 [tool.pytest.ini_options] 를 두면 두 곳이 갈라지므로 의도적으로 비워 둔다.)
+
+[tool.uv.workspace]
+members = ["casts/*"]
+exclude = [
+    "casts/__pycache__",
+    "casts/**/__pycache__",
+    "casts/**/.venv",
+    "casts/.DS_Store",
+]
+
+[tool.ruff]
+extend-exclude = [
+    ".git",
+    ".github",
+    ".langgraph_api",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    ".env",
+    ".env.example",
+    ".gitignore",
+    "LICENSE",
+    "README.md",
+    "langgraph.json",
+    "media",
+    "migrations",
+    "node_modules",
+    "static",
+    "templates",
+    "uv.lock",
+    "venv",
+    "frontend",
+]
+lint.select = [
+    "E",
+    "F",
+    "I",
+    "B",
+]
+lint.ignore = [
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B905"]

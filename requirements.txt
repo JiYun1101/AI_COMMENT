@@ -10,3 +10,7 @@ python-dotenv
 requests
 youtube-transcript-api==1.2.4
 pytest
+
+# LangGraph Cast (casts/comment_writer)
+langchain>=1.0.0
+langgraph>=1.0.0

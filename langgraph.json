@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "comment-writer": "./casts/comment_writer/graph.py:comment_writer_graph"
+  },
+  "env": ".env"
+}

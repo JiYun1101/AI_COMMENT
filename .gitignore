@@ -14,3 +14,7 @@ models/*.pkl
 .vscode/
 .idea/
 frontend/.test-dist/
+
+# LangGraph / uv
+.langgraph_api/
+.ruff_cache/
