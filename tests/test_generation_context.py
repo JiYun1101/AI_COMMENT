@@ -4,6 +4,13 @@ from src.recommender.generation_context import build_generation_context, summari
 from src.youtube.context import YouTubeVideoContext
 
 
+def _no_history(monkeypatch):
+    monkeypatch.setattr(
+        "src.recommender.generation_context.build_historical_profile",
+        lambda *args, **kwargs: {"coverage": "none", "matched_count": 0, "reference_examples": []},
+    )
+
+
 def test_youtube_generation_context_uses_official_and_derived_signals(monkeypatch):
     monkeypatch.setattr(
         "src.recommender.generation_context.build_historical_profile",
@@ -51,10 +58,7 @@ def test_youtube_generation_context_uses_official_and_derived_signals(monkeypatc
 
 
 def test_manual_context_does_not_invent_youtube_metadata(monkeypatch):
-    monkeypatch.setattr(
-        "src.recommender.generation_context.build_historical_profile",
-        lambda *args, **kwargs: {"coverage": "none", "matched_count": 0, "reference_examples": []},
-    )
+    _no_history(monkeypatch)
     context = build_generation_context("제주 여행 브이로그 맛집 후기")
     assert context["source"]["type"] == "manual"
     assert context["youtube"]["category_id"] is None
@@ -64,11 +68,54 @@ def test_manual_context_does_not_invent_youtube_metadata(monkeypatch):
 
 
 def test_audience_orientation_is_content_level_heuristic(monkeypatch):
-    monkeypatch.setattr(
-        "src.recommender.generation_context.build_historical_profile",
-        lambda *args, **kwargs: {"coverage": "none", "matched_count": 0, "reference_examples": []},
-    )
+    _no_history(monkeypatch)
     context = build_generation_context("20대 여성 출근 코디와 여자 직장인 패션 추천")
     assert "young_adult" in context["audience"]["target_age"]
     assert context["audience"]["orientation"] == "female_oriented"
     assert context["audience"]["basis"] == "official_flags_plus_explicit_content_heuristics"
+
+
+def test_short_ascii_topic_keywords_do_not_match_inside_longer_words(monkeypatch):
+    _no_history(monkeypatch)
+    context = build_generation_context("Chair design details and interior styling")
+    assert "ai" not in context["content"]["topics"]
+    assert "autos" not in context["content"]["topics"]
+
+
+def test_standalone_ascii_topic_keyword_still_matches(monkeypatch):
+    _no_history(monkeypatch)
+    context = build_generation_context("AI tools for software teams")
+    assert "ai" in context["content"]["topics"]
+    assert "software" in context["content"]["topics"]
+
+
+def test_woman_does_not_also_match_man_orientation(monkeypatch):
+    _no_history(monkeypatch)
+    context = build_generation_context("Women fashion guide for a woman starting a new job")
+    assert context["audience"]["orientation"] == "female_oriented"
+
+
+def test_youtube_topic_details_feed_derived_topic_classifier(monkeypatch):
+    _no_history(monkeypatch)
+    youtube = YouTubeVideoContext(
+        video_id="topicVideo01",
+        url="https://www.youtube.com/watch?v=topicVideo01",
+        title="새로운 무대",
+        description="오늘 공개된 영상입니다.",
+        channel="채널",
+        subscriber_count=1_000,
+        view_count=5_000,
+        published_at="2026-08-26T00:00:00Z",
+        duration_seconds=240,
+        thumbnail_url=None,
+        category_id="10",
+        category_name="Music",
+        topic_categories=("https://en.wikipedia.org/wiki/Music",),
+    )
+    context = build_generation_context(
+        "제목: 새로운 무대\n설명: 오늘 공개된 영상입니다.",
+        youtube_context=youtube,
+        now=datetime(2026, 8, 26, 10, 0, tzinfo=timezone.utc),
+    )
+    assert context["primary_category"] == "Music"
+    assert "music" in context["content"]["topics"]
