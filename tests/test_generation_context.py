@@ -65,6 +65,23 @@ def test_manual_context_does_not_invent_youtube_metadata(monkeypatch):
     assert context["format"]["kind"] == "unknown"
     assert "travel" in context["content"]["topics"]
     assert "vlog" in context["content"]["content_styles"]
+    assert context["primary_category"] == "travel"
+
+
+def test_legacy_category_hint_is_recorded_but_cannot_override_primary_category(monkeypatch):
+    _no_history(monkeypatch)
+    context = build_generation_context(
+        "제주 여행 브이로그 맛집 후기",
+        category_hint="arbitrary-client-category",
+    )
+    assert context["source"]["legacy_category_hint"] == "arbitrary-client-category"
+    assert context["primary_category"] == "travel"
+    assert "arbitrary-client-category" not in context["content"]["topics"]
+
+    vlog_hint = build_generation_context("제주 여행 맛집 후기", category_hint="vlog")
+    assert vlog_hint["source"]["legacy_category_hint"] == "vlog"
+    assert vlog_hint["primary_category"] == "travel"
+    assert "vlog" in vlog_hint["content"]["content_styles"]
 
 
 def test_audience_orientation_is_content_level_heuristic(monkeypatch):
