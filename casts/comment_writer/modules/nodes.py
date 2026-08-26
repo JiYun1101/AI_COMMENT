@@ -1,77 +1,64 @@
-"""[Required] Node implementations for the Comment Writer graph.
+"""[Required] Comment Writer 그래프의 노드 구현.
 
-Guidelines:
-    - Derive each node from :class:`BaseNode` or :class:`AsyncBaseNode`.
-    - Implement :meth:`execute` to process state and return updates.
-    - Choose your node signature based on what you need:
-      * Simple: `def execute(self, state)` - Only needs state
-      * With config: `def execute(self, state, config)` - Needs thread_id, tags
-      * With runtime: `def execute(self, state, runtime)` - Needs store, stream
-      * Full: `def execute(self, state, config, runtime)` - Needs everything
-    - Use `self.log()` for debugging when `verbose=True`.
+현재 단계에서는 컨텍스트 수집 노드만 구현되어 있다.
+생성 · 안전 필터 · 점수화 · 재생성 루프 노드는 다음 단계에서 추가한다.
 
 Official document URL:
     - Nodes: https://docs.langchain.com/oss/python/langgraph/graph-api#nodes
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from langchain_core.messages import AIMessage
 
-from casts.base_node import AsyncBaseNode, BaseNode
+from casts.base_node import BaseNode
+from casts.comment_writer.modules.tools import collect_video_context
 
 
-class SampleNode(BaseNode):
-    """Simple sync node - only uses state.
+class ContextNode(BaseNode):
+    """유튜브 영상 컨텍스트를 수집해 이후 노드가 쓸 입력을 준비한다.
 
-    Attributes:
-        name: Canonical name of the node (class name by default).
-        verbose: Flag indicating whether detailed logging is enabled.
+    LLM 을 쓰지 않는 결정적 노드다. 여기서 만든 ``post_text`` 가 랭킹 모델의
+    임베딩 유사도 기준이 되므로, 학습 데이터와 같은 방식으로 구성해야 한다.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, verbose: bool = False) -> None:
+        super().__init__(verbose=verbose)
 
-    def execute(self, state):
-        """Execute the sample node.
-
-        Args:
-            state: Current graph state.
-
-        Returns:
-            dict: State updates (must be a dict). Writes both ``result``
-            (exposed by OutputState) and ``messages`` (accumulated via
-            MessagesState's ``add_messages`` reducer).
-        """
-        welcome = "Welcome to the Act!"
-        return {
-            "result": welcome,
-            "messages": [AIMessage(content=f"{welcome} by Sync Node")],
-        }
-
-
-class AsyncSampleNode(AsyncBaseNode):
-    """Simple async node - only uses state.
-
-    Attributes:
-        name: Canonical name of the node (class name by default).
-        verbose: Flag indicating whether detailed logging is enabled.
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    async def execute(self, state):
-        """Execute the sample node.
+    def execute(self, state: dict[str, Any]) -> dict[str, Any]:
+        """영상 URL 로부터 컨텍스트를 수집한다.
 
         Args:
-            state: Current graph state.
+            state: 현재 그래프 상태. ``video_url`` 이 필요하다.
 
         Returns:
-            dict: State updates (must be a dict). Writes both ``result``
-            (exposed by OutputState) and ``messages`` (accumulated via
-            MessagesState's ``add_messages`` reducer).
+            dict: ``video_id`` · ``post_text`` · ``generation_context`` ·
+            ``context_summary`` 상태 업데이트.
         """
-        welcome = "Welcome to the Act!"
+        video_url = str(state.get("video_url") or "").strip()
+        if not video_url:
+            raise ValueError("video_url 이 필요합니다.")
+
+        collected = collect_video_context(
+            video_url,
+            additional_context=state.get("additional_context"),
+            category_hint=state.get("category_hint"),
+        )
+        self.log("context collected", video_id=collected["video_id"])
+
+        summary = collected["context_summary"]
         return {
-            "result": welcome,
-            "messages": [AIMessage(content=f"{welcome} by Async Node")],
+            "video_id": collected["video_id"],
+            "post_text": collected["post_text"],
+            "generation_context": collected["generation_context"],
+            "context_summary": summary,
+            "revision_count": 0,
+            "messages": [
+                AIMessage(
+                    content=f"영상 컨텍스트 수집 완료: {collected['video_id']} "
+                    f"(category={summary.get('primary_category')})"
+                )
+            ],
         }

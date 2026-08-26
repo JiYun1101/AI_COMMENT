@@ -1,46 +1,61 @@
-# Comment Writer 모듈 (Comment Writer Module)
+# Comment Writer Cast
 
-## 개요
-이 모듈은 Ai Comment 의 Comment Writer 진행 및 통찰 추출을 담당하는 LangGraph Graph입니다.
+유튜브 영상 컨텍스트를 수집해 댓글 후보를 만들고, 안전 필터와 반응 예측 모델로
+걸러 상위 후보를 추천하는 LangGraph Cast입니다.
+
+## 목표 파이프라인
+
+```text
+영상 URL
+  → ContextNode    : YouTube Data API 로 제목/설명/자막/통계 수집  [구현됨]
+  → GenerateNode   : 로컬 LLM 이 유형별 후보 생성                  [예정]
+  → SafetyNode     : 규칙 기반 안전 필터 (LLM 아님, 결정적)        [예정]
+  → ScoreNode      : 학습된 반응 예측 모델로 점수화                [예정]
+  → conditions     : 후보 부족 시 피드백 붙여 재생성               [예정]
+  → 승인 게이트    : HumanInTheLoopMiddleware                      [예정]
+  → PostNode       : YouTube Data API 게시                          [예정]
+```
 
 ## 구조
-```
+
+```text
 comment_writer/
+├── graph.py           # StateGraph 조립 (필수)
 ├── modules/
-│   ├── agents.py      # 에이전트 정의 (선택)
-│   ├── conditions.py  # 조건부 로직 (선택)
-│   ├── models.py      # LLM/모델 설정 (선택)
-│   ├── nodes.py       # Graph 노드 클래스들 정의 (필수)
-│   ├── prompts.py     # 프롬프트 템플릿 (선택)
-│   ├── middlewares.py # Middleware 구성 (선택)
-│   ├── state.py       # 상태 정의 (필수)
-│   ├── tools.py       # 도구 함수 (선택)
-│   └── utils.py       # 유틸리티 함수 (선택)
-├── pyproject.toml     # 패키지 메타데이터
-├── README.md          # 본 문서
-└── graph.py           # Graph 정의
+│   ├── state.py       # InputState / OutputState / State 3분리 (필수)
+│   ├── nodes.py       # BaseNode 상속 노드 (필수)
+│   ├── tools.py       # src/ 도메인 계층을 감싸는 얇은 어댑터
+│   ├── models.py      # LLM 팩토리 (ollama / openai)
+│   ├── prompts.py     # src/llm/prompting.py 재노출 + 재생성 피드백 조립
+│   ├── conditions.py  # 조건부 라우팅 (예정)
+│   ├── middlewares.py # HITL 등 미들웨어 (예정)
+│   ├── agents.py      # create_agent 구성 (예정)
+│   └── utils.py
+└── pyproject.toml
 ```
 
+## 계층 규칙
+
+```text
+casts/comment_writer/modules/*  ──▶  src/*
+src/*                           ──▶  (casts 를 절대 import 하지 않음)
+```
+
+`src/` 는 LangGraph 를 모르는 순수 도메인 라이브러리로 유지합니다. 덕분에
+기존 FastAPI 경로와 이 Cast 가 **같은 안전 필터 · 같은 랭커 · 같은 프롬프트**를
+공유합니다.
+
 ## 사용 방법
+
 ```python
 from casts.comment_writer.graph import comment_writer_graph
 
-initial_state = {
-    "query": "Hello, Act"
-}
-
-result = comment_writer_graph().invoke(initial_state)
+graph = comment_writer_graph()
+result = graph.invoke({"video_url": "https://www.youtube.com/watch?v=..."})
 ```
 
 ## 의존성 추가
-이 패키지에 종속성을 추가하려면 아래 명령어를 사용합니다:
+
 ```bash
 uv add <패키지명> --package comment-writer
 ```
-
-## 확장 방법
-1. `modules/state.py`에 상태값을 추가
-2. `modules/nodes.py`에 새 노드 클래스를 추가
-3. 필요시 agents/conditions/middlewares/tools/prompts/models/utils 등 정의
-4. `graph.py`에서 Graph에 연결
-

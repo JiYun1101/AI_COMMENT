@@ -487,6 +487,135 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 
 오탐 및 상태 이상 회귀 항목은 [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)에 기록합니다.
 
+## LangGraph Cast 도입 (진행 중)
+
+댓글 생성·게시 파이프라인을 [Act Operator 커리큘럼](https://github.com/WithModulabs/act-operator/blob/main/study/Week-All.md)의
+Harness 패턴에 맞춰 LangGraph Cast 로 재구성하는 작업을 시작했습니다.
+최종 목표는 **사람이 승인한 댓글만 실제로 유튜브에 게시**하는 것입니다.
+
+### 왜 LangGraph 인가
+
+기존 파이프라인(`src/recommender/ranker.py`)은 생성 → 안전 필터 → 랭킹을 이미
+직선으로 처리합니다. LangGraph 로 옮기는 이유는 직선 구간 때문이 아니라
+**루프와 중단**이 필요하기 때문입니다.
+
+- 안전 필터 통과 후보가 부족할 때 실패 사유를 되먹여 재생성하는 **조건부 루프**
+- 게시 직전에 실행을 멈추고 사람의 승인을 기다리는 **HITL 중단/재개** (Checkpointer)
+
+### 진행 상태
+
+| 단계 | 내용 | 상태 |
+| --- | --- | --- |
+| 1 | Act 스캐폴딩 (`casts/`, `langgraph.json`, `.claude/skills/`, `CLAUDE.md`) | 완료 |
+| 2 | `state.py` · `prompts.py` · `models.py` · `tools.py` + 로컬 LLM 클라이언트 | 완료 |
+| 3 | 생성 · 안전 · 점수 노드와 재생성 루프(`conditions.py`) | 예정 |
+| 4 | Checkpointer 도입 + `/recommend` 그래프 기반 전환 | 예정 |
+| 5 | YouTube OAuth + 게시 도구 + HITL 승인 미들웨어 + `/approve` | 예정 |
+| 6 | 멱등성 기록 · 레이트 리밋 | 예정 |
+
+### 1단계 — Act 스캐폴딩
+
+`uvx --from act-operator act new` 로 생성한 스캐폴딩을 도입했습니다.
+
+- `casts/base_node.py`, `casts/base_graph.py` — 노드/그래프 표준 베이스 클래스
+- `casts/comment_writer/` — Cast 패키지
+- `langgraph.json` — `comment-writer` 그래프 엔트리포인트 등록
+- `.claude/skills/` — 임베디드 에이전트 스킬
+- `CLAUDE.md` — Act 아키텍처 SSOT (계층 규칙·파이프라인 정의)
+- `pyproject.toml` — uv 워크스페이스. pytest 설정은 기존 `pytest.ini` 를 그대로 단일 소스로 둡니다.
+
+### 2단계 — 상태 · 프롬프트 · 모델 팩토리 · 도구
+
+**계층 규칙을 먼저 고정했습니다.** `src/` 는 LangGraph 를 모르는 순수 도메인
+라이브러리로 남기고, Cast 가 그것을 감쌉니다.
+
+```text
+casts/comment_writer/modules/tools.py  ──▶  src/*
+src/*                                  ──▶  (casts 를 절대 import 하지 않음)
+```
+
+이 규칙 덕분에 기존 FastAPI 경로와 LangGraph 경로가 **같은 안전 필터 · 같은
+랭커 · 같은 프롬프트**를 씁니다. 두 경로가 갈라지면 예전 train/predict 피처
+드리프트와 같은 종류의 버그가 재발합니다.
+
+추가·변경된 파일:
+
+| 파일 | 역할 |
+| --- | --- |
+| `casts/comment_writer/modules/state.py` | `InputState` / `OutputState` / `State` 3분리. 재생성 루프에서 누적되어야 하는 `candidates` · `blocked` 에만 `operator.add` 리듀서 |
+| `casts/comment_writer/modules/tools.py` | `collect_video_context` · `generate_comment_candidates` · `check_comment_safety` · `score_comment_candidates`. 일반 함수와 `@tool` 객체 두 형태로 제공 |
+| `casts/comment_writer/modules/models.py` | LLM 팩토리. `LLM_PROVIDER` 로 ollama(기본) / openai 전환 |
+| `casts/comment_writer/modules/prompts.py` | 프롬프트 재노출 + 재생성 피드백 문장 조립 |
+| `casts/comment_writer/modules/nodes.py` | `ContextNode` — 영상 컨텍스트 수집 (결정적, LLM 미사용) |
+| `casts/comment_writer/graph.py` | `START → ContextNode → END` 로 컴파일 |
+| `src/llm/base.py` | **신규** 제공자 공통 계층 — 에러 타입 · JSON 복구 파싱 · 후보 검증 |
+| `src/llm/prompting.py` | **신규** 프롬프트 단일 소스 — 시스템 지시문 · 유형별 지침 · 입력 페이로드 구성 |
+| `src/llm/ollama_client.py` | **신규** 로컬 LLM 클라이언트 |
+| `src/llm/openai_client.py` | 공통 계층을 쓰도록 정리. 기존 import 경로와 payload 는 그대로 유지 |
+
+`@tool` 객체를 함께 두는 이유는 5단계 때문입니다. 게시를 노드 안에서 직접
+API 호출로 짜면 HITL 미들웨어가 가로챌 수 없으므로, 게시는 반드시 도구
+형태여야 합니다.
+
+### 로컬 LLM (Ollama) 연결
+
+기본 제공자를 로컬 모델로 두되, `OpenAIResponsesClient` 와 **같은 인터페이스**
+(`generate(context, *, candidate_count, comment_type=None, feedback=None)`)를
+구현해 `generate_candidates(..., client=...)` 에 그대로 꽂히도록 했습니다.
+
+```text
+casts/comment_writer/modules/models.py   (LLM_PROVIDER 로 분기)
+        ├─▶ src/llm/ollama_client.py  ──HTTP POST──▶ {OLLAMA_BASE_URL}/api/chat
+        └─▶ src/llm/openai_client.py  ──HTTP POST──▶ {OPENAI_BASE_URL}/responses
+```
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=exaone3.5:7.8b     # 실제 `ollama list` 로 확인한 태그를 넣습니다
+OLLAMA_TEMPERATURE=0.9
+OLLAMA_NUM_PREDICT=1024
+OLLAMA_TIMEOUT=120
+```
+
+로컬 모델 특성에 맞춘 설계 결정 세 가지:
+
+1. **구조화 출력 강제** — `format: "json"` 으로 요청하고, 그래도 코드펜스나
+   설명 문장이 섞여 나오는 경우를 `extract_json` 이 복구합니다. 로컬 모델에서
+   JSON 파싱 실패는 예외가 아니라 일상입니다.
+2. **유형별 분리 호출** — 한 응답 안에서 유형 다양성이 빠르게 무너지므로,
+   `comment_type` 을 지정해 `insight / empathy / question / casual` 을 나눠
+   호출할 수 있게 열어 두었습니다 (3단계에서 병렬 노드로 연결).
+3. **재생성 피드백** — 안전 필터 차단 사유·중복 수를 `revision_feedback` 으로
+   되먹입니다. 이때도 모델이 따라야 할 지시가 아니라 우리 쪽 규칙으로만 전달합니다.
+
+프롬프트 주입 방어는 기존과 동일합니다. `generation_context` 안의 제목·설명·
+자막·기존 댓글은 전부 **데이터로만** 취급하며, 그 안에 명령문이 들어 있어도
+따르지 않도록 시스템 지시문에 명시되어 있고 두 제공자 모두에 대해 테스트로
+고정했습니다.
+
+### 실행
+
+```bash
+uv run langgraph dev
+```
+
+기존 FastAPI 서버는 그대로 동작합니다.
+
+```bash
+uvicorn src.api.main:app --reload
+```
+
+### 아직 하지 않은 것
+
+- `/recommend` 는 여전히 기존 경로(`src/recommender/ranker.py` + OpenAI)를 씁니다.
+  그래프 기반 전환은 4단계입니다.
+- 게시 기능은 아직 없습니다. YouTube 스팸 정책상 사람 승인 없는 자동 게시
+  경로는 만들지 않으며, 게시는 5단계에서 HITL 승인 게이트와 함께 추가합니다.
+- 런타임 의존성이 `requirements.txt` 와 `pyproject.toml` 로 이중 관리 상태입니다.
+  CI 는 pip 경로를, `langgraph dev` 는 pyproject 를 씁니다. uv 단일화는 후속 작업입니다.
+- Cast 단위 CLAUDE.md, drawkit 다이어그램 작성은 3단계에서 노드가 확정된 뒤 진행합니다.
+
 ## 현재 한계
 
 - 실제 LLM cloud E2E에는 유효한 `OPENAI_API_KEY`, `OPENAI_MODEL`이 필요합니다.
