@@ -105,13 +105,22 @@ def is_safe_comment(comment: str) -> bool:
     return get_block_reason(comment) is None
 
 
-def filter_safe_comments(candidates: list[dict]) -> list[dict]:
-    safe_candidates = []
+def classify_candidates(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
+    """후보를 안전/차단으로 나누고 차단 후보에는 block_reason을 붙인다."""
+    safe_candidates: list[dict] = []
+    blocked_candidates: list[dict] = []
 
     for item in candidates:
-        comment = item.get("comment", "")
-
-        if is_safe_comment(comment):
+        comment = str(item.get("comment") or "")
+        reason = get_block_reason(comment)
+        if reason is None:
             safe_candidates.append(item)
+        else:
+            blocked_candidates.append({**item, "block_reason": reason})
 
+    return safe_candidates, blocked_candidates
+
+
+def filter_safe_comments(candidates: list[dict]) -> list[dict]:
+    safe_candidates, _ = classify_candidates(candidates)
     return safe_candidates
