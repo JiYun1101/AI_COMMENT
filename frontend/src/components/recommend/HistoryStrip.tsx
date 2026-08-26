@@ -1,6 +1,7 @@
 import { ChevronRight, LoaderCircle, MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { listAnalyses } from '../../api/client';
+import { formatCategoryLabel } from '../../utils/category';
 import type { AnalysisSummary } from '../../types/comment';
 
 interface HistoryStripProps {
@@ -70,7 +71,7 @@ export function HistoryStrip({ refreshKey, onSelect }: HistoryStripProps) {
                 className="hist-thumb"
                 style={item.thumbnail_url ? { backgroundImage: `url(${item.thumbnail_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
               >
-                <span className="badge">{item.category === 'vlog' ? '브이로그' : '사회이슈'}</span>
+                <span className="badge">{formatCategoryLabel(item.category)}</span>
               </div>
               <div className="hist-body">
                 <div className="hist-title">{item.video_title || item.source_text}</div>
