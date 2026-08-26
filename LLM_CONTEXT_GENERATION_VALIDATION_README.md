@@ -29,7 +29,7 @@ Branch: `feature/llm-context-generation`
 
 ## FP-01 — 짧은 영어 topic keyword의 substring 오탐
 
-상태: `테스트 필요`
+상태: `해결됨`
 
 문제 예:
 
@@ -42,15 +42,16 @@ Branch: `feature/llm-context-generation`
 - ASCII keyword는 단순 `in` 대신 영숫자 word boundary를 사용하는 `_keyword_present()`로 판정.
 - topic/style/age/orientation 공통 matcher가 이 함수를 사용.
 
-종료 조건:
+회귀 검증:
 
-- `chair design`이 AI로 분류되지 않는 테스트.
-- `women fashion`이 `female_oriented`이고 `mixed`가 되지 않는 테스트.
-- 독립된 `AI`, `man` 토큰은 계속 정상 매칭되는 테스트.
+- `Chair design details and interior styling`이 `ai`/`autos`로 분류되지 않음.
+- `Women fashion ... woman ...`이 `female_oriented`이며 `mixed`가 되지 않음.
+- 독립된 `AI`와 `software` token은 계속 정상 positive.
+- `tests/test_generation_context.py`에 고정.
 
 ## FP-02 — YouTube `topicDetails`를 수집하고도 derived topic에 반영하지 않는 누락
 
-상태: `테스트 필요`
+상태: `해결됨`
 
 문제:
 
@@ -62,9 +63,10 @@ Branch: `feature/llm-context-generation`
 - topic URL/path의 마지막 slug를 decode/normalize하여 classifier 입력에 추가.
 - official category는 그대로 보존하고 topicDetails는 derived multi-label 신호에만 사용.
 
-종료 조건:
+회귀 검증:
 
-- title에 `music`이 없어도 topicDetails가 `/Music`이면 `music` topic이 생성되는 테스트.
+- title에 `music`이 없어도 topicDetails가 `.../Music`이면 `music` topic 생성.
+- `tests/test_generation_context.py`에 고정.
 
 ## FP-03 — Content target age heuristic을 실제 viewer age로 오해할 위험
 
@@ -112,7 +114,7 @@ Branch: `feature/llm-context-generation`
 대응:
 
 - 짧고 오탐이 큰 단어는 rule vocabulary에서 피한다.
-- multi-label + confidence-less derived label로 사용하며 official category를 덮어쓰지 않는다.
+- multi-label derived label로 사용하며 official category를 덮어쓰지 않는다.
 - 장기적으로 형태소 분석/embedding classifier 도입 후보.
 
 ## FP-06 — Official YouTube category와 자체 topic/style 충돌
@@ -141,7 +143,7 @@ Branch: `feature/llm-context-generation`
 
 ## ST-01 — `additional_context` 중복 반영
 
-상태: `테스트 필요`
+상태: `해결됨`
 
 기존 위험:
 
@@ -153,9 +155,10 @@ Branch: `feature/llm-context-generation`
 - `additional_context`는 GenerationContext builder에 별도 필드로 한 번 전달.
 - ranker reference에는 필요한 경우 한 번만 append.
 
-종료 조건:
+회귀 검증:
 
-- API integration test에서 context builder에 전달되는 source text와 additional context가 분리돼 있음을 검증.
+- API integration test에서 context builder의 source/additional context가 분리됨.
+- ranking/response reference에는 추가 맥락이 정확히 한 번만 존재함.
 
 ## ST-02 — URL → 직접입력 전환 시 additional context가 본문으로 복사되는 상태 혼합
 
@@ -191,7 +194,7 @@ Branch: `feature/llm-context-generation`
 
 주의:
 
-- provider가 temperature/모델 정책상 유사한 답을 반환할 가능성은 존재하며 애플리케이션이 완전한 다양성을 보장할 수는 없음.
+- provider 정책/샘플링에 따라 유사한 답을 반환할 가능성은 존재하며 애플리케이션이 완전한 다양성을 보장할 수는 없음.
 
 ## ST-05 — 새 후보 생성 시 새로운 analysis row 생성
 
@@ -210,12 +213,21 @@ Branch: `feature/llm-context-generation`
 
 상태: `해결됨`
 
-대응:
+Backend 대응:
 
 - `/health`가 model, llm, youtube, storage를 분리해서 반환.
 - LLM key/model 누락은 LLMNotReadyError.
 - model artifact 누락은 ModelNotReadyError.
 - YouTube key 누락은 URL context path의 YouTubeConfigurationError.
+
+Frontend 대응:
+
+- 추천 화면 진입 시 `/health`를 preflight.
+- model/LLM/storage 미준비는 원인을 표시하고 submit을 사전 차단.
+- URL 모드는 YouTube API 설정을 추가 요구.
+- manual 모드는 YouTube API가 없어도 허용.
+- health 요청 자체가 실패하면 backend 연결 문제로 안내하고 submit을 막음.
+- 동일 판단 로직을 `src/utils/readiness.ts`로 분리하고 frontend test에 고정.
 
 ## ST-07 — transcript 없음과 transcript fetch 실패의 UI 상태가 동일
 
@@ -271,6 +283,10 @@ Branch: `feature/llm-context-generation`
 - system instruction에서 GenerationContext 모든 field를 untrusted data로 선언.
 - embedded imperative를 instruction으로 따르지 말라고 명시.
 - LLM이 video classification을 다시 결정하지 않도록 명시.
+
+회귀 검증:
+
+- fake provider request를 검사하여 system/task rule에 untrusted-data 경계가 유지되는지 확인.
 
 ## LLM-02 — Historical comment 원문 복제
 
@@ -367,6 +383,25 @@ Branch: `feature/llm-context-generation`
 
 - comment age, video age, reply/like normalization 재검토.
 
+## DATA-04 — Unsafe historical comment가 LLM reference/profile에 들어갈 위험
+
+상태: `해결됨`
+
+재감사에서 발견한 누락:
+
+- 생성 결과에는 safety filter가 있었지만, historical CSV를 읽어 LLM reference/profile을 만드는 단계는 처음 구현에서 빈 값/길이만 필터링했다.
+- 반응이 높다는 이유만으로 욕설/혐오/스팸 등이 reference에 포함될 수 있었다.
+
+대응:
+
+- `_load_dataset()`에서 `is_safe_comment()`를 적용.
+- unsafe row는 profile 통계와 reference example 양쪽 모두에서 제외.
+- historical text는 여전히 untrusted data로 취급.
+
+회귀 검증:
+
+- 매우 높은 좋아요를 가진 unsafe historical comment가 있어도 `matched_count`/reference에서 제외되는 테스트 추가.
+
 ---
 
 # 6. 시간/인기도 이상
@@ -413,20 +448,21 @@ Branch: `feature/llm-context-generation`
 
 - URL preview/recommend path 불가.
 - manual path는 YouTube API 없이도 context 생성 가능.
+- frontend preflight가 URL 모드에서 이를 미리 안내한다.
 
 ## EXT-02 — OpenAI key/model 없음
 
 상태: `운영 위험`
 
 - candidate generation 불가.
-- `/health`에서 별도 readiness로 노출.
+- `/health`와 frontend preflight에서 별도 readiness로 노출.
 
 ## EXT-03 — reaction model artifact 없음/불일치
 
 상태: `운영 위험`
 
 - ranking 불가.
-- model readiness가 별도 상태로 노출.
+- model readiness와 frontend preflight에서 별도 상태로 노출.
 
 ## EXT-04 — transcript API cloud/IP failure
 
@@ -450,16 +486,32 @@ Branch: `feature/llm-context-generation`
 
 ---
 
-# 8. 이번 검증에서 추가할 회귀 테스트
+# 8. 이번 검증에서 추가한 회귀 테스트
 
-- [ ] ASCII short keyword substring false positive
-- [ ] `woman`/`man` orientation false positive
-- [ ] YouTube topicDetails → derived topic 반영
-- [ ] explicit standalone ASCII keyword 정상 positive
-- [ ] additional_context source/context 분리
-- [ ] prompt가 GenerationContext를 untrusted data로 취급한다는 계약 유지
-- [ ] 기존 regression 전체 green
-- [ ] frontend test/lint/build/audit green
+- [x] ASCII short keyword substring false positive
+- [x] `woman`/`man` orientation false positive
+- [x] YouTube topicDetails → derived topic 반영
+- [x] explicit standalone ASCII keyword 정상 positive
+- [x] additional_context source/context 분리
+- [x] prompt가 GenerationContext를 untrusted data로 취급한다는 계약 유지
+- [x] unsafe historical reference 제외
+- [x] frontend readiness: manual은 YouTube key 불필요
+- [x] frontend readiness: URL은 YouTube key 필요
+- [x] frontend readiness: model/LLM/backend failure preflight 차단
+- [x] 기존 regression 전체 green
+- [x] frontend test/lint/build/audit green
+
+### 최신 코드 CI 증거
+
+Branch head `1064a749bd009662bd74771ef35de8ec82207e62`, workflow run `32931538728`:
+
+- Backend: **51 passed**, upstream Starlette/TestClient deprecation warning 1건
+- Frontend tests: success
+- Frontend lint: success
+- Frontend production build: success
+- Frontend production dependency audit: success
+
+이후 README 정리 commit이 추가되므로 **merge gate는 최종 문서 HEAD의 CI를 다시 확인**한다.
 
 ---
 
@@ -467,15 +519,17 @@ Branch: `feature/llm-context-generation`
 
 아래가 모두 충족되기 전에는 `main`에 반영하지 않는다.
 
-- [ ] 위 신규 회귀 테스트 추가
-- [ ] branch push CI green
-- [ ] `main...feature/llm-context-generation` behind 0
-- [ ] `LLM_CONTEXT_GENERATION_README.md` 전체 재검토
-- [ ] 이 validation README 전체 재검토
-- [ ] fixed template reachable path 없음
-- [ ] social/vlog가 새 primary taxonomy로 남아 있지 않음
-- [ ] 실제 viewer demographic을 주장하는 코드/문서 없음
-- [ ] hype를 real velocity로 주장하는 코드/문서 없음
+- [x] 신규 회귀 테스트 추가
+- [x] 코드 변경 HEAD branch push CI green (`1064a749...`, 51 backend tests + frontend green)
+- [x] 코드 변경 시점 `main...feature/llm-context-generation` behind 0 확인
+- [ ] 최종 문서 HEAD branch push CI green
+- [ ] `LLM_CONTEXT_GENERATION_README.md` 전체 최종 재검토
+- [ ] 이 validation README 전체 최종 재검토
+- [ ] root `README.md` 전체 최종 재검토
+- [ ] fixed template reachable path 없음 최종 확인
+- [ ] social/vlog가 새 primary taxonomy로 남아 있지 않음 최종 확인
+- [ ] 실제 viewer demographic을 주장하는 코드/문서 없음 최종 확인
+- [ ] hype를 real velocity로 주장하는 코드/문서 없음 최종 확인
 - [ ] PR 생성
 - [ ] PR-triggered CI green
 - [ ] PR merge
@@ -489,7 +543,7 @@ Branch: `feature/llm-context-generation`
 
 # 10. Merge 후 기록
 
-Merge 완료 후 아래를 실제 SHA/CI 결과로 채운다.
+Merge 완료 후 아래를 실제 SHA/CI 결과로 확인한다.
 
 - feature final head: pending
 - PR: pending
@@ -497,6 +551,8 @@ Merge 완료 후 아래를 실제 SHA/CI 결과로 채운다.
 - main merge SHA: pending
 - main verification: pending
 - retained feature branch verification: pending
+
+정확한 merge SHA는 merge 이후에만 알 수 있으므로 merge 전 README에서 임의로 예측하지 않는다. 최종 보고에는 실제 GitHub 상태를 사용한다.
 
 ---
 
