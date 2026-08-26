@@ -6,6 +6,7 @@ import { Header } from '../components/layout/Header';
 import { Composer } from '../components/recommend/Composer';
 import { EmptyExamples, type ExampleVideo } from '../components/recommend/EmptyExamples';
 import { HistoryStrip } from '../components/recommend/HistoryStrip';
+import { RecommendationTracePanel } from '../components/recommend/RecommendationTracePanel';
 import { TypeTag } from '../components/TypeTag';
 import { getAnalysis, getHealth, getVideoPreview, recommend, sendFeedback } from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
@@ -16,6 +17,7 @@ import type {
   CommentRecommendation,
   GenerationContextSummary,
   GenerationMeta,
+  RecommendationTrace,
   ServiceHealth,
   VideoPreviewData,
 } from '../types/comment';
@@ -42,6 +44,7 @@ export function RecommendPage() {
   const [resolvedCategory, setResolvedCategory] = useState<string | null>(null);
   const [contextSummary, setContextSummary] = useState<GenerationContextSummary | null>(null);
   const [generation, setGeneration] = useState<GenerationMeta | null>(null);
+  const [trace, setTrace] = useState<RecommendationTrace | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +66,7 @@ export function RecommendPage() {
     setResolvedCategory(null);
     setContextSummary(null);
     setGeneration(null);
+    setTrace(null);
     setCopiedId(null);
   };
 
@@ -204,6 +208,7 @@ export function RecommendPage() {
       setResolvedCategory(response.resolved_category);
       setContextSummary(response.context ?? null);
       setGeneration(response.generation);
+      setTrace(response.trace ?? null);
       if (response.youtube_context) setPreview(response.youtube_context);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
@@ -220,6 +225,7 @@ export function RecommendPage() {
       setResolvedCategory(detail.category);
       setContextSummary(detail.context_summary ?? null);
       setGeneration(null);
+      setTrace(null);
       setResults(detail.recommendations);
       setAdditionalContextState(detail.additional_context ?? '');
       if (detail.requested_count && detail.requested_count >= 3 && detail.requested_count <= 10) {
@@ -377,6 +383,7 @@ export function RecommendPage() {
                   </div>
                 ))}
               </div>
+              {trace && <RecommendationTracePanel trace={trace} />}
             </section>
           )}
 
