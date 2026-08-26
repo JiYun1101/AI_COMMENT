@@ -9,6 +9,7 @@ from statistics import median
 from typing import Iterable
 
 from src.config import BASE_DIR
+from src.recommender.safety_filter import is_safe_comment
 
 DEFAULT_DATASET_PATHS = (
     BASE_DIR / "data" / "raw" / "social_issues_comments.csv",
@@ -43,7 +44,7 @@ def _load_dataset(path_text: str) -> tuple[dict, ...]:
             reader = csv.DictReader(handle)
             for raw in reader:
                 comment = (raw.get("comment_text") or "").strip()
-                if not comment or len(comment) > 200:
+                if not comment or len(comment) > 200 or not is_safe_comment(comment):
                     continue
                 rows.append(
                     {
@@ -95,10 +96,12 @@ def build_historical_profile(
     profile_limit: int = 80,
     reference_limit: int = 6,
 ) -> dict:
-    """Select relevant historical comments and summarize response-shape signals in code.
+    """Select safe, relevant historical comments and summarize response-shape signals.
 
     The current repository only contains social_issues/vlog datasets. This retriever
     exposes that coverage explicitly instead of claiming full YouTube-category support.
+    Historical comment text is treated as untrusted reference data and must pass the
+    same application safety predicate before it can influence the LLM prompt/profile.
     """
     paths = tuple(Path(path) for path in (dataset_paths or DEFAULT_DATASET_PATHS))
     preferred = set(_dataset_bias(topics, content_styles))
