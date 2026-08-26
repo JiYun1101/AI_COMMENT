@@ -104,6 +104,25 @@ export interface GenerationMeta {
   generator?: string;
 }
 
+export interface RecommendationTraceCandidate {
+  sequence: number;
+  attempt: number;
+  type: CommentType | string;
+  comment: string;
+  safety: 'passed' | 'blocked';
+  safety_reason: string | null;
+  duplicate: boolean;
+  ranker_score: number | null;
+  selected: boolean;
+  final_rank: number | null;
+}
+
+export interface RecommendationTrace {
+  safety_blocked_count: number;
+  duplicate_candidate_count: number;
+  candidates: RecommendationTraceCandidate[];
+}
+
 export interface RecommendResponse {
   analysis_id: string;
   post_text: string;
@@ -112,6 +131,7 @@ export interface RecommendResponse {
   context?: GenerationContextSummary | null;
   recommendations: CommentRecommendation[];
   generation: GenerationMeta;
+  trace?: RecommendationTrace | null;
 }
 
 export interface AnalysisSummary {
