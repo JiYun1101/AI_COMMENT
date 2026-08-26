@@ -57,13 +57,21 @@ class FakeSession:
         if url.endswith("/videos"):
             return FakeResponse({"items": [{
                 "snippet": {
-                    "title": "테스트 영상", "description": "영상 설명입니다.",
-                    "channelTitle": "테스트 채널", "channelId": "channel-1",
+                    "title": "테스트 영상",
+                    "description": "AI 개발자 영상 설명입니다.",
+                    "channelTitle": "테스트 채널",
+                    "channelId": "channel-1",
                     "publishedAt": "2026-08-24T00:00:00Z",
+                    "categoryId": "28",
+                    "tags": ["AI", "개발자"],
+                    "defaultAudioLanguage": "ko",
+                    "liveBroadcastContent": "none",
                     "thumbnails": {"high": {"url": "https://img.example/high.jpg"}},
                 },
-                "statistics": {"viewCount": "12345"},
-                "contentDetails": {"duration": "PT14M22S"},
+                "statistics": {"viewCount": "12345", "likeCount": "987", "commentCount": "45"},
+                "contentDetails": {"duration": "PT14M22S", "contentRating": {}},
+                "status": {"madeForKids": False},
+                "topicDetails": {"topicCategories": ["https://en.wikipedia.org/wiki/Technology"]},
             }]})
         if url.endswith("/channels"):
             return FakeResponse({"items": [{"statistics": {
@@ -79,21 +87,30 @@ def test_fetch_context_and_reference_without_external_transcript_for_test_sessio
     )
     assert context.title == "테스트 영상"
     assert context.transcript_available is False
+    assert context.category_id == "28"
+    assert context.category_name == "Science & Technology"
+    assert context.tags == ("AI", "개발자")
+    assert context.like_count == 987
+    assert context.comment_count == 45
+    assert context.made_for_kids is False
     assert len(session.calls) == 2
     reference = build_reference_text(context)
     assert "제목: 테스트 영상" in reference
-    assert "설명: 영상 설명입니다." in reference
+    assert "YouTube 카테고리: Science & Technology" in reference
+    assert "태그: AI, 개발자" in reference
+    assert "설명: AI 개발자 영상 설명입니다." in reference
 
 
 def test_injected_transcript_is_added_to_reference():
     session = FakeSession()
     context = fetch_youtube_context(
-        "https://youtu.be/dQw4w9WgXcQ",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
         api_key="test-key",
         session=session,
         transcript_fetcher=lambda _: ("공개 자막 내용입니다", "ko"),
     )
     assert context.transcript_available is True
+    assert context.is_short is True
     assert context.to_dict()["transcript_available"] is True
     assert "transcript" not in context.to_dict()
     assert "자막: 공개 자막 내용입니다" in build_reference_text(context)
