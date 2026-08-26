@@ -1,0 +1,192 @@
+name: Runtime Validation 10
+
+on:
+  push:
+    branches: ['test/runtime-validation-10']
+
+permissions:
+  contents: read
+
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+  OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+  YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+  YOUTUBE_CATEGORY_REGION: KR
+  AI_COMMENT_DB_PATH: /tmp/ai_comment_runtime_validation.db
+
+jobs:
+  runtime-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Resolve runtime model configuration
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_MODEL" ]; then
+            echo 'OPENAI_MODEL=gpt-5-mini' >> "$GITHUB_ENV"
+          fi
+          if [ -z "$OPENAI_BASE_URL" ]; then
+            echo 'OPENAI_BASE_URL=https://api.openai.com/v1' >> "$GITHUB_ENV"
+          fi
+          test -n "$OPENAI_API_KEY" || { echo 'OPENAI_API_KEY repository secret is required for real-provider validation.'; exit 1; }
+          test -n "$YOUTUBE_API_KEY" || { echo 'YOUTUBE_API_KEY repository secret is required for real YouTube validation.'; exit 1; }
+          echo 'Runtime secrets are configured (values are not printed).'
+
+      - name: 'TEST 01 — Backend pytest suite'
+        run: pytest -q
+
+      - name: 'TEST 02 — Frontend unit tests'
+        working-directory: frontend
+        run: npm test
+
+      - name: 'TEST 03 — Frontend lint'
+        working-directory: frontend
+        run: npm run lint
+
+      - name: 'TEST 04 — Frontend production build'
+        working-directory: frontend
+        run: npm run build
+
+      - name: 'TEST 05 — Prepare and train real reaction ranker'
+        run: |
+          python scripts/prepare_combined_comments.py
+          python -m src.data.preprocess
+          python -m src.features.text_features
+          python -m src.features.embedding_features
+          python -m src.model.train
+          python - <<'PY'
+          from src.model.predict import model_readiness, score_comments
+          readiness = model_readiness()
+          assert readiness['ready'], readiness
+          results = score_comments('React 상태 관리 비교 영상', ['설명이 깔끔해서 이해가 잘 됐어요.', '이 경우 서버 상태는 어떻게 다루나요?'])
+          assert len(results) == 2
+          assert all(0 <= item['score'] <= 100 for item in results)
+          print({'model_ready': readiness['ready'], 'score_count': len(results)})
+          PY
+
+      - name: 'TEST 06 — Start backend and verify ready health'
+        shell: bash
+        run: |
+          uvicorn src.api.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          echo $! > /tmp/uvicorn.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          python - <<'PY'
+          import json
+          body = json.load(open('/tmp/health.json', encoding='utf-8'))
+          assert body['status'] == 'ok', body
+          assert body['model']['ready'] is True, body
+          assert body['llm']['ready'] is True, body
+          assert body['youtube']['configured'] is True, body
+          assert body['storage']['ready'] is True, body
+          print({'status': body['status'], 'llm_provider': body['llm']['provider'], 'model': body['llm']['model']})
+          PY
+
+      - name: 'TEST 07 — Start frontend dev server and fetch app shell'
+        shell: bash
+        run: |
+          cd frontend
+          npm run dev -- --host 127.0.0.1 > /tmp/vite.log 2>&1 &
+          echo $! > /tmp/vite.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:5173/ > /tmp/frontend.html; then break; fi
+            sleep 1
+          done
+          grep -q '<div id="root"></div>' /tmp/frontend.html
+          echo 'Vite app shell served successfully.'
+
+      - name: 'TEST 08 — Real OpenAI Responses API candidate generation'
+        run: |
+          python - <<'PY'
+          from src.llm.openai_client import OpenAIResponsesClient
+          from src.recommender.generation_context import build_generation_context
+
+          context = build_generation_context(
+              'React Query와 Zustand의 역할 차이를 설명하는 한국어 개발 영상입니다.',
+              additional_context='광고처럼 과장하지 말고 자연스럽게',
+          )
+          candidates = OpenAIResponsesClient().generate(context, candidate_count=4)
+          assert len(candidates) >= 2, candidates
+          assert all(5 <= len(item['comment']) <= 200 for item in candidates)
+          assert all(item['type'] in {'insight','empathy','question','casual','general'} for item in candidates)
+          print({'provider': 'openai_responses_api', 'candidate_count': len(candidates), 'sample_type': candidates[0]['type']})
+          PY
+
+      - name: 'TEST 09 — Real YouTube preview over running API'
+        shell: bash
+        run: |
+          curl -fsS --get --data-urlencode 'url=https://www.youtube.com/watch?v=dQw4w9WgXcQ' http://127.0.0.1:8000/videos/preview > /tmp/youtube-preview.json
+          python - <<'PY'
+          import json
+          body = json.load(open('/tmp/youtube-preview.json', encoding='utf-8'))
+          assert body['video_id'] == 'dQw4w9WgXcQ', body
+          assert body.get('title'), body
+          assert body.get('category_id'), body
+          assert body.get('transcript_status') in {'available', 'unavailable', 'fetch_failed'}, body
+          print({'video_id': body['video_id'], 'title': body['title'][:80], 'transcript_status': body.get('transcript_status')})
+          PY
+
+      - name: 'TEST 10 — Full real YouTube → LLM → safety → ranker → persistence flow'
+        shell: bash
+        run: |
+          cat > /tmp/recommend.json <<'JSON'
+          {
+            "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "additional_context": "영상 내용에 맞는 자연스럽고 짧은 댓글",
+            "top_k": 5
+          }
+          JSON
+          curl -fsS -H 'Content-Type: application/json' --data @/tmp/recommend.json http://127.0.0.1:8000/recommend > /tmp/recommend-response.json
+          python - <<'PY'
+          import json, urllib.request
+          body = json.load(open('/tmp/recommend-response.json', encoding='utf-8'))
+          assert body['generation']['generator'] == 'llm', body
+          assert body['generation']['returned_count'] == 5, body
+          assert len(body['recommendations']) == 5, body
+          assert body['analysis_id'].startswith('a_'), body
+          analysis_id = body['analysis_id']
+          with urllib.request.urlopen(f'http://127.0.0.1:8000/analyses/{analysis_id}') as response:
+              detail = json.load(response)
+          assert detail['id'] == analysis_id, detail
+          assert detail['requested_count'] == 5, detail
+          with urllib.request.urlopen('http://127.0.0.1:8000/dashboard/summary') as response:
+              dashboard = json.load(response)
+          assert dashboard['analysis_count'] >= 1, dashboard
+          print({
+              'analysis_id': analysis_id,
+              'resolved_category': body['resolved_category'],
+              'returned_count': body['generation']['returned_count'],
+              'safe_candidate_count': body['generation']['safe_candidate_count'],
+              'dashboard_analysis_count': dashboard['analysis_count'],
+          })
+          PY
+
+      - name: Stop runtime servers
+        if: always()
+        shell: bash
+        run: |
+          [ ! -f /tmp/uvicorn.pid ] || kill $(cat /tmp/uvicorn.pid) || true
+          [ ! -f /tmp/vite.pid ] || kill $(cat /tmp/vite.pid) || true
