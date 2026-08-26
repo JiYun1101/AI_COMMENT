@@ -123,17 +123,6 @@ export function Composer({
               </div>
             )}
             {preview && !previewLoading && <VideoPreview data={preview} onClear={onClearPreview} />}
-            <div className="composer-extra">
-              <label htmlFor="additional-context">추가 맥락 <span>선택</span></label>
-              <textarea
-                id="additional-context"
-                value={additionalContext}
-                onChange={(e) => setAdditionalContext(e.target.value)}
-                maxLength={4000}
-                placeholder="영상 설명이나 자막에 없는 관점, 댓글 대상, 꼭 반영할 내용을 적어주세요."
-              />
-              <small>{additionalContext.length} / 4,000</small>
-            </div>
           </>
         ) : (
           <>
@@ -150,6 +139,18 @@ export function Composer({
             </div>
           </>
         )}
+
+        <div className="composer-extra">
+          <label htmlFor="additional-context">추가 맥락 <span>선택</span></label>
+          <textarea
+            id="additional-context"
+            value={additionalContext}
+            onChange={(e) => setAdditionalContext(e.target.value)}
+            maxLength={4000}
+            placeholder="기본 내용에 없는 관점, 댓글 대상, 꼭 반영할 내용을 적어주세요."
+          />
+          <small>{additionalContext.length} / 4,000</small>
+        </div>
 
         <div className="options">
           <div className="opt-row context-auto-row">
