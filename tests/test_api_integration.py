@@ -41,8 +41,8 @@ def test_recommend_persists_context_and_dashboard_uses_real_data(tmp_path, monke
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["resolved_category"] == "vlog"
-    assert body["context"]["primary_category"] == "vlog"
+    assert body["resolved_category"] == "travel"
+    assert body["context"]["primary_category"] == "travel"
     assert "travel" in body["context"]["topics"]
     assert body["generation"]["generator"] == "llm"
     assert body["generation"]["returned_count"] == 10
@@ -56,9 +56,9 @@ def test_recommend_persists_context_and_dashboard_uses_real_data(tmp_path, monke
     assert detail.status_code == 200
     assert detail.json()["additional_context"] == "가족 여행 관점"
     assert detail.json()["requested_count"] == 10
-    assert detail.json()["context_summary"]["primary_category"] == "vlog"
+    assert detail.json()["context_summary"]["primary_category"] == "travel"
 
-    comments = client.get("/comments", params={"category": "vlog", "min_score": 80})
+    comments = client.get("/comments", params={"category": "travel", "min_score": 80})
     assert comments.status_code == 200
     assert comments.json()["total"] > 0
     recommendation_id = body["recommendations"][0]["id"]
