@@ -1,6 +1,6 @@
 export type CommentType = 'insight' | 'casual' | 'empathy' | 'question' | 'negative' | 'general';
-export type Category = 'auto' | 'social' | 'vlog';
-export type ResolvedCategory = Exclude<Category, 'auto'>;
+export type Category = string;
+export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
@@ -25,7 +25,7 @@ export interface RecommendRequest {
   post_text?: string;
   youtube_url?: string;
   additional_context?: string;
-  category: Category;
+  category?: string;
   top_k: number;
 }
 
@@ -51,6 +51,46 @@ export interface YouTubeVideoContext {
   thumbnail_url: string | null;
   transcript_available: boolean;
   transcript_language: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  tags?: string[];
+  default_language?: string | null;
+  like_count?: number | null;
+  comment_count?: number | null;
+  made_for_kids?: boolean | null;
+  age_restricted?: boolean;
+  topic_categories?: string[];
+  live_broadcast_content?: string | null;
+  live_streaming_details?: Record<string, unknown> | null;
+  is_short?: boolean;
+}
+
+export interface ReadinessComponent {
+  ready: boolean;
+  [key: string]: unknown;
+}
+
+export interface ServiceHealth {
+  status: 'ok' | 'degraded' | string;
+  message: string;
+  model: ReadinessComponent;
+  llm: ReadinessComponent;
+  youtube: { configured: boolean };
+  storage: { ready: boolean };
+}
+
+export interface GenerationContextSummary {
+  primary_category: string;
+  official_category: string | null;
+  topics: string[];
+  content_styles: string[];
+  format: string;
+  broadcast: string;
+  freshness: string;
+  hype_label: string;
+  hype_score: number;
+  historical_match_count: number;
+  historical_coverage: string;
 }
 
 export interface GenerationMeta {
@@ -59,6 +99,7 @@ export interface GenerationMeta {
   candidate_count: number;
   safe_candidate_count: number;
   blocked_candidate_count: number;
+  generator?: string;
 }
 
 export interface RecommendResponse {
@@ -66,6 +107,7 @@ export interface RecommendResponse {
   post_text: string;
   resolved_category: ResolvedCategory;
   youtube_context?: YouTubeVideoContext | null;
+  context?: GenerationContextSummary | null;
   recommendations: CommentRecommendation[];
   generation: GenerationMeta;
 }
@@ -79,14 +121,18 @@ export interface AnalysisSummary {
   video_title: string | null;
   channel: string | null;
   thumbnail_url: string | null;
-  category: ResolvedCategory;
+  category: string;
   created_at: string;
   recommendation_count: number;
   average_score: number;
+  requested_count?: number | null;
+  additional_context?: string | null;
 }
 
 export interface AnalysisDetail extends Omit<AnalysisSummary, 'recommendation_count' | 'average_score'> {
   recommendations: CommentRecommendation[];
+  generation_context?: Record<string, unknown> | null;
+  context_summary?: GenerationContextSummary | null;
 }
 
 export interface DashboardSummary {
@@ -106,7 +152,7 @@ export interface DashboardComment {
   predicted_score: number;
   feedback: FeedbackValue;
   created_at: string;
-  category: ResolvedCategory;
+  category: string;
   source_type: 'youtube' | 'manual';
   video_title: string | null;
   channel: string | null;

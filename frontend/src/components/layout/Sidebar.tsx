@@ -45,8 +45,8 @@ export function Sidebar({ current, onNav }: SidebarProps) {
 
       <div className="side-footer">
         <div className="sidebar-note">
-          <b>v0.4 MVP</b>
-          <span>실제 연결된 기능만 표시합니다.</span>
+          <b>v0.5 LLM MVP</b>
+          <span>맥락 분석은 코드, 댓글 생성은 LLM으로 처리합니다.</span>
         </div>
       </div>
     </aside>

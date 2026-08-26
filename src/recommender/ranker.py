@@ -8,12 +8,11 @@ from src.recommender.safety_filter import filter_safe_comments
 def recommend_comments_with_meta(
     post_text: str,
     *,
+    generation_context: dict,
     top_k: int = 5,
-    category: str = "auto",
 ) -> dict:
     candidates = generate_candidates(
-        post_text,
-        category=category,
+        generation_context,
         minimum_count=max(top_k, 10),
     )
     safe_candidates = filter_safe_comments(candidates)
@@ -53,24 +52,12 @@ def recommend_comments_with_meta(
 
 def recommend_comments(
     post_text: str,
+    *,
+    generation_context: dict,
     top_k: int = 5,
-    category: str = "auto",
 ) -> list[dict]:
     return recommend_comments_with_meta(
         post_text,
+        generation_context=generation_context,
         top_k=top_k,
-        category=category,
     )["recommendations"]
-
-
-if __name__ == "__main__":
-    result = recommend_comments(
-        post_text="AI 시대에 개발자는 어떻게 살아남아야 할까?",
-        top_k=5,
-        category="social",
-    )
-
-    print("추천 댓글 결과")
-    for row in result:
-        print(f"\n[{row['rank']}] {row['type']} / 점수: {row['predicted_score']}")
-        print(f"댓글: {row['comment']}")

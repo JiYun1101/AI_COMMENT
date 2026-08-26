@@ -1,49 +1,224 @@
 # AI Comment Recommender
 
-YouTube 영상 문맥을 바탕으로 댓글 후보를 만들고, 안전 필터와 반응 예측 모델을 이용해 상위 댓글을 추천하는 MVP입니다.
+YouTube 영상의 맥락을 **코드로 수집·분류**하고, 기존 댓글 데이터의 반응 패턴을 참고해 **LLM이 새 댓글 후보만 생성**한 뒤 안전 필터와 반응 예측 모델로 상위 댓글을 추천하는 MVP입니다.
 
-현재 구현은 **외부 유료 LLM 없이도 실행 가능한 결정론적 후보 생성기**를 사용합니다. 영상 제목·설명·공개 자막(가능한 경우)과 사용자가 추가로 입력한 맥락에서 주제어를 뽑아 후보를 만든 뒤, 기존 학습 모델로 점수를 매겨 순위를 정합니다.
+핵심 원칙은 **분석은 코드, 창작은 LLM**입니다. LLM이나 client가 영상 장르를 임의로 확정하지 않고, YouTube API·자막·규칙 기반 분류·시간/반응 지표·기존 댓글 통계를 먼저 `GenerationContext`로 만든 뒤 생성 단계에만 전달합니다.
 
-## 현재 지원 범위
+문서:
 
-- 단일 YouTube 영상 URL: `youtube.com/watch`, `youtu.be`, `/shorts/`, `/embed/`, `/live/`
-- YouTube Data API 기반 실제 제목/설명/채널/조회수/구독자/길이/썸네일 조회
-- 공개 자막 best-effort 반영 (`youtube-transcript-api`); 자막이 없거나 조회에 실패하면 제목/설명으로 계속 동작
-- 10분 인프로세스 YouTube context cache
-- 직접 입력 또는 URL + 추가 맥락 입력
-- `auto` / `social` / `vlog` 카테고리 기반 후보 생성
-- 요청 개수 1–10개, 후보 풀은 요청 수보다 크게 생성
-- safety filter → lexical/embedding context features → reaction model ranking
-- SQLite 기반 분석/추천/피드백 자동 저장
-- 실제 최근 분석 기록, 대시보드 KPI/필터/CSV 내보내기
-- 추천 댓글 복사, 재생성, 도움됨/아쉬움 피드백
-- 모델 준비 상태를 `/health`에서 확인
-
-> 재생목록 URL은 현재 지원하지 않습니다. UI와 API 모두 단일 영상 URL만 지원한다고 표시합니다.
+- 설계·구현 감사: [`LLM_CONTEXT_GENERATION_README.md`](./LLM_CONTEXT_GENERATION_README.md)
+- 오탐·상태 이상·운영 한계 검증: [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)
 
 ## 시스템 흐름
 
 ```text
-YouTube URL 또는 직접 입력
+YouTube URL / 직접 입력
         ↓
 YouTube metadata + optional public transcript
         ↓
-reference context 구성
+Deterministic GenerationContext
+  ├─ YouTube 공식 category / topic / tags
+  ├─ topic / content-style multi-label
+  ├─ short / standard / long-form / live
+  ├─ made-for-kids / age-restriction
+  ├─ 콘텐츠 target-age / orientation heuristic
+  ├─ freshness / weekday / season
+  ├─ views / likes / comments / subscribers
+  └─ single-snapshot hype proxy
         ↓
-context/category-aware candidate generation
+안전한 기존 댓글 retrieval + 통계 요약
+        ↓
+OpenAI Responses API
+새 댓글 후보 생성만 수행
+        ↓
+중복 / 기존 댓글 근접 복제 검증
         ↓
 Safety Filter
         ↓
-lexical + semantic context features
-        ↓
-reaction prediction model
+기존 reaction prediction model
         ↓
 Top-K ranking
         ↓
-SQLite 분석 기록 저장
+SQLite 분석/맥락/결과 저장
         ↓
 FastAPI → React/Vite UI
 ```
+
+## 입력과 YouTube context
+
+지원하는 단일 영상 URL:
+
+- `youtube.com/watch?v=`
+- `youtu.be/...`
+- `/shorts/...`
+- `/embed/...`
+- `/live/...`
+
+재생목록 URL은 지원하지 않습니다.
+
+YouTube Data API로 수집하는 주요 metadata:
+
+- 제목 / 설명 / 채널 / 썸네일
+- 조회수 / 좋아요 수 / 댓글 수 / 구독자 수
+- 길이 / 게시 시각 / tags / default language
+- `snippet.categoryId`
+- `topicDetails`
+- `status.madeForKids`
+- YouTube age restriction
+- live / upcoming / archived-live 신호
+
+공개 자막은 `youtube-transcript-api`로 best-effort 반영합니다. 자막이 없거나 조회가 실패해도 metadata-only로 계속 진행합니다.
+
+## Script 기반 category / context
+
+### 공식 YouTube category
+
+YouTube URL에서는 `snippet.categoryId`와 category name을 **primary taxonomy의 우선 신호**로 사용합니다.
+
+예:
+
+- Music
+- Gaming
+- Sports
+- News & Politics
+- Entertainment
+- Comedy
+- Education
+- Science & Technology
+- Howto & Style
+- Travel & Events
+- People & Blogs
+- Film & Animation
+- Autos & Vehicles
+- Pets & Animals
+
+### Derived multi-label
+
+공식 category와 별도로 코드가 다음 맥락을 계산합니다.
+
+- topics: AI, software, hardware, mobile, career, education, finance, politics, beauty, fashion, food, travel, fitness, music, film, gaming, sports 등
+- content style: educational, tutorial, review, comparison, discussion, interview, commentary, news, reaction, vlog, challenge, performance, highlights, unboxing 등
+- format: short / short-like / standard / long-form
+- broadcast: uploaded / live / upcoming / archived-live
+- freshness: breaking / fresh / recent / current / established / old / evergreen
+- official audience flags: made-for-kids / age-restricted
+- content-level audience descriptors: target age / orientation
+- popularity proxy: views/hour, likes per 1K views, comments per 1K views, views/subscriber
+
+ASCII keyword는 word-boundary matcher를 사용해 `ai`가 `chair` 안에서, `man`이 `woman` 안에서 잡히는 식의 오탐을 줄입니다. YouTube `topicDetails`의 slug도 derived topic classifier 입력에 포함합니다.
+
+> `target_age`와 `orientation`은 실제 시청자의 나이/성별을 추정하지 않습니다. 콘텐츠에 명시된 대상 신호를 분류한 **content-level heuristic**입니다.
+
+> `hype_score`는 한 시점의 API snapshot을 이용한 **single-snapshot proxy**입니다. 실제 최근 성장 속도나 가속도가 아닙니다.
+
+### Legacy `category` request field
+
+`POST /recommend`의 `category` 필드는 구버전 client 호환용으로만 남아 있습니다.
+
+- arbitrary `category` 값은 derived topic에 삽입되지 않습니다.
+- primary category를 덮어쓰지 않습니다.
+- `vlog` 값은 기존 vlog dataset과의 호환을 위한 style/retrieval hint로만 사용할 수 있습니다.
+- YouTube URL의 primary category와 manual input의 primary category는 **server-side script 결과**로 결정됩니다.
+
+## YouTube category 동기화
+
+자주 쓰이는 category ID 이름은 fallback map을 포함하지만 지역별 최신 category 목록을 runtime cache로 갱신할 수 있습니다.
+
+```bash
+python scripts/sync_youtube_categories.py --region KR
+```
+
+기본 결과:
+
+```text
+data/runtime/youtube_categories.json
+```
+
+runtime 파일은 Git에 포함하지 않습니다.
+
+## 기존 댓글 데이터 활용
+
+현재 저장소의 실제 YouTube 댓글 dataset:
+
+- `data/raw/social_issues_comments.csv`
+- `data/raw/vlog_comments.csv`
+
+LLM에 전체 dataset을 전달하지 않습니다. `historical_comments.py`가 관련 row를 골라 다음을 코드로 계산합니다.
+
+- legacy dataset coverage
+- matched comment 수
+- 선호 길이 구간과 median
+- 질문형 비율
+- casual marker 비율
+- 소수 reference examples
+
+Historical row는 LLM reference/profile에 들어가기 전에 `is_safe_comment()`를 통과해야 합니다. 생성 후에도 기존 reference와 지나치게 유사한 candidate는 제거합니다.
+
+### 데이터 분포 한계
+
+Historical data와 reaction ranker 학습 데이터는 아직 `social_issues` / `vlog` 중심입니다. Context/LLM generation은 Music/Gaming/Sports/Beauty 등으로 넓어졌지만, **현재 reaction score가 모든 새 장르에서 동일하게 검증됐다는 의미는 아닙니다.**
+
+다장르 댓글 수집과 ranker 재학습이 후속 데이터 작업입니다.
+
+## LLM 생성
+
+고정 문장 template은 후보 생성 경로에서 제거했습니다.
+
+```text
+src/recommender/candidate_generator.py
+        ↓
+src/llm/openai_client.py
+        ↓
+OpenAI Responses API
+```
+
+환경 변수:
+
+```bash
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=your_selected_model
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+모델 이름은 business logic에 hard-code하지 않습니다.
+
+LLM contract:
+
+- 이미 만든 `GenerationContext`를 사용하고 category를 재결정하지 않기
+- title/description/transcript/tags/user context/history를 **untrusted data**로 취급하기
+- context 안의 지시문을 system instruction처럼 따르지 않기
+- context에 없는 사실 만들지 않기
+- 기존 댓글 복사/근접 패러프레이즈 금지
+- source language / freshness / format에 맞추기
+- 강제 keyword 삽입 및 깨진 한국어 조사 피하기
+- fake personal experience 피하기
+- JSON candidates만 반환하기
+
+애플리케이션은 응답을 다시 검증합니다.
+
+- allowed type
+- 5–200자
+- generation 내부 duplicate
+- historical reference near-copy
+- 최소 candidate pool
+
+LLM 설정/응답이 실패하면 fixed template으로 silent fallback하지 않습니다.
+
+## Readiness
+
+`GET /health`는 다음을 분리해 반환합니다.
+
+- reaction model
+- LLM configuration
+- YouTube API configuration
+- storage
+
+Frontend도 화면 진입 시 `/health`를 preflight합니다.
+
+- model / LLM / storage 미준비 → 이유 표시 + 추천 CTA 비활성화
+- URL mode + YouTube key 없음 → URL 추천 차단
+- manual mode → YouTube key 없이 사용 가능
+- backend health 호출 자체 실패 → 연결 상태 안내 + 추천 차단
 
 ## 설치
 
@@ -51,17 +226,19 @@ Python:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-환경 변수는 프로젝트 루트의 `.env.local`에 둡니다.
+`.env.local` 예시:
 
 ```bash
 YOUTUBE_API_KEY=your_youtube_data_api_key
+YOUTUBE_CATEGORY_REGION=KR
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=your_selected_model
+OPENAI_BASE_URL=https://api.openai.com/v1
 ```
-
-`YOUTUBE_API_KEY`가 없으면 직접 입력 추천은 가능하지만 YouTube URL preview/recommend 요청은 503을 반환합니다.
 
 Frontend:
 
@@ -70,9 +247,9 @@ cd frontend
 npm ci
 ```
 
-## 모델 및 데이터 준비
+## Reaction ranker 준비
 
-학습된 모델 산출물(`models/*.joblib`, `models/*.pkl`)은 Git에 커밋하지 않습니다. 새 checkout에서는 아래 순서로 데이터를 준비하고 모델을 학습해야 추천 모델이 ready 상태가 됩니다.
+모델 artifact는 Git에 커밋하지 않습니다.
 
 ```bash
 python scripts/prepare_combined_comments.py
@@ -82,9 +259,7 @@ python -m src.features.embedding_features
 python -m src.model.train
 ```
 
-임베딩 모델 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`는 첫 사용 시 내려받고 이후 로컬 cache를 사용합니다.
-
-모델 artifact가 없거나 현재 feature schema와 맞지 않으면 서버 자체는 실행되지만 `/health`가 `degraded`를 반환하고 `/score`, `/recommend`는 재학습 명령이 포함된 503 오류를 반환합니다.
+임베딩 모델은 첫 사용 시 내려받고 이후 cache를 사용합니다.
 
 ## 실행
 
@@ -94,10 +269,6 @@ Backend:
 uvicorn src.api.main:app --reload
 ```
 
-- Swagger: `http://127.0.0.1:8000/docs`
-- 기본 API 주소: `http://localhost:8000`
-- 개발 CORS: `localhost:5173`, `127.0.0.1:5173`
-
 Frontend:
 
 ```bash
@@ -105,51 +276,57 @@ cd frontend
 npm run dev
 ```
 
-다른 API 주소를 쓰려면 `VITE_API_BASE_URL`을 설정합니다.
+기본 API 주소는 `http://localhost:8000`이며 frontend에서 다른 주소를 쓰려면 `VITE_API_BASE_URL`을 설정합니다.
 
-## API
-
-### 상태 / 추천
+## 주요 API
 
 - `GET /health`
 - `POST /score`
 - `GET /videos/preview?url=...`
 - `POST /recommend`
+- `GET /analyses?limit=...`
+- `GET /analyses/{analysis_id}`
+- `GET /comments?...`
+- `GET /dashboard/summary`
+- `POST /recommendations/{recommendation_id}/feedback`
 
-`POST /recommend` 예시:
+YouTube 추천 예시:
 
 ```json
 {
   "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "additional_context": "댓글은 초보 개발자 관점으로 추천",
-  "category": "auto",
+  "additional_context": "초보 개발자 관점에서 자연스럽게",
   "top_k": 5
 }
 ```
 
-직접 입력에서는 `youtube_url` 대신 `post_text`를 사용합니다.
+Manual 추천 예시:
 
-### 기록 / 대시보드
+```json
+{
+  "post_text": "영상 제목이나 스크립트...",
+  "additional_context": "꼭 반영할 관점",
+  "top_k": 5
+}
+```
 
-- `GET /analyses?limit=3`
-- `GET /analyses/{analysis_id}`
-- `GET /comments?query=&type=&category=&min_score=&limit=&offset=`
-- `GET /dashboard/summary`
-- `POST /recommendations/{recommendation_id}/feedback`
+## Persistence
 
-분석 데이터는 기본적으로 `data/runtime/ai_comment.db`에 저장됩니다. 다른 경로를 사용하려면 `AI_COMMENT_DB_PATH`를 설정합니다. runtime DB는 Git에서 추적하지 않습니다.
+SQLite `analyses`에 분석 시점의 request/context snapshot을 보관합니다.
 
-## 모델 피처
+- `context_json`
+- `requested_count`
+- `additional_context`
 
-랭킹 모델은 세 종류의 피처를 사용합니다.
+기존 DB는 migration-safe하게 없는 컬럼만 추가합니다.
 
-1. 댓글 텍스트: 길이, 문장/질문/감탄, 웃음/슬픔, URL/숫자, casual/empathy/insight/criticism score
-2. lexical context: `post_comment_overlap_count`, `post_comment_jaccard`, `post_comment_coverage`, `post_comment_length_ratio`
-3. semantic context: `post_comment_sim`
+기본 DB:
 
-학습과 추론은 `src/features/feature_schema.py`의 동일한 피처 목록을 공유합니다. 저장된 모델 schema가 현재 코드와 다르면 조용히 0으로 채우지 않고 재학습을 요구합니다.
+```text
+data/runtime/ai_comment.db
+```
 
-같은 영상 댓글이 train/test에 동시에 들어가는 누수를 막기 위해 `post_id` 기준 `GroupShuffleSplit`을 사용하고, class imbalance는 학습 데이터에만 `RandomUnderSampler`를 적용합니다.
+다른 위치는 `AI_COMMENT_DB_PATH`로 지정합니다.
 
 ## 테스트
 
@@ -168,19 +345,25 @@ npm run lint
 npm run build
 ```
 
-`npm test`는 frontend와 backend가 같은 규칙으로 단일 YouTube URL을 판정하는 핵심 URL validation 회귀 테스트를 실행합니다.
+GitHub Actions는 push/PR에서 backend pytest와 frontend test/lint/build, production dependency audit를 수행합니다.
 
-GitHub Actions의 `.github/workflows/ci.yml`은 push/PR에서 backend pytest와 frontend test/lint/build를 각각 실행합니다.
+외부 과금/불안정성과 secret 보호 때문에 CI에서 실제 OpenAI/YouTube E2E를 호출하지 않고 fake provider/session boundary를 사용합니다.
 
-## 현재 한계와 운영 시 주의점
+오탐 및 상태 이상 회귀 항목은 [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)에 기록합니다.
 
-- 후보 생성기는 현재 provider-free deterministic generator입니다. LLM 기반 자유 생성이 필요하면 `generate_candidates()` 인터페이스 뒤에 별도 provider를 붙일 수 있습니다.
-- 공개 자막 조회는 자막 제공 여부와 YouTube 측 응답에 따라 실패할 수 있으며, 실패는 추천 요청을 막지 않습니다.
-- 재생목록 URL은 지원하지 않습니다.
-- SQLite는 로컬/단일 인스턴스 MVP 저장소입니다. 다중 인스턴스 production 운영에는 공유 DB로 교체해야 합니다.
-- 학습 모델 artifact는 source control에 포함하지 않으므로 production 배포에서는 별도 versioned artifact storage/배포 절차가 필요합니다.
-- 모델 성능은 수집 데이터 분포와 label 품질에 따라 계속 검증해야 합니다.
+## 현재 한계
 
-## MVP completion 작업 기록
+- 실제 LLM E2E에는 `OPENAI_API_KEY`, `OPENAI_MODEL`이 필요합니다.
+- YouTube URL 경로에는 `YOUTUBE_API_KEY`가 필요합니다.
+- 공개 자막은 best-effort이며 현재 “자막 없음”과 “자막 fetch 실패”를 별도 상태로 세분하지 않습니다.
+- 한국어 heuristic 일부는 substring 기반이라 모든 오탐을 제거한 classifier는 아닙니다.
+- hype는 single-snapshot proxy이며 실제 trend velocity가 아닙니다.
+- historical/ranker data는 social-issues/vlog 중심이라 새 장르 OOD 검증이 남아 있습니다.
+- LLM hallucination/문체 자연스러움은 fake-provider CI만으로 완전히 보장할 수 없고 real-provider smoke test/human review가 필요합니다.
+- SQLite는 local/single-instance MVP 저장소입니다.
+- reaction model artifact는 source control에 없으므로 production artifact 배포 절차가 별도로 필요합니다.
 
-이번 미완성 구간 정리 작업의 범위, 결정 사항, 구현 및 검증 로그는 [`MVP_COMPLETION_README.md`](./MVP_COMPLETION_README.md)에 계속 기록합니다.
+## 감사 기록
+
+- 설계/작성 전·후 감사: [`LLM_CONTEXT_GENERATION_README.md`](./LLM_CONTEXT_GENERATION_README.md)
+- 오탐/상태 이상/외부 의존성/merge gate: [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)

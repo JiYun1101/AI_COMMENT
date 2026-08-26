@@ -1,5 +1,6 @@
 import { Check, Download, Minus } from 'lucide-react';
 import { TypeTag } from '../TypeTag';
+import { formatCategoryLabel } from '../../utils/category';
 import type { DashboardComment } from '../../types/comment';
 
 function ScoreBar({ value }: { value: number }) {
@@ -84,7 +85,7 @@ export function DataTable({
             <th>댓글 내용</th>
             <th style={{ width: 105 }}>유형</th>
             <th style={{ width: 210 }}>영상 / 입력</th>
-            <th style={{ width: 105 }}>카테고리</th>
+            <th style={{ width: 150 }}>카테고리</th>
             <th style={{ width: 130 }}>Score</th>
             <th style={{ width: 110 }}>피드백</th>
             <th style={{ width: 120 }}>생성일</th>
@@ -107,7 +108,7 @@ export function DataTable({
                 <div className="table-source">{row.video_title || '직접 입력'}</div>
                 {row.channel && <div className="table-source-sub">{row.channel}</div>}
               </td>
-              <td className="muted">{row.category === 'vlog' ? '브이로그' : '사회이슈'}</td>
+              <td className="muted">{formatCategoryLabel(row.category)}</td>
               <td><ScoreBar value={row.predicted_score} /></td>
               <td className="muted">
                 {row.feedback === 'useful' ? '도움됨' : row.feedback === 'not_useful' ? '아쉬움' : '—'}

@@ -7,18 +7,13 @@ import {
   Menu,
   RefreshCw,
   Shield,
+  Sparkles,
   Star,
 } from 'lucide-react';
 import { VideoPreview } from './VideoPreview';
-import type { Category, VideoPreviewData } from '../../types/comment';
+import type { VideoPreviewData } from '../../types/comment';
 
 type Mode = 'url' | 'manual';
-
-const CATEGORIES: { key: Category; label: string; auto?: boolean }[] = [
-  { key: 'auto', label: '자동 감지', auto: true },
-  { key: 'social', label: '사회이슈' },
-  { key: 'vlog', label: '브이로그' },
-];
 
 interface ComposerProps {
   mode: Mode;
@@ -30,13 +25,13 @@ interface ComposerProps {
   setManual: (manual: string) => void;
   additionalContext: string;
   setAdditionalContext: (value: string) => void;
-  category: Category;
-  setCategory: (category: Category) => void;
   count: number;
   setCount: (count: number) => void;
   preview: VideoPreviewData | null;
   previewLoading: boolean;
   previewError: string | null;
+  readinessMessage: string | null;
+  readinessChecking?: boolean;
   onRetryPreview: () => void;
   onSwitchToManual: () => void;
   onClearPreview: () => void;
@@ -54,20 +49,21 @@ export function Composer({
   setManual,
   additionalContext,
   setAdditionalContext,
-  category,
-  setCategory,
   count,
   setCount,
   preview,
   previewLoading,
   previewError,
+  readinessMessage,
+  readinessChecking,
   onRetryPreview,
   onSwitchToManual,
   onClearPreview,
   onSubmit,
   submitting,
 }: ComposerProps) {
-  const canSubmit = mode === 'url' ? urlValid : manual.trim().length >= 5;
+  const inputReady = mode === 'url' ? urlValid : manual.trim().length >= 5;
+  const canSubmit = inputReady && !readinessMessage && !readinessChecking;
 
   const handlePaste = async () => {
     try {
@@ -132,17 +128,6 @@ export function Composer({
               </div>
             )}
             {preview && !previewLoading && <VideoPreview data={preview} onClear={onClearPreview} />}
-            <div className="composer-extra">
-              <label htmlFor="additional-context">추가 맥락 <span>선택</span></label>
-              <textarea
-                id="additional-context"
-                value={additionalContext}
-                onChange={(e) => setAdditionalContext(e.target.value)}
-                maxLength={4000}
-                placeholder="영상 설명이나 자막에 없는 관점, 댓글 대상, 꼭 반영할 내용을 적어주세요."
-              />
-              <small>{additionalContext.length} / 4,000</small>
-            </div>
           </>
         ) : (
           <>
@@ -160,21 +145,23 @@ export function Composer({
           </>
         )}
 
+        <div className="composer-extra">
+          <label htmlFor="additional-context">추가 맥락 <span>선택</span></label>
+          <textarea
+            id="additional-context"
+            value={additionalContext}
+            onChange={(e) => setAdditionalContext(e.target.value)}
+            maxLength={4000}
+            placeholder="기본 내용에 없는 관점, 댓글 대상, 꼭 반영할 내용을 적어주세요."
+          />
+          <small>{additionalContext.length} / 4,000</small>
+        </div>
+
         <div className="options">
-          <div className="opt-row">
-            <label className="opt-label">카테고리</label>
-            <div className="opt-chips">
-              {CATEGORIES.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={`opt-chip${c.auto ? ' auto' : ''}${category === c.key ? ' on' : ''}`}
-                  onClick={() => setCategory(c.key)}
-                >
-                  {c.auto && <Star size={12} />}
-                  {c.label}
-                </button>
-              ))}
+          <div className="opt-row context-auto-row">
+            <label className="opt-label">맥락 분석</label>
+            <div className="context-auto-note">
+              <Sparkles size={13} /> YouTube 공식 카테고리·주제·형식·최신성·반응 지표와 기존 댓글 패턴을 자동 분석합니다.
             </div>
           </div>
 
@@ -186,13 +173,24 @@ export function Composer({
             </div>
           </div>
         </div>
+
+        {readinessChecking && (
+          <div className="inline-status">
+            <LoaderCircle size={14} className="spin" /> 추천 서비스 준비 상태를 확인하고 있습니다…
+          </div>
+        )}
+        {!readinessChecking && readinessMessage && (
+          <div className="inline-status error">
+            <AlertCircle size={14} /> {readinessMessage}
+          </div>
+        )}
       </div>
 
       <div className="composer-ft">
         <span className="safety"><Shield size={12} strokeWidth={2} /> 안전 필터 항상 적용</span>
         <button type="button" className="cta" disabled={!canSubmit || submitting} onClick={onSubmit}>
           <Star size={16} strokeWidth={2} />
-          {submitting ? '추천 생성 중…' : '댓글 추천받기'}
+          {submitting ? 'LLM 댓글 생성 중…' : '댓글 추천받기'}
         </button>
       </div>
     </div>
