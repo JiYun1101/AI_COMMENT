@@ -1,5 +1,5 @@
 import { Captions, ExternalLink, Play, Tags, X } from 'lucide-react';
-import type { VideoPreviewData } from '../../types/comment';
+import type { TranscriptStatus, VideoPreviewData } from '../../types/comment';
 
 interface VideoPreviewProps {
   data: VideoPreviewData;
@@ -28,7 +28,23 @@ function formatPublishedAt(value: string | null): string {
   return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(date);
 }
 
+function resolvedTranscriptStatus(data: VideoPreviewData): TranscriptStatus {
+  if (data.transcript_available) return 'available';
+  return data.transcript_status ?? 'unavailable';
+}
+
+function transcriptLabel(data: VideoPreviewData): string {
+  const status = resolvedTranscriptStatus(data);
+  if (status === 'available') {
+    return `공개 자막 반영${data.transcript_language ? ` · ${data.transcript_language}` : ''}`;
+  }
+  if (status === 'fetch_failed') return '자막 조회 실패 · 제목/설명으로 분석';
+  return '공개 자막 없음 · 제목/설명으로 분석';
+}
+
 export function VideoPreview({ data, onClear }: VideoPreviewProps) {
+  const transcriptStatus = resolvedTranscriptStatus(data);
+
   return (
     <div className="video-preview">
       <a
@@ -48,11 +64,9 @@ export function VideoPreview({ data, onClear }: VideoPreviewProps) {
         <div className="vp-meta">조회수 {formatCount(data.view_count)} · {formatPublishedAt(data.published_at)}</div>
         <div className="vp-context-row">
           {data.category_name && <span className="transcript-badge on"><Tags size={12} /> {data.category_name}</span>}
-          <span className={`transcript-badge${data.transcript_available ? ' on' : ''}`}>
+          <span className={`transcript-badge${transcriptStatus === 'available' ? ' on' : ''}`}>
             <Captions size={12} />
-            {data.transcript_available
-              ? `공개 자막 반영${data.transcript_language ? ` · ${data.transcript_language}` : ''}`
-              : '공개 자막 없음 · 제목/설명으로 분석'}
+            {transcriptLabel(data)}
           </span>
           <a className="transcript-badge vp-open" href={data.url} target="_blank" rel="noreferrer">
             <ExternalLink size={11} /> 영상 열기
