@@ -1,112 +1,100 @@
 # LLM Context Generation Migration
 
 Branch: `feature/llm-context-generation`  
-Base: `main` @ `bdb50bc8002bdd65fa12a05f2766e5220ccd915d`
+Original base: `main` @ `bdb50bc8002bdd65fa12a05f2766e5220ccd915d`
 
 ## Goal
 
-고정 keyword/template 댓글 생성기를 제거하고 **분석은 코드, 창작은 LLM**이라는 경계를 적용한다.
+기존 keyword + fixed-template candidate generator를 제거하고 다음 경계를 적용한다.
 
-1. YouTube/API/script code가 객관적인 metadata와 자막을 수집한다.
-2. deterministic classifier가 category/topic/style/format/시간/audience descriptor/popularity 신호를 만든다.
-3. 기존 수집 댓글에서 관련 reference와 통계를 코드로 계산한다.
-4. 이 결과를 `GenerationContext`라는 구조화된 객체로 만든다.
-5. **LLM은 이 context를 바탕으로 새 댓글 후보를 작성하는 일만 한다.**
-6. 생성 후에는 애플리케이션 검증 → safety filter → 기존 reaction ranker → Top-K를 유지한다.
+> **분석은 코드, 창작은 LLM**
 
-오탐 가능성·상태 이상·운영 의존성은 별도 문서 [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)에서 merge gate와 함께 추적한다.
+- YouTube/API/script code가 객관적인 metadata와 자막을 수집한다.
+- deterministic classifier가 category/topic/style/format/시간/audience descriptor/popularity 신호를 만든다.
+- 기존 댓글 dataset에서 관련 reference와 통계를 코드로 만든다.
+- `GenerationContext`를 구성한다.
+- LLM은 그 context를 보고 **새 댓글 후보를 작성하는 일만** 한다.
+- 생성 후 application validation → safety filter → 기존 reaction ranker → Top-K를 유지한다.
+
+오탐/상태 이상/운영 한계는 [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)에서 별도 추적한다.
 
 ---
 
-# 1. 작성 전 감사 — 구현 전에 확인한 사항
+# 1. 작성 전 감사
 
-## 유지해야 했던 기존 기능
+## 유지 대상
 
-- 단일 YouTube URL 검증과 preview
-- 제목/설명/채널/statistics/공개 자막 context
-- 직접 입력 경로
-- safety filtering
+- 단일 YouTube URL 검증/preview
+- 제목/설명/채널/statistics/공개 자막 수집
+- 직접 입력
+- safety filter
 - reaction prediction/ranking
 - Top-K
-- SQLite 분석/history/dashboard/feedback 저장
-- 설정 또는 모델 미준비 상태에서 fake 결과를 만들지 않는 오류 처리
+- SQLite history/dashboard/feedback
+- 모델/설정 미준비 시 명시적 오류
 
-## 반드시 제거해야 했던 부분
+## 제거 대상
 
-- `social` / `vlog` 두 keyword 점수만으로 primary category를 정하는 방식
+- `social` / `vlog` 이분법을 primary taxonomy로 쓰는 구조
 - `candidate_generator.py`의 고정 한국어 문장 template
-- `(1)`, `(2)`처럼 template 수를 채우기 위한 deterministic filler
-- 같은 입력에 같은 후보가 나와 `다시 생성`이 실질적으로 의미가 없던 구조
+- `(1)`, `(2)` 같은 filler candidate
+- 같은 input에서 같은 template pool을 만드는 가짜 regenerate
 
-## 구현 전 위험 검토
+## 구현 전에 고정한 위험 원칙
 
-### YouTube 공식 category와 자체 분류를 분리
+### Official category와 derived label 분리
 
-YouTube `snippet.categoryId`는 플랫폼이 정의한 공식 category다. 이를 topic/style 등의 자체 label과 합쳐 하나의 값으로 덮어쓰지 않는다.
+YouTube `snippet.categoryId`는 플랫폼 정의 category다. 자체 topic/style과 덮어쓰지 않는다.
 
 ```text
-Official category
-  Science & Technology
-
-Derived context
-  topics = [ai, software, career]
-  styles = [educational, interview]
+Official category = Science & Technology
+Derived topics   = [ai, software, career]
+Derived styles   = [educational, interview]
 ```
 
-### 실제 시청자 demographic을 추정하지 않음
+### 실제 viewer demographic을 만들지 않음
 
-공개 YouTube Data API로 임의 영상의 실제 시청자 연령/성별 분포를 얻을 수 있다는 전제로 설계하지 않는다.
+- `madeForKids`, age restriction은 official signal
+- `target_age`, `orientation`은 content-level heuristic
+- commenter 개인의 나이/성별을 이름·사진·문체로 추정하지 않음
 
-- `madeForKids`: 공식 신호
-- age restriction: 공식 신호
-- `target_age`: 콘텐츠에 명시된 대상에 대한 heuristic
-- `orientation`: 콘텐츠 자체의 명시적 지향에 대한 heuristic
+### Hype를 실제 velocity라고 부르지 않음
 
-댓글 작성자 이름·사진·문체를 이용해 개인의 성별/나이를 추측하지 않는다.
-
-### Hype는 절대 조회수로 판단하지 않음
-
-새 영상 20만 조회와 3년 된 영상 20만 조회는 같은 상태가 아니다. 첫 버전은 다음 single-snapshot 지표를 조합한다.
+첫 구현은 다음 단일 snapshot proxy를 사용한다.
 
 - views/hour
 - likes per 1K views
 - comments per 1K views
 - views/subscriber
 
-진짜 성장 속도/가속도는 snapshot history가 있어야 하므로 첫 구현의 `hype_score`에는 반드시 `single_snapshot_proxy`라는 basis를 남긴다.
+`hype_basis=single_snapshot_proxy`를 반드시 남긴다.
 
-### 기존 댓글 coverage의 한계
+### Historical/ranker coverage를 과장하지 않음
 
-repo의 실제 historical data는 현재 두 축이다.
+현재 실제 raw dataset은:
 
 - `social_issues_comments.csv`
 - `vlog_comments.csv`
 
-따라서 Music/Gaming/Sports 등으로 생성 category가 넓어져도 기존 historical reference와 reaction ranker가 동일한 수준으로 검증됐다고 주장하지 않는다.
+따라서 generation이 다장르로 넓어져도 reaction ranker가 모든 category에서 동일하게 검증됐다고 주장하지 않는다.
 
-### LLM을 fallback template처럼 사용하지 않음
+### LLM failure에 fixed template fallback 금지
 
-LLM 설정/API가 실패할 때 옛 template을 조용히 호출하면 이번 변경의 목적이 무너진다.
-
-- 설정 누락 → readiness error
-- provider/network 오류 → generation error
+- key/model 누락 → readiness error
+- network/provider 오류 → generation error
 - invalid response → generation error
-- 고정 template fallback 없음
+- old template fallback 없음
 
-### 기존 댓글 복사 방지
+### Historical text는 reference일 뿐 복사 원문이 아님
 
-과거 top comment는 style/reference 신호일 뿐 새 댓글의 원문이 아니다.
-
-생성 전 historical row 자체도 safety predicate를 통과해야 하며, 생성 후 다음을 검사한다.
-
-- exact duplicate
-- 동일 생성 내 duplicate
-- historical reference와 지나치게 높은 문자열 유사도
-- 길이/type 구조
+- historical row 자체 safety 검사
+- 소수 example만 prompt에 전달
+- generated exact duplicate 제거
+- near-copy 제거
 
 ---
 
-# 2. 목표 및 현재 구현 파이프라인
+# 2. 최종 파이프라인
 
 ```text
 YouTube URL / manual text
@@ -124,7 +112,7 @@ Context collection — code
         ▼
 Deterministic GenerationContext — code
         │
-        ├─ official_category
+        ├─ official category
         ├─ topics[]
         ├─ content_styles[]
         ├─ format / broadcast
@@ -136,7 +124,7 @@ Deterministic GenerationContext — code
         ▼
 Historical comment retrieval — code
         │
-        ├─ safety-filtered legacy examples
+        ├─ safety-filtered reference examples
         ├─ preferred length
         ├─ question ratio
         └─ casual ratio
@@ -146,7 +134,7 @@ GenerationContext JSON
         │
         ▼
 OpenAI Responses API
-  새 댓글 후보 작성 ONLY
+  candidate writing ONLY
         │
         ▼
 Application validation / reference-copy rejection
@@ -158,16 +146,16 @@ Safety filter
 Existing reaction ranker
         │
         ▼
-Top-K + context/request persistence
+Top-K + persistence
 ```
 
-`candidate_generator.py`는 이제 context를 받아 LLM client를 호출하는 얇은 boundary일 뿐이며 문장 template을 가지지 않는다.
+`candidate_generator.py`는 문장 template을 가지지 않고 LLM provider를 호출하는 얇은 boundary다.
 
 ---
 
 # 3. GenerationContext 계약
 
-대표 형태:
+대표 구조:
 
 ```json
 {
@@ -177,7 +165,8 @@ Top-K + context/request persistence
     "description": "...",
     "transcript_excerpt": "...",
     "language": "ko",
-    "additional_context": "..."
+    "additional_context": "...",
+    "legacy_category_hint": null
   },
   "youtube": {
     "video_id": "...",
@@ -248,9 +237,9 @@ Manual input에서는 YouTube metadata를 만들어내지 않고 null/unknown으
 
 ## 4.1 Official YouTube category
 
-Primary category는 YouTube 영상일 때 `snippet.categoryId`를 우선한다.
+YouTube URL의 primary category는 `snippet.categoryId`/category name을 우선한다.
 
-내장 fallback map에 포함된 주요 category:
+Fallback map에 포함된 주요 category:
 
 - Film & Animation
 - Autos & Vehicles
@@ -268,11 +257,11 @@ Primary category는 YouTube 영상일 때 `snippet.categoryId`를 우선한다.
 - Science & Technology
 - Nonprofits & Activism
 
-지역별 목록 변화에 대응하기 위해 `scripts/sync_youtube_categories.py`가 `videoCategories.list` 결과를 `data/runtime/youtube_categories.json`에 저장할 수 있다.
+지역별 category 변화는 `scripts/sync_youtube_categories.py`로 runtime cache를 갱신한다.
 
-## 4.2 Topic multi-label
+## 4.2 Derived topic multi-label
 
-초기 deterministic vocabulary:
+초기 vocabulary:
 
 - ai / software / hardware / mobile / science / technology
 - career / education / finance / economy / politics / law
@@ -280,11 +269,9 @@ Primary category는 YouTube 영상일 때 `snippet.categoryId`를 우선한다.
 - music / film / animation / gaming / sports / animals / autos
 - lifestyle / shopping / news
 
-여러 label이 동시에 존재할 수 있으며 어떤 규칙에도 맞지 않는 콘텐츠를 억지로 social/vlog에 넣지 않는다.
+ASCII keyword는 word-boundary matcher를 사용한다. `topicDetails`의 URL slug도 derived topic classifier 입력에 포함한다.
 
-English/ASCII keyword는 word boundary matcher를 사용해 `ai`가 `chair` 안에서, `man`이 `woman` 안에서 잡히는 식의 substring 오탐을 줄인다. YouTube `topicDetails`의 slug도 derived topic classifier 입력에 함께 사용한다.
-
-## 4.3 Content style multi-label
+## 4.3 Content style
 
 - educational
 - tutorial
@@ -306,11 +293,11 @@ English/ASCII keyword는 word boundary matcher를 사용해 `ai`가 `chair` 안�
 
 Format:
 
-- `short`: Shorts URL
-- `short_like`: 일반 URL이지만 3분 이하
-- `standard`
-- `long_form`: 20분 이상
-- `unknown`
+- short
+- short_like
+- standard
+- long_form
+- unknown
 
 Broadcast:
 
@@ -318,16 +305,16 @@ Broadcast:
 - live
 - upcoming
 - archived_live
-- unknown (manual)
+- unknown
 
 ## 4.5 Audience descriptor
 
-공식:
+Official:
 
 - made_for_kids
 - age_restricted
 
-Content-level heuristic:
+Derived content-level heuristic:
 
 - children
 - teens
@@ -343,7 +330,7 @@ Orientation:
 - male_oriented
 - mixed
 
-이 값들은 실제 viewer demographic이 아니다.
+이 값은 실제 viewer demographic이 아니다.
 
 ## 4.6 Freshness
 
@@ -355,11 +342,9 @@ Orientation:
 - old: 6–24 mo
 - evergreen: >24 mo
 
-weekday/month/season도 함께 저장한다.
+weekday/month/season도 보존한다.
 
 ## 4.7 Hype
-
-현재 구현:
 
 ```text
 views_per_hour
@@ -367,51 +352,59 @@ likes_per_1000_views
 comments_per_1000_views
 views_per_subscriber
       ↓
-normalized weighted proxy
+normalized bounded proxy
       ↓
 normal / active / hot / viral
 ```
 
-`hype_basis = single_snapshot_proxy`를 명시한다.
+`hype_basis=single_snapshot_proxy`다. 실제 velocity/acceleration은 statistics snapshot history가 추가되어야 한다.
 
-향후 실제 velocity를 만들려면 동일 video ID의 통계 snapshot을 주기적으로 저장해야 한다.
+## 4.8 Legacy category hint
+
+구버전 request의 `category`는 classification authority가 아니다.
+
+- `source.legacy_category_hint`로 기록한다.
+- arbitrary hint를 derived topic에 삽입하지 않는다.
+- primary category를 덮어쓰지 않는다.
+- `vlog`만 legacy historical compatibility를 위한 style/retrieval 신호로 사용할 수 있다.
+- 그 경우에도 primary는 script-derived topic 또는 YouTube official category다.
+
+이 경계는 regression test로 고정한다.
 
 ---
 
 # 5. Historical comment retrieval
 
-구현 파일: `src/recommender/historical_comments.py`
+구현: `src/recommender/historical_comments.py`
 
-동작:
-
-1. raw CSV를 lazy/cached loading한다.
-2. 빈 값/길이뿐 아니라 application `is_safe_comment()`를 통과한 row만 profile/reference 후보로 사용한다.
-3. reference text와 기존 post/comment의 token overlap을 계산한다.
-4. topic/style에 따라 현재 가지고 있는 legacy dataset 중 더 관련 있는 쪽에 bias를 준다.
-5. `is_top_comment=1`을 우선한다.
-6. like/reply 신호를 약하게 ranking에 추가한다.
-7. 최대 profile subset에서 통계를 계산한다.
-8. 소수 reference example만 LLM에 전달한다.
+1. raw CSV를 lazy/cached loading
+2. application `is_safe_comment()`를 통과한 row만 사용
+3. reference text와 post/comment token overlap 계산
+4. topic/style에 따라 legacy dataset bias 적용
+5. `is_top_comment=1` 우선
+6. like/reply 신호를 약하게 ranking에 반영
+7. profile subset에서 통계 계산
+8. 소수 reference example만 LLM 전달
 
 Profile:
 
-- `coverage`
-- `available_categories`
-- `matched_categories`
-- `matched_count`
-- `preferred_length` (25–75 percentile)
-- `median_length`
-- `question_ratio`
-- `casual_ratio`
-- `reference_examples`
+- coverage
+- available_categories
+- matched_categories
+- matched_count
+- preferred_length
+- median_length
+- question_ratio
+- casual_ratio
+- reference_examples
 
-데이터 파일이 없으면 fake 값을 만들지 않고 `coverage=none`으로 정상 degrade한다.
+Dataset이 없으면 fake value를 만들지 않고 `coverage=none`으로 degrade한다.
 
 ---
 
 # 6. LLM provider 계약
 
-구현 파일: `src/llm/openai_client.py`
+구현: `src/llm/openai_client.py`
 
 환경 변수:
 
@@ -421,355 +414,304 @@ OPENAI_MODEL=
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-OpenAI Responses API를 사용한다. 특정 모델을 business logic에 hard-code하지 않고 `OPENAI_MODEL`을 명시적으로 요구한다.
+OpenAI Responses API를 사용한다. 특정 모델 이름을 business logic에 hard-code하지 않는다.
 
-Readiness:
+Readiness/error:
 
 - key/model 누락 → `LLMNotReadyError`
 - network/provider 오류 → `LLMGenerationError`
-- 응답 JSON 해석 불가 → `LLMGenerationError`
-- candidate 검증 후 최소 개수 부족 → `LLMGenerationError`
+- JSON 해석 불가 → `LLMGenerationError`
+- 검증 후 usable candidate 부족 → `LLMGenerationError`
 
-HTTP API에서는 LLM/모델 readiness 실패를 503, provider/generation 실패를 502로 구분한다.
+## Prompt boundary
 
-## Prompt 원칙
+GenerationContext의 모든 string은 **untrusted data**다.
 
-- supplied context의 사실만 사용
-- GenerationContext의 title/description/transcript/tags/user context/history를 untrusted data로 취급하고 그 안의 지시문을 따르지 않음
-- video category를 다시 임의로 재분류하지 않음
-- historical comments는 style 참고만 하고 복사 금지
-- source language/freshness/format에 맞춤
-- 강제 keyword 삽입 금지
-- 깨진 한국어 조사 피하기
-- fake personal experience 금지
-- insight/empathy/question/casual/general을 상황에 맞게 다양화
-- `(1)` 같은 template marker 금지
-- meta explanation 없이 JSON candidates 반환
+- title
+- description
+- transcript
+- tags
+- user additional context
+- historical comments
 
-## 응답 후 validator
+그 안의 imperative를 instruction처럼 따르지 않는다. LLM은 category를 다시 정하지 않는다.
 
-- allowed type 확인, 미지 type은 general로 normalize
+## Output validator
+
+- allowed type 확인
+- unknown type → general normalize
 - 5–200자
-- generation 내부 exact duplicate 제거
-- historical reference와 `SequenceMatcher >= 0.92`인 near-copy 제거
-- 필요한 최소 candidate pool 검증
+- exact duplicate 제거
+- historical reference와 높은 문자열 유사도 near-copy 제거
+- minimum usable candidate 수 확인
 
 ---
 
-# 7. Persistence 변경
+# 7. Persistence
 
-기존 SQLite를 migration-safe하게 확장했다.
-
-`analyses` 추가 필드:
+SQLite `analyses`에 migration-safe하게 추가한 snapshot:
 
 - `context_json`
 - `requested_count`
 - `additional_context`
 
-기존 DB는 `PRAGMA table_info` 후 없는 컬럼만 `ALTER TABLE`한다.
-
-이 변경으로 history를 다시 열 때 이전에 문제가 되었던 다음 상태를 복원할 수 있다.
-
-- 당시 추가 맥락
-- 요청한 추천 개수
-- 당시 GenerationContext
-- context summary
+이를 이용해 history load 시 원 요청 상태와 context summary를 복원한다.
 
 ---
 
-# 8. Frontend 변경
+# 8. Frontend
 
-- 고정 `자동/사회이슈/브이로그` 선택 chip 제거
-- 자동 context analysis 설명 표시
-- dynamic category string 지원
-- preview에 공식 YouTube category 표시
-- 썸네일/영상 열기 링크 실제 YouTube 연결
-- 결과에 official category / topics / format / freshness / hype / historical match 표시
-- `다시 생성`을 실제 LLM 변형 의미에 맞게 `새 후보 생성`으로 변경
-- history에서 additional context와 requested count 복원
-- dashboard category filter를 고정 social/vlog select에서 자유 category input+datalist로 변경
-- 추가 맥락을 URL/manual 양쪽의 독립 입력 상태로 유지
-- 화면 진입 시 `/health`를 preflight하여 model/LLM/storage 미준비를 submit 전에 표시
-- URL 모드만 YouTube API 설정을 요구하고 manual 모드는 YouTube key 없이 허용
-- backend health 자체를 확인할 수 없으면 연결 상태 안내 후 submit 차단
+- binary `자동/사회이슈/브이로그` selector 제거
+- automatic context analysis 설명
+- dynamic category 지원
+- official category / topics / format / freshness / hype / historical matches 표시
+- preview 썸네일/재생 affordance 실제 YouTube 링크 연결
+- `다시 생성` → `새 후보 생성`
+- history에서 additional context/requested count 복원
+- dashboard category filter를 dynamic input으로 변경
+- URL/manual 모두 additional context 독립 field 제공
+- `/health` preflight
+- model/LLM/storage 미준비 submit 차단
+- URL mode만 YouTube key 요구
+- manual mode는 YouTube key 없이 허용
+- backend health 실패도 사전 표시
 
 ---
 
-# 9. 작성 후 감사 — 실제 구현과 계획 대조
+# 9. 구현 후 감사
 
 ## Context collection
 
-- [x] `YouTubeVideoContext`에 category/tags/language/likes/comments/kids/age/topic/live metadata 추가
-- [x] 기존 preview 필드 호환 유지
-- [x] category-name fallback map + runtime sync/cache 추가
-- [x] transcript best-effort 유지
+- [x] category/tags/language/likes/comments/kids/age/topic/live metadata
+- [x] preview 호환 유지
+- [x] fallback category map + runtime sync/cache
+- [x] transcript best-effort
 
 ## Deterministic context
 
-- [x] 재사용 가능한 `GenerationContext` builder
+- [x] GenerationContext builder
 - [x] broad topic classifier
-- [x] YouTube topicDetails를 derived topic에 반영
+- [x] topicDetails 반영
 - [x] ASCII word-boundary 오탐 방어
 - [x] content-style classifier
-- [x] format/broadcast classifier
-- [x] freshness/date classifier
-- [x] content-level age/orientation heuristic + confidence/basis
-- [x] popularity/hype proxy + explicit single-snapshot basis
-- [x] manual input unknown/null degradation
+- [x] format/broadcast
+- [x] freshness/date
+- [x] content-level audience heuristic + confidence/basis
+- [x] single-snapshot hype basis
+- [x] manual unknown/null degradation
+- [x] legacy category가 primary/topic을 덮어쓰지 않음
 
 ## Historical comments
 
-- [x] lazy/cached loader/retriever
-- [x] application safety predicate를 통과한 row만 profile/reference에 사용
-- [x] code-derived profile statistics
-- [x] top-comment/relevance preference
-- [x] limited reference examples
-- [x] missing dataset graceful degradation
+- [x] lazy/cached retrieval
+- [x] historical row safety filtering
+- [x] code-derived statistics
+- [x] relevant/top-comment preference
+- [x] limited examples
+- [x] missing-dataset degradation
 - [x] legacy coverage 명시
 
 ## LLM generation
 
-- [x] provider client 격리
-- [x] fixed sentence template 제거
-- [x] OpenAI Responses API boundary
-- [x] explicit key/model readiness
-- [x] GenerationContext untrusted-data prompt boundary
-- [x] type/length/duplicate/near-reference-copy validation
-- [x] silent template fallback 없음
+- [x] provider isolation
+- [x] fixed template 제거
+- [x] Responses API boundary
+- [x] explicit readiness
+- [x] untrusted-data prompt boundary
+- [x] type/length/dedup/near-copy validation
+- [x] silent fixed-template fallback 없음
 
 ## Existing pipeline
 
-- [x] LLM 뒤 safety filter 유지
-- [x] safety 뒤 기존 reaction ranker 유지
-- [x] 기존 Top-K/persistence 유지
-- [x] API가 context/generation metadata 반환
-- [x] health가 model/LLM/YouTube 설정을 구분
-- [x] additional_context를 source와 분리하고 ranking reference에 한 번만 반영
+- [x] LLM 뒤 safety filter
+- [x] safety 뒤 reaction ranker
+- [x] Top-K/persistence
+- [x] context/generation metadata response
+- [x] model/LLM/YouTube/storage readiness 분리
+- [x] additional_context 한 번만 반영
 
 ## Frontend
 
-- [x] URL/manual 핵심 flow 유지
-- [x] misleading binary category selector 제거
-- [x] dynamic category 표시
-- [x] resolved context chip 표시
-- [x] history request-state 복원 개선
-- [x] video preview의 가짜 play affordance를 실제 링크로 수정
-- [x] model/LLM/YouTube/storage readiness preflight
-- [x] manual mode는 YouTube API 설정과 독립
-
-## Tests
-
-추가/수정된 테스트:
-
-- [x] `test_candidate_generator.py` — fake LLM provider boundary
-- [x] `test_generation_context.py` — deterministic context + ASCII false-positive + topicDetails regression
-- [x] `test_historical_comments.py` — historical retrieval/profile + unsafe reference exclusion
-- [x] `test_llm_client.py` — provider response parsing/validation/readiness + untrusted-context prompt contract
-- [x] `test_youtube_context.py` — enriched YouTube metadata
-- [x] `test_api_integration.py` — context persistence + additional-context separation + dashboard/feedback regression
-- [x] frontend readiness utility tests
-- [x] 기존 regression suite
-
-### 1차 clean GitHub Actions 결과
-
-Branch head `11b1ae6cd5912335e57ff58614a4b09ddddc9b0d`, workflow run `32924459725`:
-
-- Backend: **44 passed**, 1 upstream Starlette/TestClient deprecation warning
-- Frontend tests: success
-- Frontend lint: success
-- Frontend production build: success
-- Frontend production dependency audit: success
-
-### 재감사 후 코드 HEAD CI
-
-Branch head `1064a749bd009662bd74771ef35de8ec82207e62`, workflow run `32931538728`:
-
-- Backend: **51 passed**, 1 upstream Starlette/TestClient deprecation warning
-- Frontend tests: success
-- Frontend lint: success
-- Frontend production build: success
-- Frontend production dependency audit: success
-
-외부 OpenAI/YouTube credentials를 CI에 요구하지 않는다. provider와 YouTube context는 fake session/provider boundary로 검증한다.
-
-최종 README 정리 commit 뒤에도 branch CI를 다시 확인한 뒤 PR을 생성한다.
+- [x] URL/manual flow
+- [x] dynamic category/context display
+- [x] history request-state restore
+- [x] real video link
+- [x] readiness preflight
+- [x] manual mode의 YouTube-independent readiness
 
 ---
 
-# 10. 구현 후 source audit
+# 10. Regression suite
+
+주요 test coverage:
+
+- candidate generator fake LLM boundary
+- deterministic GenerationContext
+- ASCII false-positive regression
+- topicDetails regression
+- legacy category override regression
+- historical retrieval/profile
+- unsafe historical reference exclusion
+- LLM parsing/readiness/untrusted-context prompt contract
+- enriched YouTube metadata
+- context persistence
+- additional-context separation
+- dashboard/feedback regression
+- frontend URL validation
+- frontend readiness rules
+
+확인된 clean CI 중간 지점:
+
+- `11b1ae6...` — backend 44 passed + frontend green
+- `1064a749...` / workflow `32931538728` — backend **51 passed** + frontend test/lint/build/audit green
+
+최종 feature HEAD는 문서까지 정리한 뒤 별도로 다시 CI를 확인하여 merge gate에 사용한다.
+
+---
+
+# 11. Source audit 결과
 
 ## Fixed-template path
 
-확인 결과 `src/recommender/candidate_generator.py`에는 더 이상:
+`src/recommender/candidate_generator.py`에 더 이상 다음이 없다.
 
 - `_candidate_templates`
 - social/vlog별 고정 댓글 문장
-- numbered filler candidate
-- keyword를 조사에 직접 끼워 넣는 template
+- numbered filler
+- keyword + 한국어 조사 template
 
-가 존재하지 않는다.
-
-현재 candidate path:
+현재 path:
 
 ```text
 generate_candidates(GenerationContext)
   → OpenAIResponsesClient.generate(...)
 ```
 
-LLM 실패 시 이전 template으로 돌아가는 reachable fallback은 없다.
+## `social` / `vlog`의 남은 의미
 
-## Social/vlog 호환 값
+새 primary taxonomy가 아니다.
 
-`social`/`vlog`는 두 곳에서만 legacy compatibility 의미를 가진다.
+- raw historical dataset 이름/coverage
+- legacy client compatibility signal
+- `vlog`의 경우 historical compatibility를 위한 style hint
 
-1. 이전 client가 보내던 `category` hint
-2. 현재 historical CSV dataset coverage
+Primary category는 official YouTube category 또는 server-side deterministic derived context가 결정한다.
 
-새 YouTube URL 요청의 primary taxonomy는 공식 YouTube category를 우선한다.
+## Demographic 주장
 
-## 실제 demographic 주장 여부
+실제 viewer/commenter demographic을 추정하지 않는다.
 
-코드/README/UI 어디에서도 `target_age`/orientation을 실제 시청자 demographic으로 표현하지 않는다. `basis=official_flags_plus_explicit_content_heuristics`를 context에 기록한다.
+## Hype 주장
 
-## Hype 주장 범위
-
-실제 trend velocity라고 표현하지 않는다. `hype_basis=single_snapshot_proxy`가 저장된다.
+실제 velocity라고 표현하지 않는다. `single_snapshot_proxy`다.
 
 ---
 
-# 11. 계획 대비 의도적 차이
+# 12. 계획 대비 의도적 차이
 
-### YouTube category map
+## Category map
 
-계획에서는 API category lookup을 생각했으나 preview의 추가 network dependency를 줄이기 위해:
+Preview의 추가 network dependency를 줄이기 위해:
 
-- 자주 쓰이는 category ID의 built-in fallback
-- 별도 `sync_youtube_categories.py`
+- built-in fallback
+- 별도 sync script
 - runtime JSON cache
 
 방식으로 구현했다.
 
-따라서 category sync 실패가 영상 preview 자체를 깨뜨리지 않는다.
+## OpenAI SDK 미추가
 
-### OpenAI SDK dependency를 추가하지 않음
-
-현재 repo에 이미 `requests`가 있으므로 provider boundary를 raw Responses API HTTP로 구현했다.
-
-장점:
+이미 존재하는 `requests`로 provider HTTP boundary를 구현했다.
 
 - dependency 추가 없음
-- provider protocol이 한 파일에 고립됨
-- fake session 테스트가 쉬움
+- provider protocol 한 파일에 격리
+- fake session test 용이
 
-향후 공식 SDK로 변경해도 다른 context/ranker 코드는 바꿀 필요가 없다.
+향후 SDK로 바꿔도 context/ranker는 바꾸지 않아도 된다.
 
-### Hype percentile
+## Hype percentile 미구현
 
-초기 기획의 “동일 장르/동일 연령 영상 percentile”은 현재 자체 reference population snapshot DB가 없어서 완전하게 구현하지 않았다.
-
-현재는 bounded single-video proxy다. 이를 percentile/velocity로 발전시키려면 별도의 statistics snapshot collection job이 필요하다.
+동일 category/영상 age cohort percentile은 reference population snapshot DB가 없어서 현재 구현하지 않았다. 현재는 bounded single-video proxy다.
 
 ---
 
-# 12. 남아 있는 제한 및 후속 데이터 작업
+# 13. 남아 있는 제한
 
-## 다장르 ranker validation
+## 다장르 ranker OOD
 
-가장 큰 제한이다.
-
-Context/LLM generator는 YouTube 공식 category와 broad topics를 받아 Music/Gaming/Sports/Beauty 등에서도 생성할 수 있다. 그러나 현재 reaction ranker의 학습 source는 social-issues/vlog 중심이다.
+가장 큰 데이터 제한이다. Generator/context 범위와 ranker 검증 범위가 다르다.
 
 후속:
 
-1. 공식 YouTube category별 대표 영상 수집
-2. category/topic/style metadata와 함께 댓글 수집
-3. engagement normalization 재검토
+1. official category별 영상/댓글 수집
+2. category/topic/style enrichment
+3. engagement normalization
 4. category-balanced split
-5. ranker retrain + per-category metrics
+5. retrain + per-category metrics
 
-## Hype history
+## Transcript 상태 세분화
 
-실제 viral velocity를 위해서는:
-
-```text
-video_stats_snapshot
-- video_id
-- collected_at
-- view_count
-- like_count
-- comment_count
-```
-
-같은 시계열 저장 구조가 필요하다.
-
-## Transcript
-
-공개 자막은 `youtube-transcript-api` 기반 best-effort이므로 클라우드 IP/YouTube 상태에 따라 실패할 수 있다. 자막 실패 시 title/description/tags metadata로 계속 진행한다. 현재는 “자막 없음”과 “자막 fetch 실패”를 별도 status로 구분하지 않는다.
+현재 `unavailable`과 `fetch_failed`를 별도 상태로 구분하지 않는다.
 
 ## Korean heuristic
 
-한국어 topic/style/age rule 일부는 substring 기반이다. 영문처럼 모든 단어에 ASCII word boundary를 적용하면 조사/복합어 recall을 해칠 수 있어 현재는 의도적으로 남겨두었다. 향후 형태소 분석 또는 embedding classifier 후보가 있다.
+일부 substring rule이 남아 있다. 형태소/embedding classifier가 후속 후보다.
 
-## LLM real E2E
+## Real LLM E2E
 
-CI는 비용과 외부 서비스 불안정성을 피하기 위해 실제 API 호출을 하지 않는다. 실제 서비스 동작에는 다음이 필요하다.
+CI는 실제 API를 호출하지 않는다. 실제 서비스에는:
 
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
 - reaction model artifact
-- YouTube URL 경로라면 `YOUTUBE_API_KEY`
+- URL mode에서는 `YOUTUBE_API_KEY`
 
-의미적 hallucination과 최종 문체 자연스러움은 fake-provider CI로 완전히 증명할 수 없으므로 실제 provider smoke test와 human review가 별도로 필요하다.
+가 필요하다.
+
+Hallucination/문체 자연스러움은 real-provider smoke test + human review가 필요하다.
 
 ## Storage
 
-SQLite는 MVP/local single-instance persistence다. multi-instance/user-account 서비스가 되면 별도 production DB/ownership 설계가 필요하다.
+SQLite는 local/single-instance MVP storage다.
 
 ---
 
-# 13. 반영 전 최종 체크리스트
+# 14. 반영 전 최종 체크
 
-- [x] 설계 README를 구현 전에 작성
-- [x] 구현 후 코드와 설계 대조
-- [x] 별도 validation/anomaly README 작성
-- [x] 고정 template generator 제거 확인
-- [x] broad category/context path 확인
-- [x] 기존 댓글 retrieval을 LLM 생성 이전 script 단계로 분리
-- [x] historical reference 자체 safety filtering
-- [x] LLM은 새 candidate 작성에만 사용
-- [x] GenerationContext를 untrusted data로 다루는 prompt boundary
-- [x] 생성 후 safety filter 유지
-- [x] 생성 후 reaction ranker 유지
-- [x] 기존 DB migration 고려
-- [x] history request snapshot 저장/복원
-- [x] additional_context 중복 제거
-- [x] frontend dynamic category 반영
+- [x] 작성 전 설계 감사
+- [x] 구현 후 코드/설계 대조
+- [x] 별도 anomaly validation README
+- [x] fixed template 제거
+- [x] broad category/context
+- [x] LLM candidate-only 경계
+- [x] historical reference safety
+- [x] prompt data boundary
+- [x] additional-context duplicate 제거
+- [x] legacy category override 제거
 - [x] frontend readiness preflight
-- [x] backend 1차 clean CI: 44 passed
-- [x] 재감사 코드 HEAD CI: 51 passed
-- [x] frontend 코드 HEAD CI: test/lint/build/audit success
-- [ ] 최종 README 정리 commit 이후 최종 branch CI success
-- [ ] branch가 latest main 대비 behind 0인지 재확인
-- [ ] 세 README 전체 최종 재검토
-- [ ] PR 생성
-- [ ] PR-triggered CI success
+- [x] history request snapshot
+- [x] regression tests 추가
+- [ ] 최종 feature HEAD CI green
+- [ ] latest main 대비 behind 0
+- [ ] 세 README 전체 최종 재독/코드 대조
+- [ ] PR-triggered CI green
 - [ ] PR merge
-- [ ] merge 후 main SHA/내용 확인
-- [ ] merge 후 `feature/llm-context-generation` branch가 삭제되지 않았는지 확인
+- [ ] merge 후 main code/docs/CI 재검증
+- [ ] feature branch 존치 확인
 
-> **중요:** PR merge 시 `feature/llm-context-generation` branch를 삭제하지 않는다.
+> `feature/llm-context-generation` branch는 merge 후 삭제하지 않는다.
 
 ---
 
-# 14. 반영 후 확인 절차
+# 15. 반영 후 검증
 
-Merge 직후 다음을 다시 읽고 확인한다.
+Merge 직후 실제 GitHub 상태를 기준으로 확인한다.
 
-1. `main` branch가 PR merge commit을 가리키는지
-2. `main`의 `candidate_generator.py`가 LLM-only path인지
-3. `main`에 root README, 이 README, validation README가 존재하는지
-4. `main` CI가 green인지
-5. `feature/llm-context-generation` branch가 그대로 존재하는지
-6. branch가 merge된 최종 feature head를 보존하는지
+1. main merge SHA
+2. main의 LLM-only candidate path
+3. main의 deterministic category/context path
+4. main에 root/design/validation README 존재
+5. main CI green
+6. retained feature branch 존재 및 feature implementation head 보존
 
-이 단계는 merge 이후 실제 GitHub 상태를 기준으로 수행하며 최종 작업 보고에 SHA와 함께 기록한다.
+정확한 PR/merge SHA는 merge 이후 validation README의 post-merge record에서 갱신한다.
