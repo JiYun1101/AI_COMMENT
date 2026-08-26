@@ -164,6 +164,7 @@ def recommend_comment_candidates(request: RecommendRequest):
             "blocked_candidate_count": ranked["blocked_candidate_count"],
             "generator": "llm",
         },
+        "trace": ranked["trace"],
     }
 
 
