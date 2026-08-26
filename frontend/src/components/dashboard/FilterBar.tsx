@@ -14,6 +14,24 @@ interface FilterBarProps {
   onReset: () => void;
 }
 
+const COMMON_CATEGORIES = [
+  'Film & Animation',
+  'Autos & Vehicles',
+  'Music',
+  'Pets & Animals',
+  'Sports',
+  'Travel & Events',
+  'Gaming',
+  'People & Blogs',
+  'Comedy',
+  'Entertainment',
+  'News & Politics',
+  'Howto & Style',
+  'Education',
+  'Science & Technology',
+  'Nonprofits & Activism',
+];
+
 export function FilterBar({ value, onChange, onApply, onReset }: FilterBarProps) {
   const update = (key: keyof DashboardFilters, nextValue: string) => {
     onChange({ ...value, [key]: nextValue });
@@ -51,11 +69,19 @@ export function FilterBar({ value, onChange, onApply, onReset }: FilterBarProps)
         </div>
         <div className="ff">
           <label className="ff-k" htmlFor="filter-category">카테고리</label>
-          <select id="filter-category" className="filter-native" value={value.category} onChange={(event) => update('category', event.target.value)}>
-            <option value="">전체</option>
-            <option value="social">사회이슈</option>
-            <option value="vlog">브이로그</option>
-          </select>
+          <input
+            id="filter-category"
+            className="filter-native"
+            list="youtube-category-options"
+            value={value.category}
+            onChange={(event) => update('category', event.target.value)}
+            placeholder="공식/파생 카테고리"
+          />
+          <datalist id="youtube-category-options">
+            {COMMON_CATEGORIES.map((category) => <option key={category} value={category} />)}
+            <option value="social" />
+            <option value="vlog" />
+          </datalist>
         </div>
         <div className="ff score-filter">
           <label className="ff-k" htmlFor="filter-score">최소 점수</label>
