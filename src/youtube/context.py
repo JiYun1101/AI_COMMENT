@@ -12,6 +12,8 @@ from urllib.parse import parse_qs, urlparse
 import requests
 from dotenv import load_dotenv
 
+from src.youtube.categories import resolve_category_name
+
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env.local")
 
@@ -58,6 +60,18 @@ class YouTubeVideoContext:
     thumbnail_url: str | None
     transcript: str | None = None
     transcript_language: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
+    tags: tuple[str, ...] = ()
+    default_language: str | None = None
+    like_count: int | None = None
+    comment_count: int | None = None
+    made_for_kids: bool | None = None
+    age_restricted: bool = False
+    topic_categories: tuple[str, ...] = ()
+    live_broadcast_content: str | None = None
+    live_streaming_details: dict | None = None
+    is_short: bool = False
 
     @property
     def transcript_available(self) -> bool:
@@ -67,6 +81,8 @@ class YouTubeVideoContext:
         data = asdict(self)
         data.pop("transcript", None)
         data["transcript_available"] = self.transcript_available
+        data["tags"] = list(self.tags)
+        data["topic_categories"] = list(self.topic_categories)
         return data
 
 
@@ -97,6 +113,16 @@ def extract_video_id(url: str) -> str:
         raise InvalidYouTubeUrlError("지원되는 단일 YouTube 영상 URL이 아닙니다.")
 
     return video_id
+
+
+def _is_short_url(url: str) -> bool:
+    raw = url.strip()
+    try:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    except ValueError:
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    return bool(parts and parts[0] == "shorts")
 
 
 def parse_duration_seconds(value: str | None) -> int | None:
@@ -140,6 +166,15 @@ def _best_thumbnail(snippet: dict) -> str | None:
         if url:
             return url
     return None
+
+
+def _optional_int(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None]:
@@ -225,7 +260,10 @@ def fetch_youtube_context(
     video_payload = _api_get(
         http,
         "videos",
-        {"part": "snippet,contentDetails,statistics", "id": video_id},
+        {
+            "part": "snippet,contentDetails,statistics,status,topicDetails,liveStreamingDetails",
+            "id": video_id,
+        },
         key,
     )
     items = video_payload.get("items") or []
@@ -236,6 +274,9 @@ def fetch_youtube_context(
     snippet = video.get("snippet") or {}
     statistics = video.get("statistics") or {}
     content_details = video.get("contentDetails") or {}
+    status = video.get("status") or {}
+    topic_details = video.get("topicDetails") or {}
+    live_streaming_details = video.get("liveStreamingDetails") or {}
 
     subscriber_count: int | None = None
     channel_id = snippet.get("channelId")
@@ -250,12 +291,7 @@ def fetch_youtube_context(
         if channel_items:
             channel_stats = channel_items[0].get("statistics") or {}
             if not channel_stats.get("hiddenSubscriberCount"):
-                raw_subscriber_count = channel_stats.get("subscriberCount")
-                if raw_subscriber_count is not None:
-                    subscriber_count = int(raw_subscriber_count)
-
-    raw_view_count = statistics.get("viewCount")
-    view_count = int(raw_view_count) if raw_view_count is not None else None
+                subscriber_count = _optional_int(channel_stats.get("subscriberCount"))
 
     transcript = None
     transcript_language = None
@@ -264,6 +300,8 @@ def fetch_youtube_context(
         fetcher = transcript_fetcher or _default_transcript_fetcher
         transcript, transcript_language = fetcher(video_id)
 
+    category_id = str(snippet.get("categoryId")) if snippet.get("categoryId") is not None else None
+    content_rating = content_details.get("contentRating") or {}
     context = YouTubeVideoContext(
         video_id=video_id,
         url=f"https://www.youtube.com/watch?v={video_id}",
@@ -271,12 +309,24 @@ def fetch_youtube_context(
         description=(snippet.get("description") or "").strip(),
         channel=(snippet.get("channelTitle") or "").strip(),
         subscriber_count=subscriber_count,
-        view_count=view_count,
+        view_count=_optional_int(statistics.get("viewCount")),
         published_at=snippet.get("publishedAt"),
         duration_seconds=parse_duration_seconds(content_details.get("duration")),
         thumbnail_url=_best_thumbnail(snippet),
         transcript=transcript,
         transcript_language=transcript_language,
+        category_id=category_id,
+        category_name=resolve_category_name(category_id),
+        tags=tuple(str(tag) for tag in (snippet.get("tags") or []) if str(tag).strip()),
+        default_language=snippet.get("defaultAudioLanguage") or snippet.get("defaultLanguage"),
+        like_count=_optional_int(statistics.get("likeCount")),
+        comment_count=_optional_int(statistics.get("commentCount")),
+        made_for_kids=status.get("madeForKids") if "madeForKids" in status else None,
+        age_restricted=content_rating.get("ytRating") == "ytAgeRestricted",
+        topic_categories=tuple(str(item) for item in (topic_details.get("topicCategories") or []) if item),
+        live_broadcast_content=snippet.get("liveBroadcastContent"),
+        live_streaming_details=live_streaming_details or None,
+        is_short=_is_short_url(url),
     )
     if can_use_shared_cache:
         _cache_set(video_id, context)
@@ -284,10 +334,14 @@ def fetch_youtube_context(
 
 
 def build_reference_text(context: YouTubeVideoContext) -> str:
-    """Create the text consumed by candidate generation and ranking features."""
+    """Create the text consumed by context classification and ranking features."""
     parts = [f"제목: {context.title}"]
     if context.channel:
         parts.append(f"채널: {context.channel}")
+    if context.category_name:
+        parts.append(f"YouTube 카테고리: {context.category_name}")
+    if context.tags:
+        parts.append(f"태그: {', '.join(context.tags[:30])}")
     if context.description:
         parts.append(f"설명: {context.description[:MAX_DESCRIPTION_CHARS]}")
     if context.transcript:
