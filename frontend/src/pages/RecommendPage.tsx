@@ -8,12 +8,12 @@ import { EmptyExamples, type ExampleVideo } from '../components/recommend/EmptyE
 import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { TypeTag } from '../components/TypeTag';
 import { getAnalysis, getVideoPreview, recommend, sendFeedback } from '../api/client';
+import { formatCategoryLabel } from '../utils/category';
 import { isValidYouTubeVideoUrl } from '../utils/youtube';
 import type {
-  Category,
   CommentRecommendation,
+  GenerationContextSummary,
   GenerationMeta,
-  ResolvedCategory,
   VideoPreviewData,
 } from '../types/comment';
 
@@ -25,7 +25,6 @@ export function RecommendPage() {
   const [url, setUrlState] = useState('');
   const [manual, setManualState] = useState('');
   const [additionalContext, setAdditionalContextState] = useState('');
-  const [category, setCategoryState] = useState<Category>('auto');
   const [count, setCountState] = useState(5);
   const [preview, setPreview] = useState<VideoPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -35,7 +34,8 @@ export function RecommendPage() {
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
-  const [resolvedCategory, setResolvedCategory] = useState<ResolvedCategory | null>(null);
+  const [resolvedCategory, setResolvedCategory] = useState<string | null>(null);
+  const [contextSummary, setContextSummary] = useState<GenerationContextSummary | null>(null);
   const [generation, setGeneration] = useState<GenerationMeta | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +47,7 @@ export function RecommendPage() {
     setResults(null);
     setAnalysisId(null);
     setResolvedCategory(null);
+    setContextSummary(null);
     setGeneration(null);
     setCopiedId(null);
   };
@@ -111,11 +112,6 @@ export function RecommendPage() {
     invalidateResults();
   };
 
-  const setCategory = (value: Category) => {
-    setCategoryState(value);
-    invalidateResults();
-  };
-
   const setCount = (value: number) => {
     setCountState(value);
     invalidateResults();
@@ -139,7 +135,6 @@ export function RecommendPage() {
 
   const pickExample = (example: ExampleVideo) => {
     setModeState('manual');
-    setCategoryState(example.category);
     setManualState(`${example.title}\n채널: ${example.channel}`);
     setUrlState('');
     setAdditionalContextState('');
@@ -160,14 +155,18 @@ export function RecommendPage() {
           ? {
               youtube_url: url.trim(),
               additional_context: additionalContext.trim() || undefined,
-              category,
               top_k: count,
             }
-          : { post_text: manual.trim(), category, top_k: count },
+          : {
+              post_text: manual.trim(),
+              additional_context: additionalContext.trim() || undefined,
+              top_k: count,
+            },
       );
       setResults(response.recommendations);
       setAnalysisId(response.analysis_id);
       setResolvedCategory(response.resolved_category);
+      setContextSummary(response.context ?? null);
       setGeneration(response.generation);
       if (response.youtube_context) setPreview(response.youtube_context);
     } catch (err) {
@@ -181,11 +180,15 @@ export function RecommendPage() {
     setError(null);
     try {
       const detail = await getAnalysis(id);
-      setCategoryState(detail.category);
       setAnalysisId(detail.id);
       setResolvedCategory(detail.category);
+      setContextSummary(detail.context_summary ?? null);
       setGeneration(null);
       setResults(detail.recommendations);
+      setAdditionalContextState(detail.additional_context ?? '');
+      if (detail.requested_count && detail.requested_count >= 3 && detail.requested_count <= 10) {
+        setCountState(detail.requested_count);
+      }
       if (detail.source_type === 'youtube' && detail.youtube_url) {
         setModeState('url');
         setUrlState(detail.youtube_url);
@@ -236,9 +239,9 @@ export function RecommendPage() {
         <Header title="댓글 추천" />
         <div className="recommend">
           <div className="hero">
-            <span className="hero-eyebrow"><span className="dot" /> AI 댓글 추천 · v0.4</span>
-            <h1 className="hero-title">영상에 어울리는<br />안전한 댓글을 찾아드립니다</h1>
-            <p className="hero-sub">영상 문맥으로 후보를 만들고 안전 필터와 반응 예측 모델로 순위를 정합니다.</p>
+            <span className="hero-eyebrow"><span className="dot" /> AI 댓글 추천 · v0.5</span>
+            <h1 className="hero-title">영상 맥락을 분석해<br />자연스러운 댓글을 생성합니다</h1>
+            <p className="hero-sub">분류와 맥락 수집은 코드로, 댓글 후보 생성만 LLM으로 처리한 뒤 안전 필터와 반응 예측 모델로 순위를 정합니다.</p>
           </div>
 
           <Composer
@@ -251,8 +254,6 @@ export function RecommendPage() {
             setManual={setManual}
             additionalContext={additionalContext}
             setAdditionalContext={setAdditionalContext}
-            category={category}
-            setCategory={setCategory}
             count={count}
             setCount={setCount}
             preview={preview}
@@ -275,13 +276,23 @@ export function RecommendPage() {
                   <h2>추천 댓글</h2>
                   <div className="sub result-summary" style={{ marginTop: 3 }}>
                     {results.length}개 추천
-                    {resolvedCategory && <> · {resolvedCategory === 'vlog' ? '브이로그' : '사회이슈'}</>}
-                    {generation && <> · 안전 후보 {generation.safe_candidate_count}개</>}
+                    {resolvedCategory && <> · {formatCategoryLabel(resolvedCategory)}</>}
+                    {generation && <> · LLM 후보 {generation.candidate_count}개 / 안전 {generation.safe_candidate_count}개</>}
                     {analysisId && <span className="result-saved"> · 자동 저장됨</span>}
                   </div>
+                  {contextSummary && (
+                    <div className="context-summary">
+                      {contextSummary.official_category && <span>{contextSummary.official_category}</span>}
+                      {contextSummary.topics.slice(0, 3).map((topic) => <span key={topic}>#{topic}</span>)}
+                      <span>{contextSummary.format}</span>
+                      <span>{contextSummary.freshness}</span>
+                      <span>{contextSummary.hype_label}</span>
+                      <span>과거 댓글 {contextSummary.historical_match_count}건 참조</span>
+                    </div>
+                  )}
                 </div>
                 <button type="button" className="btn secondary sm" onClick={submit} disabled={submitting}>
-                  <RefreshCw size={13} /> 다시 생성
+                  <RefreshCw size={13} /> 새 후보 생성
                 </button>
               </div>
               <div className="results">
