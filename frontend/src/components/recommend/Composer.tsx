@@ -7,18 +7,13 @@ import {
   Menu,
   RefreshCw,
   Shield,
+  Sparkles,
   Star,
 } from 'lucide-react';
 import { VideoPreview } from './VideoPreview';
-import type { Category, VideoPreviewData } from '../../types/comment';
+import type { VideoPreviewData } from '../../types/comment';
 
 type Mode = 'url' | 'manual';
-
-const CATEGORIES: { key: Category; label: string; auto?: boolean }[] = [
-  { key: 'auto', label: '자동 감지', auto: true },
-  { key: 'social', label: '사회이슈' },
-  { key: 'vlog', label: '브이로그' },
-];
 
 interface ComposerProps {
   mode: Mode;
@@ -30,8 +25,6 @@ interface ComposerProps {
   setManual: (manual: string) => void;
   additionalContext: string;
   setAdditionalContext: (value: string) => void;
-  category: Category;
-  setCategory: (category: Category) => void;
   count: number;
   setCount: (count: number) => void;
   preview: VideoPreviewData | null;
@@ -54,8 +47,6 @@ export function Composer({
   setManual,
   additionalContext,
   setAdditionalContext,
-  category,
-  setCategory,
   count,
   setCount,
   preview,
@@ -161,20 +152,10 @@ export function Composer({
         )}
 
         <div className="options">
-          <div className="opt-row">
-            <label className="opt-label">카테고리</label>
-            <div className="opt-chips">
-              {CATEGORIES.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={`opt-chip${c.auto ? ' auto' : ''}${category === c.key ? ' on' : ''}`}
-                  onClick={() => setCategory(c.key)}
-                >
-                  {c.auto && <Star size={12} />}
-                  {c.label}
-                </button>
-              ))}
+          <div className="opt-row context-auto-row">
+            <label className="opt-label">맥락 분석</label>
+            <div className="context-auto-note">
+              <Sparkles size={13} /> YouTube 공식 카테고리·주제·형식·최신성·반응 지표와 기존 댓글 패턴을 자동 분석합니다.
             </div>
           </div>
 
@@ -192,7 +173,7 @@ export function Composer({
         <span className="safety"><Shield size={12} strokeWidth={2} /> 안전 필터 항상 적용</span>
         <button type="button" className="cta" disabled={!canSubmit || submitting} onClick={onSubmit}>
           <Star size={16} strokeWidth={2} />
-          {submitting ? '추천 생성 중…' : '댓글 추천받기'}
+          {submitting ? 'LLM 댓글 생성 중…' : '댓글 추천받기'}
         </button>
       </div>
     </div>
