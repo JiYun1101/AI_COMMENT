@@ -6,6 +6,7 @@ import type {
   FeedbackValue,
   RecommendRequest,
   RecommendResponse,
+  ServiceHealth,
   VideoPreviewData,
 } from '../types/comment';
 
@@ -25,6 +26,10 @@ async function requestJson<T>(url: string, init: RequestInit | undefined, fallba
   const res = await fetch(url, init);
   if (!res.ok) throw new Error(await getErrorMessage(res, fallback));
   return res.json() as Promise<T>;
+}
+
+export async function getHealth(): Promise<ServiceHealth> {
+  return requestJson<ServiceHealth>(`${API_BASE}/health`, undefined, '서비스 상태를 확인하지 못했습니다');
 }
 
 export async function recommend(request: RecommendRequest): Promise<RecommendResponse> {
