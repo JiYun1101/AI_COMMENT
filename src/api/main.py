@@ -5,8 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest
+from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
-from src.recommender.candidate_generator import infer_category
+from src.recommender.generation_context import build_generation_context, summarize_generation_context
 from src.recommender.ranker import recommend_comments_with_meta
 from src.storage.analysis_store import (
     dashboard_summary,
@@ -27,8 +28,8 @@ from src.youtube.context import (
 
 app = FastAPI(
     title="AI Comment Recommender",
-    description="댓글 좋아요 반응 예측 기반 AI 댓글 추천 시스템",
-    version="0.4.0",
+    description="Deterministic context engineering + LLM generation + reaction ranking",
+    version="0.5.0",
 )
 
 app.add_middleware(
@@ -49,11 +50,14 @@ def root():
 
 @app.get("/health")
 def health_check():
-    readiness = model_readiness()
+    model = model_readiness()
+    llm = llm_readiness()
     return {
-        "status": "ok" if readiness["ready"] else "degraded",
+        "status": "ok" if model["ready"] and llm["ready"] else "degraded",
         "message": "AI Comment Recommender API is running",
-        "model": readiness,
+        "model": model,
+        "llm": llm,
+        "youtube": {"configured": bool(__import__("os").getenv("YOUTUBE_API_KEY"))},
         "storage": {"ready": True},
     }
 
@@ -67,6 +71,14 @@ def _youtube_context_or_http_error(url: str):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except YouTubeLookupError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _generation_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (LLMNotReadyError, ModelNotReadyError)):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, LLMGenerationError):
+        return HTTPException(status_code=502, detail=str(exc))
+    return HTTPException(status_code=500, detail="추천 생성 중 오류가 발생했습니다.")
 
 
 @app.get("/videos/preview")
@@ -102,16 +114,23 @@ def recommend_comment_candidates(request: RecommendRequest):
         raise HTTPException(status_code=422, detail="post_text 또는 youtube_url 중 하나는 필요합니다.")
 
     reference_text = "\n\n".join(reference_parts)
-    resolved_category = infer_category(reference_text) if request.category == "auto" else request.category
+    generation_context = build_generation_context(
+        reference_text,
+        youtube_context=youtube_context,
+        additional_context=request.additional_context,
+        category_hint=request.category,
+    )
+    context_summary = summarize_generation_context(generation_context)
+    resolved_category = str(context_summary["primary_category"] or "Other")
 
     try:
         ranked = recommend_comments_with_meta(
             reference_text,
+            generation_context=generation_context,
             top_k=request.top_k,
-            category=resolved_category,
         )
-    except ModelNotReadyError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
+        raise _generation_http_error(exc) from exc
 
     youtube_data = youtube_context.to_dict() if youtube_context else None
     source_type = "youtube" if youtube_context else "manual"
@@ -122,6 +141,9 @@ def recommend_comment_candidates(request: RecommendRequest):
         category=resolved_category,
         recommendations=ranked["recommendations"],
         youtube_context=youtube_data,
+        generation_context=generation_context,
+        requested_count=request.top_k,
+        additional_context=request.additional_context.strip() if request.additional_context else None,
     )
 
     return {
@@ -129,6 +151,7 @@ def recommend_comment_candidates(request: RecommendRequest):
         "post_text": reference_text[:4_000],
         "resolved_category": resolved_category,
         "youtube_context": youtube_data,
+        "context": context_summary,
         "recommendations": stored_recommendations,
         "generation": {
             "requested_count": request.top_k,
@@ -136,6 +159,7 @@ def recommend_comment_candidates(request: RecommendRequest):
             "candidate_count": ranked["candidate_count"],
             "safe_candidate_count": ranked["safe_candidate_count"],
             "blocked_candidate_count": ranked["blocked_candidate_count"],
+            "generator": "llm",
         },
     }
 
@@ -150,6 +174,8 @@ def analysis_detail(analysis_id: str):
     analysis = get_analysis(analysis_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="분석 기록을 찾을 수 없습니다.")
+    generation_context = analysis.get("generation_context")
+    analysis["context_summary"] = summarize_generation_context(generation_context) if generation_context else None
     return analysis
 
 
