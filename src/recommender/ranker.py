@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
 from src.recommender.candidate_generator import generate_candidates
-from src.recommender.safety_filter import filter_safe_comments
+from src.recommender.safety_filter import get_block_reason
 
 MAX_GENERATION_ATTEMPTS = 3
 
@@ -20,22 +20,51 @@ def recommend_comments_with_meta(
 ) -> dict:
     safe_candidates: list[dict] = []
     seen_safe: set[str] = set()
+    trace_candidates: list[dict] = []
+    trace_by_normalized: dict[str, dict] = {}
     candidate_count = 0
+    safety_blocked_count = 0
+    duplicate_candidate_count = 0
 
-    for _ in range(MAX_GENERATION_ATTEMPTS):
+    for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
         candidates = generate_candidates(
             generation_context,
             minimum_count=max(top_k, 10),
         )
         candidate_count += len(candidates)
-        batch_safe = filter_safe_comments(candidates)
 
-        for candidate in batch_safe:
-            normalized = _normalized_comment(str(candidate.get("comment") or ""))
-            if not normalized or normalized in seen_safe:
+        for candidate in candidates:
+            comment = str(candidate.get("comment") or "")
+            normalized = _normalized_comment(comment)
+            block_reason = get_block_reason(comment)
+            trace_item = {
+                "sequence": len(trace_candidates) + 1,
+                "attempt": attempt,
+                "type": candidate.get("type", "general"),
+                "comment": comment,
+                "safety": "blocked" if block_reason else "passed",
+                "safety_reason": block_reason,
+                "duplicate": False,
+                "ranker_score": None,
+                "selected": False,
+                "final_rank": None,
+            }
+
+            if block_reason is not None:
+                safety_blocked_count += 1
+                trace_candidates.append(trace_item)
                 continue
+
+            if not normalized or normalized in seen_safe:
+                duplicate_candidate_count += 1
+                trace_item["duplicate"] = True
+                trace_candidates.append(trace_item)
+                continue
+
             seen_safe.add(normalized)
             safe_candidates.append(candidate)
+            trace_candidates.append(trace_item)
+            trace_by_normalized[normalized] = trace_item
 
         if len(safe_candidates) >= top_k:
             break
@@ -62,11 +91,30 @@ def recommend_comments_with_meta(
             }
         )
 
+    final_rank_by_normalized = {
+        _normalized_comment(item["comment"]): index
+        for index, item in enumerate(scored_results[:top_k], start=1)
+    }
+    score_by_normalized = {
+        _normalized_comment(item["comment"]): item["score"]
+        for item in scored_results
+    }
+    for normalized, trace_item in trace_by_normalized.items():
+        trace_item["ranker_score"] = score_by_normalized.get(normalized)
+        final_rank = final_rank_by_normalized.get(normalized)
+        trace_item["selected"] = final_rank is not None
+        trace_item["final_rank"] = final_rank
+
     return {
         "recommendations": recommendations,
         "candidate_count": candidate_count,
         "safe_candidate_count": len(safe_candidates),
         "blocked_candidate_count": candidate_count - len(safe_candidates),
+        "trace": {
+            "safety_blocked_count": safety_blocked_count,
+            "duplicate_candidate_count": duplicate_candidate_count,
+            "candidates": trace_candidates,
+        },
     }
 
 
