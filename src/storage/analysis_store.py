@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import uuid
@@ -28,6 +29,18 @@ def _connect(path: str | Path | None = None) -> sqlite3.Connection:
     return connection
 
 
+def _ensure_analysis_columns(connection: sqlite3.Connection) -> None:
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(analyses)").fetchall()}
+    additions = {
+        "context_json": "TEXT",
+        "requested_count": "INTEGER",
+        "additional_context": "TEXT",
+    }
+    for column, definition in additions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE analyses ADD COLUMN {column} {definition}")
+
+
 def init_db(path: str | Path | None = None) -> None:
     with _connect(path) as connection:
         connection.executescript(
@@ -42,7 +55,10 @@ def init_db(path: str | Path | None = None) -> None:
                 channel TEXT,
                 thumbnail_url TEXT,
                 category TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                context_json TEXT,
+                requested_count INTEGER,
+                additional_context TEXT
             );
 
             CREATE TABLE IF NOT EXISTS recommendations (
@@ -61,6 +77,7 @@ def init_db(path: str | Path | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);
             """
         )
+        _ensure_analysis_columns(connection)
 
 
 def _now_iso() -> str:
@@ -82,12 +99,16 @@ def save_analysis(
     category: str,
     recommendations: Iterable[dict],
     youtube_context: dict | None = None,
+    generation_context: dict | None = None,
+    requested_count: int | None = None,
+    additional_context: str | None = None,
     path: str | Path | None = None,
 ) -> tuple[str, list[dict]]:
     init_db(path)
     analysis_id = _analysis_id()
     created_at = _now_iso()
     youtube_context = youtube_context or {}
+    context_json = json.dumps(generation_context, ensure_ascii=False) if generation_context else None
 
     stored_recommendations: list[dict] = []
     with _connect(path) as connection:
@@ -95,8 +116,9 @@ def save_analysis(
             """
             INSERT INTO analyses (
                 id, source_type, source_text, youtube_url, video_id, video_title,
-                channel, thumbnail_url, category, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                channel, thumbnail_url, category, created_at, context_json,
+                requested_count, additional_context
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analysis_id,
@@ -109,6 +131,9 @@ def save_analysis(
                 youtube_context.get("thumbnail_url"),
                 category,
                 created_at,
+                context_json,
+                requested_count,
+                additional_context,
             ),
         )
 
@@ -141,7 +166,10 @@ def list_analyses(*, limit: int = 10, path: str | Path | None = None) -> list[di
     with _connect(path) as connection:
         rows = connection.execute(
             """
-            SELECT a.*, COUNT(r.id) AS recommendation_count,
+            SELECT a.id, a.source_type, a.source_text, a.youtube_url, a.video_id,
+                   a.video_title, a.channel, a.thumbnail_url, a.category, a.created_at,
+                   a.requested_count, a.additional_context,
+                   COUNT(r.id) AS recommendation_count,
                    COALESCE(AVG(r.predicted_score), 0) AS average_score
             FROM analyses a
             LEFT JOIN recommendations r ON r.analysis_id = a.id
@@ -171,6 +199,14 @@ def get_analysis(analysis_id: str, *, path: str | Path | None = None) -> dict | 
         ).fetchall()
 
     result = dict(analysis)
+    context_json = result.pop("context_json", None)
+    if context_json:
+        try:
+            result["generation_context"] = json.loads(context_json)
+        except json.JSONDecodeError:
+            result["generation_context"] = None
+    else:
+        result["generation_context"] = None
     result["recommendations"] = [dict(row) for row in recommendations]
     return result
 
@@ -197,7 +233,7 @@ def list_comments(
         where.append("r.type = ?")
         params.append(comment_type)
     if category and category != "auto":
-        where.append("a.category = ?")
+        where.append("LOWER(a.category) = LOWER(?)")
         params.append(category)
     if min_score is not None:
         where.append("r.predicted_score >= ?")
