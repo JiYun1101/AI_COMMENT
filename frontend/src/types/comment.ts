@@ -2,6 +2,7 @@ export type CommentType = 'insight' | 'casual' | 'empathy' | 'question' | 'negat
 export type Category = string;
 export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
+export type TranscriptStatus = 'available' | 'unavailable' | 'fetch_failed';
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
   insight: '인사이트',
@@ -51,6 +52,7 @@ export interface YouTubeVideoContext {
   thumbnail_url: string | null;
   transcript_available: boolean;
   transcript_language: string | null;
+  transcript_status?: TranscriptStatus;
   category_id?: string | null;
   category_name?: string | null;
   tags?: string[];
@@ -88,7 +90,7 @@ export interface GenerationContextSummary {
   broadcast: string;
   freshness: string;
   hype_label: string;
-  hype_score: number;
+  hype_score: number | null;
   historical_match_count: number;
   historical_coverage: string;
 }
