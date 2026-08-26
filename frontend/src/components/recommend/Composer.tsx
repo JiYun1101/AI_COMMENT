@@ -30,6 +30,8 @@ interface ComposerProps {
   preview: VideoPreviewData | null;
   previewLoading: boolean;
   previewError: string | null;
+  readinessMessage: string | null;
+  readinessChecking?: boolean;
   onRetryPreview: () => void;
   onSwitchToManual: () => void;
   onClearPreview: () => void;
@@ -52,13 +54,16 @@ export function Composer({
   preview,
   previewLoading,
   previewError,
+  readinessMessage,
+  readinessChecking,
   onRetryPreview,
   onSwitchToManual,
   onClearPreview,
   onSubmit,
   submitting,
 }: ComposerProps) {
-  const canSubmit = mode === 'url' ? urlValid : manual.trim().length >= 5;
+  const inputReady = mode === 'url' ? urlValid : manual.trim().length >= 5;
+  const canSubmit = inputReady && !readinessMessage && !readinessChecking;
 
   const handlePaste = async () => {
     try {
@@ -168,6 +173,17 @@ export function Composer({
             </div>
           </div>
         </div>
+
+        {readinessChecking && (
+          <div className="inline-status">
+            <LoaderCircle size={14} className="spin" /> 추천 서비스 준비 상태를 확인하고 있습니다…
+          </div>
+        )}
+        {!readinessChecking && readinessMessage && (
+          <div className="inline-status error">
+            <AlertCircle size={14} /> {readinessMessage}
+          </div>
+        )}
       </div>
 
       <div className="composer-ft">
