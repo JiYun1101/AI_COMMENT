@@ -65,6 +65,20 @@ export interface YouTubeVideoContext {
   is_short?: boolean;
 }
 
+export interface ReadinessComponent {
+  ready: boolean;
+  [key: string]: unknown;
+}
+
+export interface ServiceHealth {
+  status: 'ok' | 'degraded' | string;
+  message: string;
+  model: ReadinessComponent;
+  llm: ReadinessComponent;
+  youtube: { configured: boolean };
+  storage: { ready: boolean };
+}
+
 export interface GenerationContextSummary {
   primary_category: string;
   official_category: string | null;
