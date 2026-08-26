@@ -1,8 +1,4 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
-
-Category = Literal["auto", "social", "vlog"]
 
 
 class ScoreRequest(BaseModel):
@@ -37,7 +33,11 @@ class RecommendRequest(BaseModel):
         max_length=4_000,
         description="URL metadata/captions에 추가할 사용자 제공 맥락",
     )
-    category: Category = Field(default="auto")
+    category: str | None = Field(
+        default=None,
+        max_length=80,
+        description="하위 호환용 선택 힌트. 공식/파생 분류는 서버의 deterministic context builder가 결정합니다.",
+    )
     top_k: int = Field(default=5, ge=1, le=10)
 
 
