@@ -5,6 +5,7 @@ import re
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from src.recommender.historical_comments import build_historical_profile
 
@@ -55,7 +56,7 @@ STYLE_RULES: dict[str, tuple[str, ...]] = {
     "educational": ("강의", "설명", "정리", "교육", "lecture", "explained", "learn"),
     "tutorial": ("방법", "하는 법", "가이드", "튜토리얼", "tutorial", "how to", "guide"),
     "review": ("리뷰", "후기", "사용기", "review", "hands-on"),
-    "comparison": ("비교", " vs ", "comparison", "versus"),
+    "comparison": ("비교", "vs", "comparison", "versus"),
     "discussion": ("토론", "논의", "discussion", "debate"),
     "interview": ("인터뷰", "대담", "interview", "q&a"),
     "commentary": ("분석", "해설", "의견", "commentary", "analysis"),
@@ -81,6 +82,16 @@ FEMALE_TERMS = ("여성", "여자", "여대생", "여친", "여성용", "women",
 MALE_TERMS = ("남성", "남자", "남친", "남성용", "men", "man", "boy")
 
 
+def _keyword_present(text: str, keyword: str) -> bool:
+    keyword = keyword.strip()
+    if not keyword:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9+#& ._-]+", keyword):
+        escaped = re.escape(keyword)
+        return bool(re.search(rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])", text, flags=re.IGNORECASE))
+    return keyword.lower() in text.lower()
+
+
 def _extract_keywords(text: str, limit: int = 12) -> list[str]:
     tokens: list[str] = []
     for raw in _TOKEN_RE.findall(text or ""):
@@ -94,14 +105,24 @@ def _extract_keywords(text: str, limit: int = 12) -> list[str]:
 
 
 def _match_labels(text: str, rules: dict[str, tuple[str, ...]], limit: int) -> list[str]:
-    lowered = text.lower()
     scored = []
     for label, keywords in rules.items():
-        score = sum(1 for keyword in keywords if keyword.lower() in lowered)
+        score = sum(1 for keyword in keywords if _keyword_present(text, keyword))
         if score:
             scored.append((score, label))
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [label for _, label in scored[:limit]]
+
+
+def _topic_detail_terms(values: tuple[str, ...] | list[str]) -> str:
+    terms: list[str] = []
+    for value in values:
+        parsed = urlparse(str(value))
+        path = unquote(parsed.path or str(value))
+        slug = path.rsplit("/", 1)[-1].replace("_", " ").strip()
+        if slug:
+            terms.append(slug)
+    return " ".join(terms)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -175,9 +196,8 @@ def _audience(text: str, made_for_kids: bool | None, age_restricted: bool) -> di
         confidence = min(0.9, 0.45 + 0.2 * len(target_age)) if target_age else 0.0
         target_age = target_age or ["unknown"]
 
-    lowered = text.lower()
-    female = sum(term.lower() in lowered for term in FEMALE_TERMS)
-    male = sum(term.lower() in lowered for term in MALE_TERMS)
+    female = sum(_keyword_present(text, term) for term in FEMALE_TERMS)
+    male = sum(_keyword_present(text, term) for term in MALE_TERMS)
     if female and male:
         orientation, orientation_confidence = "mixed", min(0.9, 0.5 + 0.1 * (female + male))
     elif female:
@@ -240,7 +260,9 @@ def build_generation_context(
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     combined = "\n".join(part for part in (reference_text, additional_context or "") if part).strip()
-    topics = _match_labels(combined, TOPIC_RULES, 8)
+    topic_details = list(getattr(youtube_context, "topic_categories", ()) or ()) if youtube_context else []
+    classification_text = "\n".join(part for part in (combined, _topic_detail_terms(topic_details)) if part)
+    topics = _match_labels(classification_text, TOPIC_RULES, 8)
     styles = _match_labels(combined, STYLE_RULES, 6)
     if category_hint == "vlog" and "vlog" not in styles:
         styles.insert(0, "vlog")
@@ -266,7 +288,7 @@ def build_generation_context(
             "video_id": getattr(youtube_context, "video_id", None),
             "category_id": getattr(youtube_context, "category_id", None),
             "category_name": getattr(youtube_context, "category_name", None),
-            "topic_categories": list(getattr(youtube_context, "topic_categories", ()) or ()),
+            "topic_categories": topic_details,
             "tags": list(getattr(youtube_context, "tags", ()) or ())[:40],
         }
         format_context = {
