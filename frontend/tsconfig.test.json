@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["src/utils/youtube.ts"]
+  "include": ["src/utils/youtube.ts", "src/utils/readiness.ts"]
 }
