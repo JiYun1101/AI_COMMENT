@@ -127,7 +127,6 @@ export function RecommendPage() {
 
   const switchToManual = () => {
     setModeState('manual');
-    if (!manual.trim() && additionalContext.trim()) setManualState(additionalContext.trim());
     setPreviewError(null);
     setError(null);
     invalidateResults();
