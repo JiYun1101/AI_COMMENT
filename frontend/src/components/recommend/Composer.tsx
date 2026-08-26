@@ -11,6 +11,7 @@ import {
   Star,
 } from 'lucide-react';
 import { VideoPreview } from './VideoPreview';
+import { isRecommendationInputReady } from '../../utils/recommendationInput';
 import type { VideoPreviewData } from '../../types/comment';
 
 type Mode = 'url' | 'manual';
@@ -62,7 +63,13 @@ export function Composer({
   onSubmit,
   submitting,
 }: ComposerProps) {
-  const inputReady = mode === 'url' ? urlValid : manual.trim().length >= 5;
+  const inputReady = isRecommendationInputReady({
+    mode,
+    urlValid,
+    manualLength: manual.trim().length,
+    previewReady: Boolean(preview),
+    previewLoading,
+  });
   const canSubmit = inputReady && !readinessMessage && !readinessChecking;
 
   const handlePaste = async () => {
