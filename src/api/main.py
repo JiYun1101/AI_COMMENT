@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -57,7 +59,7 @@ def health_check():
         "message": "AI Comment Recommender API is running",
         "model": model,
         "llm": llm,
-        "youtube": {"configured": bool(__import__("os").getenv("YOUTUBE_API_KEY"))},
+        "youtube": {"configured": bool(os.getenv("YOUTUBE_API_KEY"))},
         "storage": {"ready": True},
     }
 
