@@ -56,7 +56,7 @@ STYLE_RULES: dict[str, tuple[str, ...]] = {
     "educational": ("강의", "설명", "정리", "교육", "lecture", "explained", "learn"),
     "tutorial": ("방법", "하는 법", "가이드", "튜토리얼", "tutorial", "how to", "guide"),
     "review": ("리뷰", "후기", "사용기", "review", "hands-on"),
-    "comparison": ("비교", "vs", "comparison", "versus"),
+    "comparison": ("비교", " vs ", "comparison", "versus"),
     "discussion": ("토론", "논의", "discussion", "debate"),
     "interview": ("인터뷰", "대담", "interview", "q&a"),
     "commentary": ("분석", "해설", "의견", "commentary", "analysis"),
@@ -82,16 +82,6 @@ FEMALE_TERMS = ("여성", "여자", "여대생", "여친", "여성용", "women",
 MALE_TERMS = ("남성", "남자", "남친", "남성용", "men", "man", "boy")
 
 
-def _keyword_present(text: str, keyword: str) -> bool:
-    keyword = keyword.strip()
-    if not keyword:
-        return False
-    if re.fullmatch(r"[A-Za-z0-9+#& ._-]+", keyword):
-        escaped = re.escape(keyword)
-        return bool(re.search(rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])", text, flags=re.IGNORECASE))
-    return keyword.lower() in text.lower()
-
-
 def _extract_keywords(text: str, limit: int = 12) -> list[str]:
     tokens: list[str] = []
     for raw in _TOKEN_RE.findall(text or ""):
@@ -104,6 +94,17 @@ def _extract_keywords(text: str, limit: int = 12) -> list[str]:
     return ranked[:limit]
 
 
+def _keyword_present(text: str, keyword: str) -> bool:
+    keyword = keyword.lower().strip()
+    lowered = text.lower()
+    if not keyword:
+        return False
+    if re.fullmatch(r"[a-z0-9+#.-]+(?: [a-z0-9+#.-]+)*", keyword):
+        pattern = rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])"
+        return re.search(pattern, lowered) is not None
+    return keyword in lowered
+
+
 def _match_labels(text: str, rules: dict[str, tuple[str, ...]], limit: int) -> list[str]:
     scored = []
     for label, keywords in rules.items():
@@ -114,14 +115,13 @@ def _match_labels(text: str, rules: dict[str, tuple[str, ...]], limit: int) -> l
     return [label for _, label in scored[:limit]]
 
 
-def _topic_detail_terms(values: tuple[str, ...] | list[str]) -> str:
+def _topic_detail_terms(topic_categories: list[str]) -> str:
     terms: list[str] = []
-    for value in values:
-        parsed = urlparse(str(value))
-        path = unquote(parsed.path or str(value))
-        slug = path.rsplit("/", 1)[-1].replace("_", " ").strip()
-        if slug:
-            terms.append(slug)
+    for value in topic_categories:
+        parsed = urlparse(value)
+        candidate = unquote((parsed.path or value).rstrip("/").split("/")[-1]).replace("_", " ").strip()
+        if candidate:
+            terms.append(candidate)
     return " ".join(terms)
 
 
@@ -243,7 +243,7 @@ def _popularity(views: int | None, likes: int | None, comments: int | None, subs
         "views_per_hour": round(views_per_hour, 2) if views_per_hour is not None else None,
         "likes_per_1000_views": round(likes_per_1000, 2) if likes_per_1000 is not None else None,
         "comments_per_1000_views": round(comments_per_1000, 2) if comments_per_1000 is not None else None,
-        "views_per_subscriber": round(views_per_subscriber, 3) if views_per_subscriber is not None else None,
+        "views_per_subscriber": round(views_per_subscriber, 4) if views_per_subscriber is not None else None,
         "hype_score": round(score, 3),
         "hype_label": label,
         "hype_basis": "single_snapshot_proxy",
@@ -264,12 +264,12 @@ def build_generation_context(
     classification_text = "\n".join(part for part in (combined, _topic_detail_terms(topic_details)) if part)
     topics = _match_labels(classification_text, TOPIC_RULES, 8)
     styles = _match_labels(combined, STYLE_RULES, 6)
-    if category_hint == "vlog" and "vlog" not in styles:
+
+    # Legacy category is retained only as an explicit compatibility/style signal.
+    # It must never override the script-derived primary category.
+    legacy_category_hint = (category_hint or "").strip().lower() or None
+    if legacy_category_hint == "vlog" and "vlog" not in styles:
         styles.insert(0, "vlog")
-    elif category_hint and category_hint not in {"auto", "social", "vlog"}:
-        normalized_hint = category_hint.strip().lower().replace(" ", "_")
-        if normalized_hint and normalized_hint not in topics:
-            topics.insert(0, normalized_hint)
 
     published_at = getattr(youtube_context, "published_at", None) if youtube_context else None
     published = _parse_datetime(published_at)
@@ -283,6 +283,7 @@ def build_generation_context(
             "transcript_excerpt": (getattr(youtube_context, "transcript", None) or "")[:6000],
             "language": getattr(youtube_context, "default_language", None) or getattr(youtube_context, "transcript_language", None),
             "additional_context": additional_context or None,
+            "legacy_category_hint": legacy_category_hint,
         }
         youtube = {
             "video_id": getattr(youtube_context, "video_id", None),
@@ -312,6 +313,7 @@ def build_generation_context(
             "transcript_excerpt": "",
             "language": "ko" if re.search(r"[가-힣]", combined) else None,
             "additional_context": additional_context or None,
+            "legacy_category_hint": legacy_category_hint,
         }
         youtube = {"video_id": None, "category_id": None, "category_name": None, "topic_categories": [], "tags": []}
         format_context = {"kind": "unknown", "broadcast": "unknown", "duration_seconds": None}
@@ -327,7 +329,7 @@ def build_generation_context(
         "season": _season(published.month if published else None),
     }
     historical = build_historical_profile(combined, topics=topics, content_styles=styles)
-    primary = youtube.get("category_name") or (category_hint if category_hint and category_hint not in {"auto", "social"} else None) or (topics[0] if topics else "Other")
+    primary = youtube.get("category_name") or (topics[0] if topics else (styles[0] if styles else "Other"))
     return {
         "source": source,
         "youtube": youtube,
