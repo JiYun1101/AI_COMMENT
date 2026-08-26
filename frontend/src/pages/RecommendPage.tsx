@@ -9,6 +9,7 @@ import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { TypeTag } from '../components/TypeTag';
 import { getAnalysis, getHealth, getVideoPreview, recommend, sendFeedback } from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
+import { isRecommendationInputReady } from '../utils/recommendationInput';
 import { getRecommendationReadinessMessage } from '../utils/readiness';
 import { isValidYouTubeVideoUrl } from '../utils/youtube';
 import type {
@@ -174,7 +175,14 @@ export function RecommendPage() {
 
   const submit = async () => {
     if (readinessChecking || readinessMessage) return;
-    if (mode === 'url' ? !urlValid : manual.trim().length < 5) return;
+    const inputReady = isRecommendationInputReady({
+      mode,
+      urlValid,
+      manualLength: manual.trim().length,
+      previewReady: Boolean(preview),
+      previewLoading,
+    });
+    if (!inputReady) return;
 
     setSubmitting(true);
     setError(null);
