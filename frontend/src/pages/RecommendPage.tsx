@@ -9,6 +9,7 @@ import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { TypeTag } from '../components/TypeTag';
 import { getAnalysis, getHealth, getVideoPreview, recommend, sendFeedback } from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
+import { getRecommendationReadinessMessage } from '../utils/readiness';
 import { isValidYouTubeVideoUrl } from '../utils/youtube';
 import type {
   CommentRecommendation,
@@ -46,17 +47,7 @@ export function RecommendPage() {
   const urlValid = useMemo(() => isValidYouTubeVideoUrl(url), [url]);
   const isEmpty = mode === 'url' ? !url.trim() : !manual.trim();
   const readinessChecking = !serviceHealth && !healthError;
-  const readinessMessage = useMemo(() => {
-    if (healthError) return '추천 서비스 상태를 확인할 수 없습니다. 백엔드 연결 상태를 확인해주세요.';
-    if (!serviceHealth) return null;
-    if (!serviceHealth.storage.ready) return '저장소가 준비되지 않아 추천을 시작할 수 없습니다.';
-    if (!serviceHealth.model.ready) return '반응 예측 모델이 준비되지 않아 추천을 시작할 수 없습니다.';
-    if (!serviceHealth.llm.ready) return 'LLM 설정이 준비되지 않아 추천을 시작할 수 없습니다.';
-    if (mode === 'url' && !serviceHealth.youtube.configured) {
-      return 'YouTube API가 설정되지 않았습니다. 직접 입력 모드는 사용할 수 있습니다.';
-    }
-    return null;
-  }, [healthError, mode, serviceHealth]);
+  const readinessMessage = getRecommendationReadinessMessage(serviceHealth, Boolean(healthError), mode);
 
   const invalidateResults = () => {
     setResults(null);
