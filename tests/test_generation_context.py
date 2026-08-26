@@ -66,6 +66,37 @@ def test_manual_context_does_not_invent_youtube_metadata(monkeypatch):
     assert "travel" in context["content"]["topics"]
     assert "vlog" in context["content"]["content_styles"]
     assert context["primary_category"] == "travel"
+    assert context["popularity"]["hype_label"] == "unknown"
+    assert context["popularity"]["hype_score"] is None
+    assert context["popularity"]["hype_basis"] == "unavailable"
+    assert summarize_generation_context(context)["hype_label"] == "unknown"
+
+
+def test_additional_context_is_generation_preference_not_classification_input(monkeypatch):
+    captured = {}
+
+    def fake_history(reference_text, **kwargs):
+        captured["reference_text"] = reference_text
+        captured["topics"] = list(kwargs.get("topics") or [])
+        captured["content_styles"] = list(kwargs.get("content_styles") or [])
+        return {"coverage": "none", "matched_count": 0, "reference_examples": []}
+
+    monkeypatch.setattr("src.recommender.generation_context.build_historical_profile", fake_history)
+    context = build_generation_context(
+        "React 성능 최적화 강의와 프론트엔드 실무 설명",
+        additional_context="20대 여성이 제주 여행 브이로그에 댓글 쓰듯 친근하게",
+    )
+
+    assert context["source"]["additional_context"] == "20대 여성이 제주 여행 브이로그에 댓글 쓰듯 친근하게"
+    assert "software" in context["content"]["topics"]
+    assert "travel" not in context["content"]["topics"]
+    assert "vlog" not in context["content"]["content_styles"]
+    assert context["audience"]["orientation"] == "general"
+    assert context["audience"]["target_age"] == ["unknown"]
+    assert "여행" not in context["content"]["keywords"]
+    assert captured["reference_text"] == "React 성능 최적화 강의와 프론트엔드 실무 설명"
+    assert "travel" not in captured["topics"]
+    assert "vlog" not in captured["content_styles"]
 
 
 def test_legacy_category_hint_is_recorded_but_cannot_override_primary_category(monkeypatch):

@@ -3,6 +3,7 @@ import pytest
 from src.youtube.context import (
     InvalidYouTubeUrlError,
     build_reference_text,
+    clear_context_cache,
     extract_video_id,
     fetch_youtube_context,
     parse_duration_seconds,
@@ -87,6 +88,7 @@ def test_fetch_context_and_reference_without_external_transcript_for_test_sessio
     )
     assert context.title == "테스트 영상"
     assert context.transcript_available is False
+    assert context.to_dict()["transcript_status"] == "unavailable"
     assert context.category_id == "28"
     assert context.category_name == "Science & Technology"
     assert context.tags == ("AI", "개발자")
@@ -112,5 +114,46 @@ def test_injected_transcript_is_added_to_reference():
     assert context.transcript_available is True
     assert context.is_short is True
     assert context.to_dict()["transcript_available"] is True
+    assert context.to_dict()["transcript_status"] == "available"
     assert "transcript" not in context.to_dict()
     assert "자막: 공개 자막 내용입니다" in build_reference_text(context)
+
+
+def test_transcript_fetch_failure_is_distinct_from_unavailable():
+    session = FakeSession()
+    failed = fetch_youtube_context(
+        "https://youtu.be/dQw4w9WgXcQ",
+        api_key="test-key",
+        session=session,
+        transcript_fetcher=lambda _: (None, None, "fetch_failed"),
+    )
+    assert failed.transcript_available is False
+    assert failed.to_dict()["transcript_status"] == "fetch_failed"
+
+    unavailable = fetch_youtube_context(
+        "https://youtu.be/dQw4w9WgXcQ",
+        api_key="test-key",
+        session=FakeSession(),
+        transcript_fetcher=lambda _: (None, None, "unavailable"),
+    )
+    assert unavailable.to_dict()["transcript_status"] == "unavailable"
+
+
+def test_shared_cache_prevents_duplicate_youtube_api_lookup(monkeypatch):
+    clear_context_cache()
+    session = FakeSession()
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    monkeypatch.setattr("src.youtube.context.requests.Session", lambda: session)
+
+    first = fetch_youtube_context(
+        "https://youtu.be/dQw4w9WgXcQ",
+        include_transcript=False,
+    )
+    second = fetch_youtube_context(
+        "https://youtu.be/dQw4w9WgXcQ",
+        include_transcript=False,
+    )
+
+    assert first is second
+    assert len(session.calls) == 2
+    clear_context_cache()

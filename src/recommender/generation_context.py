@@ -217,7 +217,13 @@ def _audience(text: str, made_for_kids: bool | None, age_restricted: bool) -> di
     }
 
 
-def _popularity(views: int | None, likes: int | None, comments: int | None, subscribers: int | None, age_hours: float | None) -> dict:
+def _popularity(
+    views: int | None,
+    likes: int | None,
+    comments: int | None,
+    subscribers: int | None,
+    age_hours: float | None,
+) -> dict:
     view_value = max(0, views or 0)
     views_per_hour = view_value / max(1.0, age_hours) if views is not None and age_hours is not None else None
     likes_per_1000 = (max(0, likes or 0) / view_value * 1000) if view_value and likes is not None else None
@@ -232,9 +238,14 @@ def _popularity(views: int | None, likes: int | None, comments: int | None, subs
         components.append((min(1.0, comments_per_1000 / 12.0), 0.15))
     if views_per_subscriber is not None:
         components.append((min(1.0, views_per_subscriber / 1.5), 0.15))
+
     total_weight = sum(weight for _, weight in components)
-    score = sum(value * weight for value, weight in components) / total_weight if total_weight else 0.0
-    label = "viral" if score >= 0.85 else "hot" if score >= 0.65 else "active" if score >= 0.4 else "normal"
+    score = sum(value * weight for value, weight in components) / total_weight if total_weight else None
+    if score is None:
+        label = "unknown"
+    else:
+        label = "viral" if score >= 0.85 else "hot" if score >= 0.65 else "active" if score >= 0.4 else "normal"
+
     return {
         "views": views,
         "likes": likes,
@@ -244,9 +255,9 @@ def _popularity(views: int | None, likes: int | None, comments: int | None, subs
         "likes_per_1000_views": round(likes_per_1000, 2) if likes_per_1000 is not None else None,
         "comments_per_1000_views": round(comments_per_1000, 2) if comments_per_1000 is not None else None,
         "views_per_subscriber": round(views_per_subscriber, 4) if views_per_subscriber is not None else None,
-        "hype_score": round(score, 3),
+        "hype_score": round(score, 3) if score is not None else None,
         "hype_label": label,
-        "hype_basis": "single_snapshot_proxy",
+        "hype_basis": "single_snapshot_proxy" if score is not None else "unavailable",
     }
 
 
@@ -259,11 +270,11 @@ def build_generation_context(
     now: datetime | None = None,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
-    combined = "\n".join(part for part in (reference_text, additional_context or "") if part).strip()
+    content_text = reference_text.strip()
     topic_details = list(getattr(youtube_context, "topic_categories", ()) or ()) if youtube_context else []
-    classification_text = "\n".join(part for part in (combined, _topic_detail_terms(topic_details)) if part)
+    classification_text = "\n".join(part for part in (content_text, _topic_detail_terms(topic_details)) if part)
     topics = _match_labels(classification_text, TOPIC_RULES, 8)
-    styles = _match_labels(combined, STYLE_RULES, 6)
+    styles = _match_labels(content_text, STYLE_RULES, 6)
 
     # Legacy category is retained only as an explicit compatibility/style signal.
     # It must never override the script-derived primary category.
@@ -276,11 +287,14 @@ def build_generation_context(
     age_hours = max(0.0, (now - published.astimezone(timezone.utc)).total_seconds() / 3600) if published else None
 
     if youtube_context:
+        transcript = getattr(youtube_context, "transcript", None) or ""
+        transcript_status = "available" if transcript else getattr(youtube_context, "transcript_status", "unavailable")
         source = {
             "type": "youtube",
             "title": getattr(youtube_context, "title", ""),
             "description": getattr(youtube_context, "description", "")[:4000],
-            "transcript_excerpt": (getattr(youtube_context, "transcript", None) or "")[:6000],
+            "transcript_excerpt": transcript[:6000],
+            "transcript_status": transcript_status,
             "language": getattr(youtube_context, "default_language", None) or getattr(youtube_context, "transcript_language", None),
             "additional_context": additional_context or None,
             "legacy_category_hint": legacy_category_hint,
@@ -297,7 +311,11 @@ def build_generation_context(
             "broadcast": _broadcast_kind(getattr(youtube_context, "live_broadcast_content", None), getattr(youtube_context, "live_streaming_details", None)),
             "duration_seconds": getattr(youtube_context, "duration_seconds", None),
         }
-        audience = _audience(combined, getattr(youtube_context, "made_for_kids", None), bool(getattr(youtube_context, "age_restricted", False)))
+        audience = _audience(
+            content_text,
+            getattr(youtube_context, "made_for_kids", None),
+            bool(getattr(youtube_context, "age_restricted", False)),
+        )
         popularity = _popularity(
             getattr(youtube_context, "view_count", None),
             getattr(youtube_context, "like_count", None),
@@ -311,13 +329,13 @@ def build_generation_context(
             "title": next((line.strip() for line in reference_text.splitlines() if line.strip()), "")[:200],
             "description": reference_text[:4000],
             "transcript_excerpt": "",
-            "language": "ko" if re.search(r"[가-힣]", combined) else None,
+            "language": "ko" if re.search(r"[가-힣]", content_text) else None,
             "additional_context": additional_context or None,
             "legacy_category_hint": legacy_category_hint,
         }
         youtube = {"video_id": None, "category_id": None, "category_name": None, "topic_categories": [], "tags": []}
         format_context = {"kind": "unknown", "broadcast": "unknown", "duration_seconds": None}
-        audience = _audience(combined, None, False)
+        audience = _audience(content_text, None, False)
         popularity = _popularity(None, None, None, None, None)
 
     temporal = {
@@ -328,7 +346,7 @@ def build_generation_context(
         "month": published.month if published else None,
         "season": _season(published.month if published else None),
     }
-    historical = build_historical_profile(combined, topics=topics, content_styles=styles)
+    historical = build_historical_profile(content_text, topics=topics, content_styles=styles)
     primary = youtube.get("category_name") or (topics[0] if topics else (styles[0] if styles else "Other"))
     return {
         "source": source,
@@ -337,7 +355,7 @@ def build_generation_context(
         "audience": audience,
         "temporal": temporal,
         "popularity": popularity,
-        "content": {"keywords": _extract_keywords(combined), "topics": topics, "content_styles": styles},
+        "content": {"keywords": _extract_keywords(content_text), "topics": topics, "content_styles": styles},
         "historical_comments": historical,
         "primary_category": primary,
         "context_version": "1.0",
@@ -359,8 +377,8 @@ def summarize_generation_context(context: dict) -> dict:
         "format": format_context.get("kind", "unknown"),
         "broadcast": format_context.get("broadcast", "unknown"),
         "freshness": temporal.get("freshness", "unknown"),
-        "hype_label": popularity.get("hype_label", "normal"),
-        "hype_score": popularity.get("hype_score", 0.0),
+        "hype_label": popularity.get("hype_label", "unknown"),
+        "hype_score": popularity.get("hype_score"),
         "historical_match_count": historical.get("matched_count", 0),
         "historical_coverage": historical.get("coverage", "none"),
     }

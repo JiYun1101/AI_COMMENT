@@ -25,6 +25,9 @@ ISO8601_DURATION_RE = re.compile(
 MAX_DESCRIPTION_CHARS = 4_000
 MAX_TRANSCRIPT_CHARS = 6_000
 CACHE_TTL_SECONDS = 10 * 60
+TRANSCRIPT_AVAILABLE = "available"
+TRANSCRIPT_UNAVAILABLE = "unavailable"
+TRANSCRIPT_FETCH_FAILED = "fetch_failed"
 
 _CACHE: dict[str, tuple[float, "YouTubeVideoContext"]] = {}
 _CACHE_LOCK = threading.Lock()
@@ -60,6 +63,7 @@ class YouTubeVideoContext:
     thumbnail_url: str | None
     transcript: str | None = None
     transcript_language: str | None = None
+    transcript_status: str = TRANSCRIPT_UNAVAILABLE
     category_id: str | None = None
     category_name: str | None = None
     tags: tuple[str, ...] = ()
@@ -77,10 +81,15 @@ class YouTubeVideoContext:
     def transcript_available(self) -> bool:
         return bool(self.transcript)
 
+    @property
+    def resolved_transcript_status(self) -> str:
+        return TRANSCRIPT_AVAILABLE if self.transcript_available else self.transcript_status
+
     def to_dict(self) -> dict:
         data = asdict(self)
         data.pop("transcript", None)
         data["transcript_available"] = self.transcript_available
+        data["transcript_status"] = self.resolved_transcript_status
         data["tags"] = list(self.tags)
         data["topic_categories"] = list(self.topic_categories)
         return data
@@ -177,12 +186,20 @@ def _optional_int(value) -> int | None:
         return None
 
 
-def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None]:
-    """Best-effort public caption lookup; failures intentionally return no enrichment."""
+def _is_transcript_unavailable_error(exc: Exception) -> bool:
+    return exc.__class__.__name__ in {
+        "TranscriptsDisabled",
+        "NoTranscriptFound",
+        "NoTranscriptAvailable",
+    }
+
+
+def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None, str]:
+    """Best-effort public caption lookup with unavailable/failure status separation."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except ImportError:
-        return None, None
+        return None, None, TRANSCRIPT_FETCH_FAILED
 
     try:
         api = YouTubeTranscriptApi()
@@ -192,12 +209,21 @@ def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None]:
             fetched = api.fetch(video_id, languages=("ko", "en"))
             language = getattr(fetched, "language_code", None)
         except Exception:
-            transcript_list = api.list(video_id)
+            try:
+                transcript_list = api.list(video_id)
+            except Exception as exc:
+                status = TRANSCRIPT_UNAVAILABLE if _is_transcript_unavailable_error(exc) else TRANSCRIPT_FETCH_FAILED
+                return None, None, status
+
             transcript = next(iter(transcript_list), None)
             if transcript is None:
-                return None, None
+                return None, None, TRANSCRIPT_UNAVAILABLE
             language = getattr(transcript, "language_code", None)
-            fetched = transcript.fetch()
+            try:
+                fetched = transcript.fetch()
+            except Exception as exc:
+                status = TRANSCRIPT_UNAVAILABLE if _is_transcript_unavailable_error(exc) else TRANSCRIPT_FETCH_FAILED
+                return None, language, status
 
         snippets = getattr(fetched, "snippets", fetched)
         parts = []
@@ -208,9 +234,26 @@ def _default_transcript_fetcher(video_id: str) -> tuple[str | None, str | None]:
             if text:
                 parts.append(str(text).strip())
         transcript_text = re.sub(r"\s+", " ", " ".join(parts)).strip()
-        return (transcript_text or None), language
+        if not transcript_text:
+            return None, language, TRANSCRIPT_UNAVAILABLE
+        return transcript_text, language, TRANSCRIPT_AVAILABLE
     except Exception:
-        return None, None
+        return None, None, TRANSCRIPT_FETCH_FAILED
+
+
+def _normalize_transcript_result(result: tuple) -> tuple[str | None, str | None, str]:
+    if len(result) == 3:
+        transcript, language, status = result
+        normalized_status = str(status or "").strip().lower()
+        if normalized_status not in {TRANSCRIPT_AVAILABLE, TRANSCRIPT_UNAVAILABLE, TRANSCRIPT_FETCH_FAILED}:
+            normalized_status = TRANSCRIPT_AVAILABLE if transcript else TRANSCRIPT_UNAVAILABLE
+        if transcript:
+            normalized_status = TRANSCRIPT_AVAILABLE
+        return transcript, language, normalized_status
+    if len(result) == 2:
+        transcript, language = result
+        return transcript, language, TRANSCRIPT_AVAILABLE if transcript else TRANSCRIPT_UNAVAILABLE
+    raise ValueError("transcript_fetcher는 2개 또는 3개 값을 반환해야 합니다.")
 
 
 def _cache_get(video_id: str) -> YouTubeVideoContext | None:
@@ -243,7 +286,7 @@ def fetch_youtube_context(
     session=None,
     include_transcript: bool = True,
     use_cache: bool = True,
-    transcript_fetcher: Callable[[str], tuple[str | None, str | None]] | None = None,
+    transcript_fetcher: Callable[[str], tuple] | None = None,
 ) -> YouTubeVideoContext:
     video_id = extract_video_id(url)
     can_use_shared_cache = use_cache and session is None and api_key is None and transcript_fetcher is None
@@ -295,10 +338,14 @@ def fetch_youtube_context(
 
     transcript = None
     transcript_language = None
+    transcript_status = TRANSCRIPT_UNAVAILABLE
     should_fetch_transcript = include_transcript and (session is None or transcript_fetcher is not None)
     if should_fetch_transcript:
         fetcher = transcript_fetcher or _default_transcript_fetcher
-        transcript, transcript_language = fetcher(video_id)
+        try:
+            transcript, transcript_language, transcript_status = _normalize_transcript_result(fetcher(video_id))
+        except Exception:
+            transcript, transcript_language, transcript_status = None, None, TRANSCRIPT_FETCH_FAILED
 
     category_id = str(snippet.get("categoryId")) if snippet.get("categoryId") is not None else None
     content_rating = content_details.get("contentRating") or {}
@@ -315,6 +362,7 @@ def fetch_youtube_context(
         thumbnail_url=_best_thumbnail(snippet),
         transcript=transcript,
         transcript_language=transcript_language,
+        transcript_status=transcript_status,
         category_id=category_id,
         category_name=resolve_category_name(category_id),
         tags=tuple(str(tag) for tag in (snippet.get("tags") or []) if str(tag).strip()),

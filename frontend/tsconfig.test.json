@@ -8,5 +8,9 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["src/utils/youtube.ts", "src/utils/readiness.ts"]
+  "include": [
+    "src/utils/youtube.ts",
+    "src/utils/readiness.ts",
+    "src/utils/recommendationInput.ts"
+  ]
 }
