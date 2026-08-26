@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.llm.openai_client import OpenAIResponsesClient
+from src.llm.openai_client import LLMGenerationError, OpenAIResponsesClient
 
 
 def generate_candidates(
@@ -21,5 +21,5 @@ def generate_candidates(
     target_pool_size = min(30, max(20, minimum_count * 2))
     candidates = provider.generate(generation_context, candidate_count=target_pool_size)
     if len(candidates) < minimum_count:
-        raise RuntimeError(f"LLM 후보 수가 부족합니다 ({len(candidates)}/{minimum_count}).")
+        raise LLMGenerationError(f"LLM 후보 수가 부족합니다 ({len(candidates)}/{minimum_count}).")
     return candidates
