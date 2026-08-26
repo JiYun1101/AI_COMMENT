@@ -49,6 +49,13 @@ export function RecommendPage() {
   const isEmpty = mode === 'url' ? !url.trim() : !manual.trim();
   const readinessChecking = !serviceHealth && !healthError;
   const readinessMessage = getRecommendationReadinessMessage(serviceHealth, Boolean(healthError), mode);
+  const inputReady = isRecommendationInputReady({
+    mode,
+    urlValid,
+    manualLength: manual.trim().length,
+    previewReady: Boolean(preview),
+    previewLoading,
+  });
 
   const invalidateResults = () => {
     setResults(null);
@@ -174,15 +181,7 @@ export function RecommendPage() {
   };
 
   const submit = async () => {
-    if (readinessChecking || readinessMessage) return;
-    const inputReady = isRecommendationInputReady({
-      mode,
-      urlValid,
-      manualLength: manual.trim().length,
-      previewReady: Boolean(preview),
-      previewLoading,
-    });
-    if (!inputReady) return;
+    if (readinessChecking || readinessMessage || !inputReady) return;
 
     setSubmitting(true);
     setError(null);
@@ -330,7 +329,12 @@ export function RecommendPage() {
                     </div>
                   )}
                 </div>
-                <button type="button" className="btn secondary sm" onClick={submit} disabled={submitting || Boolean(readinessMessage) || readinessChecking}>
+                <button
+                  type="button"
+                  className="btn secondary sm"
+                  onClick={submit}
+                  disabled={submitting || Boolean(readinessMessage) || readinessChecking || !inputReady}
+                >
                   <RefreshCw size={13} /> 새 후보 생성
                 </button>
               </div>
