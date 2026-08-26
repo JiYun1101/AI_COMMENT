@@ -100,34 +100,35 @@ def score_comment_candidates(request: ScoreRequest):
 @app.post("/recommend")
 def recommend_comment_candidates(request: RecommendRequest):
     youtube_context = None
-    reference_parts: list[str] = []
+    source_parts: list[str] = []
 
     if request.youtube_url and request.youtube_url.strip():
         youtube_context = _youtube_context_or_http_error(request.youtube_url.strip())
-        reference_parts.append(build_reference_text(youtube_context))
+        source_parts.append(build_reference_text(youtube_context))
 
     if request.post_text and request.post_text.strip():
-        reference_parts.append(request.post_text.strip())
+        source_parts.append(request.post_text.strip())
 
-    if request.additional_context and request.additional_context.strip():
-        reference_parts.append(f"추가 맥락: {request.additional_context.strip()}")
-
-    if not reference_parts:
+    if not source_parts:
         raise HTTPException(status_code=422, detail="post_text 또는 youtube_url 중 하나는 필요합니다.")
 
-    reference_text = "\n\n".join(reference_parts)
+    source_reference_text = "\n\n".join(source_parts)
+    additional_context = request.additional_context.strip() if request.additional_context and request.additional_context.strip() else None
     generation_context = build_generation_context(
-        reference_text,
+        source_reference_text,
         youtube_context=youtube_context,
-        additional_context=request.additional_context,
+        additional_context=additional_context,
         category_hint=request.category,
     )
     context_summary = summarize_generation_context(generation_context)
     resolved_category = str(context_summary["primary_category"] or "Other")
+    ranking_reference_text = source_reference_text
+    if additional_context:
+        ranking_reference_text = f"{source_reference_text}\n\n추가 맥락: {additional_context}"
 
     try:
         ranked = recommend_comments_with_meta(
-            reference_text,
+            ranking_reference_text,
             generation_context=generation_context,
             top_k=request.top_k,
         )
@@ -136,7 +137,7 @@ def recommend_comment_candidates(request: RecommendRequest):
 
     youtube_data = youtube_context.to_dict() if youtube_context else None
     source_type = "youtube" if youtube_context else "manual"
-    source_text = youtube_context.title if youtube_context else (request.post_text or request.additional_context or "").strip()
+    source_text = youtube_context.title if youtube_context else (request.post_text or "").strip()
     analysis_id, stored_recommendations = save_analysis(
         source_type=source_type,
         source_text=source_text,
@@ -145,12 +146,12 @@ def recommend_comment_candidates(request: RecommendRequest):
         youtube_context=youtube_data,
         generation_context=generation_context,
         requested_count=request.top_k,
-        additional_context=request.additional_context.strip() if request.additional_context else None,
+        additional_context=additional_context,
     )
 
     return {
         "analysis_id": analysis_id,
-        "post_text": reference_text[:4_000],
+        "post_text": ranking_reference_text[:4_000],
         "resolved_category": resolved_category,
         "youtube_context": youtube_data,
         "context": context_summary,
