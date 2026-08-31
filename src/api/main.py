@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest
-from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, llm_readiness
+from src.llm.openai_client import LLMGenerationError, LLMNotReadyError
+from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
 from src.recommender.ranker import recommend_comments_with_meta
@@ -149,6 +150,7 @@ def recommend_comment_candidates(request: RecommendRequest):
         additional_context=additional_context,
     )
 
+    active_llm = llm_readiness()
     return {
         "analysis_id": analysis_id,
         "post_text": ranking_reference_text[:4_000],
@@ -162,7 +164,7 @@ def recommend_comment_candidates(request: RecommendRequest):
             "candidate_count": ranked["candidate_count"],
             "safe_candidate_count": ranked["safe_candidate_count"],
             "blocked_candidate_count": ranked["blocked_candidate_count"],
-            "generator": "llm",
+            "generator": active_llm.get("provider", "llm"),
         },
         "trace": ranked["trace"],
     }
