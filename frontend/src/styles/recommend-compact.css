@@ -151,6 +151,22 @@
   color: var(--fg3);
 }
 
+.spin {
+  animation: recommend-spin 0.85s linear infinite;
+}
+
+@keyframes recommend-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 1.8s;
+  }
+}
+
 @media (max-width: 900px) {
   .recommend {
     padding: 16px 16px 36px;
