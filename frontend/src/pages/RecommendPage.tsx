@@ -1,4 +1,4 @@
-import { Check, Copy, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Copy, LoaderCircle, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
@@ -282,7 +282,7 @@ export function RecommendPage() {
         <div className="recommend">
           <div className="hero">
             <span className="hero-eyebrow"><span className="dot" /> AI 댓글 추천 · v0.5</span>
-            <h1 className="hero-title">영상 맥락을 분석해<br />자연스러운 댓글을 생성합니다</h1>
+            <h1 className="hero-title">영상 맥락을 분석해 자연스러운 댓글을 생성합니다</h1>
             <p className="hero-sub">분류와 맥락 수집은 코드로, 댓글 후보 생성만 LLM으로 처리한 뒤 안전 필터와 반응 예측 모델로 순위를 정합니다.</p>
           </div>
 
@@ -310,7 +310,16 @@ export function RecommendPage() {
             submitting={submitting}
           />
 
-          {isEmpty && !results && <EmptyExamples onPick={pickExample} />}
+          {isEmpty && !results && !submitting && <EmptyExamples onPick={pickExample} />}
+          {submitting && (
+            <div className="generation-loading" role="status" aria-live="polite">
+              <LoaderCircle size={22} className="spin" />
+              <div>
+                <strong>추천 댓글을 생성하고 있습니다</strong>
+                <span>LLM 후보 생성 → 안전 필터 → 반응 점수 계산 → 최종 순위 선정</span>
+              </div>
+            </div>
+          )}
           {error && <div className="result-error">{error}</div>}
 
           {results && (
