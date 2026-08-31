@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import './styles/tokens.css';
 import './styles/app.css';
 import './styles/recommend.css';
-import './styles/recommend-compact.css';
+import './styles/recommend-loading.css';
 import './styles/trace.css';
 import './styles/completion.css';
 import App from './App.tsx';
