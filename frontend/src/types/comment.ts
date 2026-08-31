@@ -102,6 +102,8 @@ export interface GenerationMeta {
   safe_candidate_count: number;
   blocked_candidate_count: number;
   generator?: string;
+  provider?: string | null;
+  model?: string | null;
 }
 
 export interface RecommendationTraceCandidate {
