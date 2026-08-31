@@ -164,7 +164,9 @@ def recommend_comment_candidates(request: RecommendRequest):
             "candidate_count": ranked["candidate_count"],
             "safe_candidate_count": ranked["safe_candidate_count"],
             "blocked_candidate_count": ranked["blocked_candidate_count"],
-            "generator": active_llm.get("provider", "llm"),
+            "generator": "llm",
+            "provider": active_llm.get("provider"),
+            "model": active_llm.get("model"),
         },
         "trace": ranked["trace"],
     }
