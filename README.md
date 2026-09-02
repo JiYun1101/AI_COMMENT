@@ -4,7 +4,7 @@ YouTube 영상의 맥락을 **코드로 수집·분류**하고, 기존 댓글 �
 
 핵심 원칙은 **분석은 코드, 창작은 LLM**입니다. YouTube API·자막·규칙 기반 분류·시간/반응 지표·기존 댓글 통계를 먼저 deterministic `GenerationContext`로 만든 뒤, LLM은 그 정보를 바탕으로 댓글 후보 생성만 담당합니다.
 
-> 이 README의 변경 기록은 앞으로 **Frontend / Backend (Machine Learning) / AI** 세 영역으로 나누어 날짜 역순으로 누적합니다.
+> README 변경 기록은 **Frontend / Backend (Machine Learning) / AI** 세 영역으로 나누어 날짜 역순으로 누적합니다.
 
 문서:
 
@@ -16,16 +16,57 @@ YouTube 영상의 맥락을 **코드로 수집·분류**하고, 기존 댓글 �
 
 ## 바로 실행
 
-macOS / Linux 기준으로 저장소 루트에서 아래 순서대로 실행합니다.
+### 1. LLM 선택
+
+OpenAI를 쓰려면 기존처럼 다음 두 값을 채웁니다.
+
+```env
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=your_selected_model
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+OpenAI 두 값 중 하나라도 비어 있으면 기본 fallback은 **로컬 Ollama + `qwen3:8b`**입니다.
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=
+
+LLM_PROVIDER=ollama
+LLM_API_KEY=
+LLM_MODEL=qwen3:8b
+LLM_BASE_URL=http://localhost:11434
+```
+
+Ollama 모델은 최초 1회 내려받습니다.
+
+```bash
+ollama pull qwen3:8b
+```
+
+Ollama service가 실행 중이어야 `/recommend`가 실제 로컬 모델을 호출할 수 있습니다. Ollama는 외부 LLM API key가 필요하지 않으며 모델 추론은 로컬 머신에서 수행됩니다.
+
+Gemini를 명시적으로 사용하려면:
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=
+
+LLM_PROVIDER=gemini
+LLM_API_KEY=your_gemini_api_key
+LLM_MODEL=gemini-3.7-flash
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta2
+LLM_THINKING_LEVEL=medium
+```
+
+YouTube URL 모드만 `YOUTUBE_API_KEY`가 추가로 필요합니다.
+
+### 2. Backend / model 준비
+
+macOS / Linux:
 
 ```bash
 cp .env.example .env.local
-
-# LLM 설정
-# 1) OPENAI_API_KEY + OPENAI_MODEL이 모두 있으면 OpenAI를 우선 사용합니다.
-# 2) 둘 중 하나라도 비어 있으면 LLM_* fallback 설정을 사용합니다.
-# 3) YouTube URL 모드를 쓸 때만 YOUTUBE_API_KEY가 필요합니다.
-
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -55,7 +96,9 @@ python -m src.model.train
 python -m uvicorn src.api.main:app
 ```
 
-새 터미널에서 frontend를 실행합니다.
+### 3. Frontend
+
+새 터미널에서:
 
 ```bash
 cd frontend
@@ -63,7 +106,7 @@ npm ci
 npm run dev
 ```
 
-정상 기동 확인:
+### 4. 정상 기동 확인
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -71,7 +114,7 @@ curl http://127.0.0.1:8000/health
 
 `model.ready: true`, `llm.ready: true`, `storage.ready: true`이면 manual 추천을 실행할 준비가 된 상태입니다. YouTube URL 추천까지 사용하려면 `youtube.configured: true`도 필요합니다.
 
-`.env.local`은 애플리케이션 import 시 프로젝트 루트에서 자동으로 읽습니다. 이미 shell/CI에 설정된 환경변수는 덮어쓰지 않습니다. `.env.local`은 `.gitignore` 대상이므로 API key를 Git에 커밋하지 마세요.
+`.env.local`은 프로젝트 루트에서 자동으로 읽습니다. 이미 shell/CI에 설정된 환경변수는 덮어쓰지 않습니다. `.env.local`은 `.gitignore` 대상이므로 API key를 Git에 커밋하지 마세요.
 
 ---
 
@@ -90,7 +133,7 @@ LLM 후보 생성 → 안전 필터 → 반응 점수 계산 → 최종 순위 �
 ```
 
 - 로딩 중에는 빈 상태 예시 대신 진행 상태가 표시됩니다.
-- 한 화면에 억지로 압축하는 compact UI 실험은 되돌리고 **기존 페이지 레이아웃·간격·제목 구조를 유지**합니다.
+- compact UI 실험은 되돌리고 **기존 페이지 레이아웃·간격·제목 구조를 유지**합니다.
 - 스피너 스타일은 `frontend/src/styles/recommend-loading.css`로 분리했습니다.
 
 ### 2026-08-26 — 생성 로그 trace UI
@@ -132,36 +175,47 @@ LLM 원본 후보 → Safety → Ranker → 최종 선택
 
 ## AI
 
-### 2026-08-31 — OpenAI 우선 + Gemini fallback provider
+### 2026-09-02 — 기본 fallback을 로컬 Open LLM으로 변경
 
-댓글 후보 생성 provider를 선택할 수 있게 확장했습니다.
+외부 API 결제 없이도 실행할 수 있도록 기본 fallback provider를 **Gemini → Ollama**로 변경했습니다.
 
 선택 순서:
 
-1. `OPENAI_API_KEY`와 `OPENAI_MODEL`이 **둘 다 설정되어 있으면 기존 OpenAI Responses API 사용**
-2. 둘 중 하나라도 비어 있으면 `LLM_*` fallback 설정 사용
-3. 현재 지원 fallback provider는 `gemini`
+1. `OPENAI_API_KEY`와 `OPENAI_MODEL`이 모두 있으면 **OpenAI Responses API**
+2. 둘 중 하나라도 비어 있으면 `LLM_*` fallback 설정
+3. `LLM_PROVIDER`까지 비어 있으면 기본값 **`ollama`**
+4. 기본 local model은 **`qwen3:8b`**
+5. Gemini는 `LLM_PROVIDER=gemini`로 명시할 때 계속 사용 가능
 
-기본 fallback 모델:
-
-```text
-Gemini 3.7 Flash
-```
-
-기본 설정:
+기본 local 설정:
 
 ```env
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-3.7-flash
-LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta2
-LLM_THINKING_LEVEL=medium
+LLM_PROVIDER=ollama
+LLM_API_KEY=
+LLM_MODEL=qwen3:8b
+LLM_BASE_URL=http://localhost:11434
 ```
 
-- Gemini는 Interactions API `/interactions`를 사용합니다.
-- 기존 OpenAI 환경 변수는 그대로 유지해 backward compatibility를 보장합니다.
-- `/health`에서 실제 선택된 `provider`, `selection`, `model`을 확인할 수 있습니다.
-- 추천 응답의 기존 `generation.generator = "llm"` 계약은 유지하고, 실제 provider/model 정보는 별도 필드로 제공합니다.
-- **OpenAI 요청이 runtime에서 429/5xx로 실패했을 때 자동 Gemini 재시도는 하지 않습니다.** fallback은 OpenAI 설정이 불완전한 경우에만 선택됩니다.
+Ollama client는 native `POST /api/chat`를 사용하고 다음 옵션을 고정합니다.
+
+```text
+stream: false
+think: false
+format: JSON Schema
+```
+
+- `think:false`로 Qwen3 reasoning trace가 최종 댓글 JSON에 섞이는 것을 방지합니다.
+- structured output schema로 기존 `{ "candidates": [...] }` contract를 유지합니다.
+- Ollama에는 LLM API key가 필요하지 않습니다.
+- 실제 모델 파일과 추론 비용은 사용자 로컬 CPU/GPU/RAM이 부담합니다.
+- OpenAI가 runtime에서 429/5xx로 실패했다고 자동으로 Ollama/Gemini로 재시도하지는 않습니다. provider 선택은 요청 전에 설정값으로 결정됩니다.
+
+### 2026-08-31 — OpenAI + 외부 LLM provider 구조 추가
+
+- 기존 OpenAI 환경 변수와 client를 유지하면서 generic `LLM_*` fallback configuration을 추가했습니다.
+- Gemini Interactions API client를 추가했습니다.
+- `/health`와 추천 응답에서 실제 `provider`, `model`을 확인할 수 있게 했습니다.
+- 이 구조를 2026-09-02부터 Ollama/Gemini 선택 구조로 확장했습니다.
 
 ### 2026-08-26 — deterministic context + LLM-only generation 안정화
 
@@ -195,7 +249,8 @@ Deterministic GenerationContext
         ↓
 Configured LLM provider
   ├─ OpenAI Responses API (우선)
-  └─ Gemini Interactions API (fallback)
+  ├─ Ollama local / Qwen3 8B (기본 fallback)
+  └─ Gemini Interactions API (선택 fallback)
         ↓
 새 댓글 후보 생성
         ↓
@@ -275,25 +330,20 @@ frontend/src/styles/recommend-loading.css
 
 trace는 디버깅/검증용 현재 응답 데이터이며 SQLite history에는 저장하지 않습니다.
 
-## Frontend 실행
+## Frontend 실행 / 테스트
 
 ```bash
 cd frontend
 npm ci
 npm run dev
-```
 
-기본 API 주소는 `http://localhost:8000`이며 다른 주소를 쓰려면 `VITE_API_BASE_URL`을 설정합니다.
-
-## Frontend 테스트
-
-```bash
-cd frontend
 npm test
 npm run lint
 npm run build
 npm audit --omit=dev --audit-level=high
 ```
+
+기본 API 주소는 `http://localhost:8000`이며 다른 주소를 쓰려면 `VITE_API_BASE_URL`을 설정합니다.
 
 ---
 
@@ -360,17 +410,13 @@ SQLite `analyses`에 분석 시점의 request/context snapshot을 보관합니�
 - `requested_count`
 - `additional_context`
 
-기존 DB는 migration-safe하게 없는 컬럼만 추가합니다.
-
 기본 DB:
 
 ```text
 data/runtime/ai_comment.db
 ```
 
-다른 위치는 `AI_COMMENT_DB_PATH`로 지정합니다.
-
-현재 generation trace는 저장하지 않습니다.
+다른 위치는 `AI_COMMENT_DB_PATH`로 지정합니다. 현재 generation trace는 저장하지 않습니다.
 
 ## 주요 API
 
@@ -404,15 +450,10 @@ Manual 추천 예시:
 }
 ```
 
-## Backend 실행
+## Backend 실행 / 테스트
 
 ```bash
 python -m uvicorn src.api.main:app --reload
-```
-
-## Backend 테스트
-
-```bash
 pytest -q
 ```
 
@@ -453,23 +494,6 @@ YouTube Data API로 수집하는 주요 metadata:
 
 YouTube URL에서는 `snippet.categoryId`와 category name을 **primary taxonomy의 우선 신호**로 사용합니다.
 
-예:
-
-- Music
-- Gaming
-- Sports
-- News & Politics
-- Entertainment
-- Comedy
-- Education
-- Science & Technology
-- Howto & Style
-- Travel & Events
-- People & Blogs
-- Film & Animation
-- Autos & Vehicles
-- Pets & Animals
-
 ### Derived multi-label
 
 공식 category와 별도로 코드가 다음 맥락을 계산합니다.
@@ -485,24 +509,13 @@ YouTube URL에서는 `snippet.categoryId`와 category name을 **primary taxonomy
 
 ASCII keyword는 word-boundary matcher를 사용해 `ai`가 `chair` 안에서, `man`이 `woman` 안에서 잡히는 식의 오탐을 줄입니다. YouTube `topicDetails`의 slug도 derived topic classifier 입력에 포함합니다.
 
-`additional_context`는 댓글 생성 방향을 지정하는 **generation steering** 값입니다. topic / style / audience / keyword / historical retrieval 같은 deterministic source 분석에는 섞지 않습니다.
+`additional_context`는 댓글 생성 방향을 지정하는 **generation steering** 값입니다. deterministic source 분석에는 섞지 않습니다.
 
-> `target_age`와 `orientation`은 실제 시청자의 나이/성별을 추정하지 않습니다. 콘텐츠에 명시된 대상 신호를 분류한 **content-level heuristic**입니다.
+> `target_age`와 `orientation`은 실제 시청자의 나이/성별을 추정하지 않습니다. 콘텐츠에 명시된 대상 신호를 분류한 content-level heuristic입니다.
 
-> YouTube 반응 지표가 있을 때의 `hype_score`는 한 시점의 API snapshot을 이용한 **single-snapshot proxy**입니다. 실제 최근 성장 속도나 가속도가 아닙니다. Manual input처럼 지표가 전혀 없으면 `hype_label=unknown`, `hype_score=null`입니다.
-
-### Legacy `category` request field
-
-`POST /recommend`의 `category` 필드는 구버전 client 호환용으로만 남아 있습니다.
-
-- arbitrary `category` 값은 derived topic에 삽입되지 않습니다.
-- primary category를 덮어쓰지 않습니다.
-- `vlog` 값은 기존 vlog dataset과의 호환을 위한 style/retrieval hint로만 사용할 수 있습니다.
-- YouTube URL의 primary category와 manual input의 primary category는 **server-side script 결과**로 결정됩니다.
+> `hype_score`는 한 시점의 API snapshot을 이용한 single-snapshot proxy입니다. 실제 최근 성장 속도나 가속도가 아닙니다.
 
 ## YouTube category 동기화
-
-자주 쓰이는 category ID 이름은 fallback map을 포함하지만 지역별 최신 category 목록을 runtime cache로 갱신할 수 있습니다.
 
 ```bash
 python scripts/sync_youtube_categories.py --region KR
@@ -518,22 +531,20 @@ runtime 파일은 Git에 포함하지 않습니다.
 
 ## LLM provider 선택
 
-현재 댓글 candidate generator는 다음 순서로 provider를 선택합니다.
-
 ```text
 OPENAI_API_KEY + OPENAI_MODEL 모두 존재
         ↓ YES
 OpenAI Responses API
 
         ↓ NO
-LLM_PROVIDER / LLM_API_KEY / LLM_MODEL
-        ↓
-Gemini Interactions API
+LLM_PROVIDER
+  ├─ empty / ollama → Ollama local (default)
+  └─ gemini         → Gemini Interactions API
 ```
 
 이 규칙은 `src/llm/provider.py`에서 관리합니다.
 
-### OpenAI 설정
+### OpenAI
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
@@ -553,22 +564,40 @@ src/llm/openai_client.py
 {OPENAI_BASE_URL}/responses
 ```
 
-핵심 payload 개념:
-
-```json
-{
-  "model": "<OPENAI_MODEL>",
-  "instructions": "<system generation rules>",
-  "input": "<GenerationContext를 포함한 JSON string>",
-  "max_output_tokens": 6000
-}
-```
-
-### Gemini fallback 설정
-
-OpenAI key/model이 둘 다 준비되지 않은 경우 아래 설정을 사용합니다.
+### Ollama local fallback — default
 
 ```env
+OPENAI_API_KEY=
+OPENAI_MODEL=
+
+LLM_PROVIDER=ollama
+LLM_API_KEY=
+LLM_MODEL=qwen3:8b
+LLM_BASE_URL=http://localhost:11434
+```
+
+최초 1회:
+
+```bash
+ollama pull qwen3:8b
+```
+
+현재 local client:
+
+```text
+src/llm/ollama_client.py
+        ↓ HTTP POST
+{LLM_BASE_URL}/api/chat
+```
+
+Ollama request는 `stream:false`, `think:false`, JSON Schema `format`을 사용합니다. API key는 필요하지 않습니다.
+
+### Gemini fallback — optional
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=
+
 LLM_PROVIDER=gemini
 LLM_API_KEY=your_gemini_api_key
 LLM_MODEL=gemini-3.7-flash
@@ -576,23 +605,13 @@ LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta2
 LLM_THINKING_LEVEL=medium
 ```
 
-현재 fallback client:
-
 ```text
 src/llm/gemini_client.py
         ↓ HTTP POST
 {LLM_BASE_URL}/interactions
 ```
 
-지원 thinking level:
-
-- `low`
-- `medium`
-- `high`
-
-잘못된 값은 `medium`으로 정규화합니다.
-
-`YOUTUBE_API_KEY`와 `LLM_API_KEY`는 서로 다른 key입니다.
+`YOUTUBE_API_KEY`와 Gemini의 `LLM_API_KEY`는 서로 다른 key이며, Ollama에는 둘 다 필요하지 않습니다.
 
 ## LLM contract
 
@@ -615,13 +634,11 @@ src/llm/gemini_client.py
 - 최소 candidate pool
 - safety filter 이후 요청 수보다 후보가 부족하면 최대 3회까지 새 후보 보충
 
-보충 후에도 안전 후보가 부족하면 부분 결과를 조용히 저장하지 않고 generation error를 반환합니다. LLM 설정/응답이 실패해도 fixed template으로 silent fallback하지 않습니다.
+보충 후에도 안전 후보가 부족하면 부분 결과를 저장하지 않고 generation error를 반환합니다. LLM 설정/응답이 실패해도 fixed template으로 silent fallback하지 않습니다.
 
 ## LLM health 확인
 
-`GET /health`의 `llm` 영역에서 선택 상태를 확인할 수 있습니다.
-
-OpenAI 선택 예:
+OpenAI:
 
 ```json
 {
@@ -635,7 +652,21 @@ OpenAI 선택 예:
 }
 ```
 
-Gemini fallback 선택 예:
+기본 Ollama fallback:
+
+```json
+{
+  "llm": {
+    "ready": true,
+    "provider": "ollama_local",
+    "selection": "fallback",
+    "model": "qwen3:8b",
+    "missing": []
+  }
+}
+```
+
+Gemini:
 
 ```json
 {
@@ -649,52 +680,25 @@ Gemini fallback 선택 예:
 }
 ```
 
-`ready`는 provider 설정값의 존재 여부를 의미합니다. 실제 cloud account quota/권한까지 매 health request마다 검증하는 값은 아닙니다.
+`ready`는 provider configuration readiness입니다. Ollama의 경우 `/health`가 매번 모델을 load하거나 local process를 probe하지 않으므로, Ollama가 꺼져 있으면 실제 `/recommend`에서 연결 오류가 반환됩니다.
 
-## 실제 OpenAI key smoke test
+## Ollama smoke test
 
-`.env.local`에 실제 `OPENAI_API_KEY`와 `OPENAI_MODEL`을 입력한 뒤 저장소 루트에서 실행합니다.
+OpenAI 두 값을 비우고 Ollama를 실행한 뒤:
 
 ```bash
-python - <<'PY'
-from src.llm.openai_client import OpenAIResponsesClient
-from src.recommender.generation_context import build_generation_context
-
-context = build_generation_context(
-    "React Query와 Zustand의 역할 차이를 설명하는 한국어 개발 영상입니다."
-)
-candidates = OpenAIResponsesClient().generate(context, candidate_count=5)
-for item in candidates:
-    print(item)
-PY
+ollama pull qwen3:8b
+python -m uvicorn src.api.main:app
+curl http://127.0.0.1:8000/health
 ```
 
-실제 댓글 JSON이 출력되면 local machine → OpenAI Responses API 연결까지 확인된 것입니다.
-
-Gemini는 OpenAI 설정 두 값을 비우고 `LLM_*`와 `LLM_API_KEY`를 설정한 뒤 `/health`에서 `selection: "fallback"`을 확인하고 UI 또는 `/recommend`로 실제 호출을 검증할 수 있습니다.
+`provider: "ollama_local"`, `model: "qwen3:8b"`를 확인한 뒤 UI 또는 `/recommend`로 실제 로컬 생성을 검증합니다.
 
 ---
 
 # 공통 환경 변수
 
-OpenAI 우선 사용:
-
-```env
-YOUTUBE_API_KEY=your_youtube_data_api_key
-YOUTUBE_CATEGORY_REGION=KR
-
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=your_selected_model
-OPENAI_BASE_URL=https://api.openai.com/v1
-
-LLM_PROVIDER=gemini
-LLM_API_KEY=
-LLM_MODEL=gemini-3.7-flash
-LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta2
-LLM_THINKING_LEVEL=medium
-```
-
-Gemini fallback 사용:
+기본 local fallback:
 
 ```env
 YOUTUBE_API_KEY=your_youtube_data_api_key
@@ -704,47 +708,36 @@ OPENAI_API_KEY=
 OPENAI_MODEL=
 OPENAI_BASE_URL=https://api.openai.com/v1
 
-LLM_PROVIDER=gemini
-LLM_API_KEY=your_gemini_api_key
-LLM_MODEL=gemini-3.7-flash
-LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta2
-LLM_THINKING_LEVEL=medium
+LLM_PROVIDER=ollama
+LLM_API_KEY=
+LLM_MODEL=qwen3:8b
+LLM_BASE_URL=http://localhost:11434
 ```
 
-`src` package가 import될 때 저장소 루트 `.env.local`을 자동으로 로드하며, 이미 설정된 OS/shell 환경변수는 유지합니다.
+OpenAI를 사용하면 `OPENAI_API_KEY`와 `OPENAI_MODEL`만 채우면 OpenAI가 우선됩니다.
+
+Gemini를 사용하려면 OpenAI 두 값을 비우고 `LLM_PROVIDER=gemini`, `LLM_API_KEY`, Gemini model/base URL을 설정합니다.
 
 ---
 
 # 2026-08-26 실행 검증 — 10 tests
 
-검증은 단순 정적 코드 확인이 아니라 GitHub Actions의 clean Ubuntu runner에서 의존성을 새로 설치하고, 모델 준비 명령을 실행한 뒤 backend/frontend 서버를 실제로 띄워 HTTP 요청까지 수행했습니다.
+당시 clean Ubuntu runner에서 의존성을 새로 설치하고 모델 준비, backend/frontend 서버, HTTP contract까지 검증했습니다.
 
-| # | 검증 | 실제 수행 | 결과 |
-|---|---|---|---|
-| 1 | `.env.local` 로딩 | 프로젝트 루트 `.env.local` 생성 → `import src` → env 값 확인 | PASS |
-| 2 | Backend 전체 테스트 | `pytest -q` | **57 passed**, warning 1 |
-| 3 | Frontend unit tests | `npm test` | **8/8 passed** |
-| 4 | Frontend lint | `npm run lint` | **0 warnings / 0 errors** |
-| 5 | Frontend production build | `npm run build` | PASS, Vite build 성공 |
-| 6 | Reaction model 실제 준비/학습/추론 | raw merge → preprocess → text features → embedding → train → `score_comments()` | PASS, model ready / inference 성공 |
-| 7 | Backend 실제 서버 | `uvicorn ... --port 8000` → `GET /health` | PASS, `status=ok` |
-| 8 | Frontend 실제 dev server | `npm run dev` → `GET :5173/` | PASS |
-| 9 | Responses API HTTP contract | production `OpenAIResponsesClient`가 `/v1/responses`에 HTTP POST하고 응답 parse/validate | PASS, 20 candidates 검증 |
-| 10 | 전체 manual 추천 E2E | HTTP `/recommend` → GenerationContext → LLM client → safety → 실제 ranker → SQLite → analysis/dashboard 재조회 | PASS, Top 5 저장/재조회 성공 |
+| # | 검증 | 결과 |
+|---|---|---|
+| 1 | `.env.local` 로딩 | PASS |
+| 2 | Backend 전체 테스트 | **57 passed**, warning 1 |
+| 3 | Frontend unit tests | **8/8 passed** |
+| 4 | Frontend lint | **0 warnings / 0 errors** |
+| 5 | Frontend production build | PASS |
+| 6 | Reaction model 실제 준비/학습/추론 | PASS |
+| 7 | Backend 실제 서버 + `/health` | PASS |
+| 8 | Frontend 실제 dev server | PASS |
+| 9 | OpenAI Responses API HTTP contract | PASS |
+| 10 | 전체 manual 추천 E2E | PASS |
 
-Backend pytest의 warning 1개는 당시 Starlette TestClient와 `httpx` 관련 deprecation warning이며 테스트 실패는 아닙니다.
-
-## 실제 cloud E2E 범위
-
-2026-08-26 검증 당시 GitHub Actions에는 실제 `OPENAI_API_KEY`와 `YOUTUBE_API_KEY` secret이 없었습니다.
-
-따라서 당시 확인 범위는 다음과 같습니다.
-
-- 애플리케이션 wiring / HTTP client / parser / safety / ranker / persistence: 정상
-- 실제 OpenAI account key의 권한·quota·model 접근 가능 여부: 당시 Actions 환경에서는 미검증
-- 실제 YouTube API key의 quota/권한: 당시 Actions 환경에서는 미검증
-
-2026-08-31 추가된 Gemini client 역시 CI에서는 HTTP contract/unit test를 대상으로 하며, 실제 Gemini cloud key 연결은 local environment에서 별도로 확인해야 합니다.
+2026-08-31 Gemini와 2026-09-02 Ollama는 provider별 unit/HTTP contract test를 추가해 CI에서 검증합니다. 실제 Gemini cloud key와 실제 로컬 Ollama 모델 실행은 각 runtime environment에서 별도로 확인해야 합니다.
 
 ---
 
@@ -768,8 +761,6 @@ npm audit --omit=dev --audit-level=high
 
 GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lint/build, production dependency audit를 수행합니다.
 
-오탐 및 상태 이상 회귀 항목은 [`LLM_CONTEXT_GENERATION_VALIDATION_README.md`](./LLM_CONTEXT_GENERATION_VALIDATION_README.md)에 기록합니다.
-
 ---
 
 # 현재 한계
@@ -777,7 +768,7 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 ## Frontend
 
 - generation trace는 현재 생성 응답에서만 확인할 수 있고 과거 history에는 복원되지 않습니다.
-- 외부 요청 자체가 오래 걸릴 때는 spinner로 상태를 표시하지만 세부 provider progress를 실시간 stream하는 구조는 아닙니다.
+- spinner는 전체 추천 요청 상태를 표시하며 provider 내부 token progress를 stream하지는 않습니다.
 
 ## Backend (Machine Learning)
 
@@ -788,12 +779,14 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 
 ## AI
 
-- 실제 LLM cloud E2E에는 선택 provider의 유효한 API key와 model 접근 권한/quota가 필요합니다.
-- OpenAI가 설정되어 있으면 OpenAI가 우선이며, OpenAI runtime 오류를 감지해 Gemini로 자동 failover하지 않습니다.
+- OpenAI가 설정되어 있으면 OpenAI가 우선이며 runtime 오류 시 다른 provider로 자동 failover하지 않습니다.
+- Ollama fallback은 API 비용은 없지만 모델 다운로드 공간과 로컬 CPU/GPU/RAM이 필요합니다.
+- `/health`의 Ollama `ready`는 configuration 상태이며 실제 local process 가동 여부를 지속적으로 probe하지 않습니다.
+- Gemini를 선택하면 유효한 Gemini API key/권한/quota가 필요합니다.
 - YouTube URL cloud 경로에는 유효한 `YOUTUBE_API_KEY`가 필요합니다.
 - 공개 자막은 best-effort이며 외부 자막 제공 상태에 의존합니다.
 - 한국어 heuristic 일부는 규칙 기반이라 모든 오탐을 제거한 classifier는 아닙니다.
-- YouTube hype는 single-snapshot proxy이며 실제 trend velocity가 아닙니다. 반응 지표가 없으면 `unknown`입니다.
+- YouTube hype는 single-snapshot proxy이며 실제 trend velocity가 아닙니다.
 - LLM hallucination/문체 자연스러움은 contract test만으로 완전히 보장할 수 없고 real-provider smoke test/human review가 필요합니다.
 
 ---
