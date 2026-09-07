@@ -137,3 +137,36 @@ def test_empty_recommend_request_is_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_COMMENT_DB_PATH", str(tmp_path / "empty.db"))
     response = client.post("/recommend", json={"top_k": 5})
     assert response.status_code == 422
+
+
+def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypatch):
+    captured = {}
+
+    def fake_publish(**kwargs):
+        captured.update(kwargs)
+        return {
+            "posted": True,
+            "video_id": kwargs["video_id"],
+            "comment_id": "comment-123",
+            "comment": kwargs["comment"],
+            "comment_url": f"https://www.youtube.com/watch?v={kwargs['video_id']}&lc=comment-123",
+        }
+
+    monkeypatch.setattr(api_main, "publish_youtube_comment", fake_publish)
+    response = client.post(
+        "/youtube/comments",
+        json={
+            "video_id": "dQw4w9WgXcQ",
+            "channel_id": "UC-test-channel",
+            "comment": "추천 결과를 실제 댓글로 게시합니다.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["posted"] is True
+    assert response.json()["comment_id"] == "comment-123"
+    assert captured == {
+        "video_id": "dQw4w9WgXcQ",
+        "channel_id": "UC-test-channel",
+        "comment": "추천 결과를 실제 댓글로 게시합니다.",
+    }
