@@ -842,3 +842,49 @@
     justify-self: end;
   }
 }
+
+
+/* ---------------- Result actions / YouTube publish ---------------- */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.result-action {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--fg2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: 120ms var(--ease-out);
+}
+
+.result-action:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--neutral-50);
+  color: var(--fg1);
+}
+
+.result-action.active {
+  border-color: var(--brand-300);
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.result-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.result-action.youtube-publish {
+  margin-left: 2px;
+}
