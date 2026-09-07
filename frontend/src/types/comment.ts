@@ -45,6 +45,7 @@ export interface YouTubeVideoContext {
   title: string;
   description: string;
   channel: string;
+  channel_id?: string | null;
   subscriber_count: number | null;
   view_count: number | null;
   published_at: string | null;
@@ -72,12 +73,26 @@ export interface ReadinessComponent {
   [key: string]: unknown;
 }
 
+export interface YouTubeOAuthStatus {
+  configured: boolean;
+  authorized: boolean;
+  scope: string;
+}
+
+export interface YouTubeCommentPublishResponse {
+  posted: boolean;
+  video_id: string;
+  comment_id: string | null;
+  comment: string;
+  comment_url: string;
+}
+
 export interface ServiceHealth {
   status: 'ok' | 'degraded' | string;
   message: string;
   model: ReadinessComponent;
   llm: ReadinessComponent;
-  youtube: { configured: boolean };
+  youtube: { configured: boolean; oauth?: YouTubeOAuthStatus };
   storage: { ready: boolean };
 }
 
