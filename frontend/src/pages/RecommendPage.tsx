@@ -468,7 +468,7 @@ export function RecommendPage() {
                               }
                               void publishComment(r);
                             }}
-                            disabled={publishingId !== null && publishingId !== r.id}
+                            disabled={publishingId !== null}
                           >
                             {publishingId === r.id ? (
                               <LoaderCircle size={13} className="spin" />
