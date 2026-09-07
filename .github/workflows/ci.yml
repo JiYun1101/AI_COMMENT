@@ -47,6 +47,7 @@ jobs:
     if: github.ref == 'refs/heads/feature/youtube-comment-live-smoke'
     runs-on: ubuntu-latest
     env:
+      PYTHONPATH: .
       YOUTUBE_OAUTH_CLIENT_ID: ${{ secrets.YOUTUBE_OAUTH_CLIENT_ID }}
       YOUTUBE_OAUTH_CLIENT_SECRET: ${{ secrets.YOUTUBE_OAUTH_CLIENT_SECRET }}
       YOUTUBE_OAUTH_REFRESH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_REFRESH_TOKEN }}
