@@ -61,6 +61,7 @@ class YouTubeVideoContext:
     published_at: str | None
     duration_seconds: int | None
     thumbnail_url: str | None
+    channel_id: str | None = None
     transcript: str | None = None
     transcript_language: str | None = None
     transcript_status: str = TRANSCRIPT_UNAVAILABLE
@@ -355,6 +356,7 @@ def fetch_youtube_context(
         title=(snippet.get("title") or "").strip(),
         description=(snippet.get("description") or "").strip(),
         channel=(snippet.get("channelTitle") or "").strip(),
+        channel_id=(str(channel_id).strip() if channel_id else None),
         subscriber_count=subscriber_count,
         view_count=_optional_int(statistics.get("viewCount")),
         published_at=snippet.get("publishedAt"),

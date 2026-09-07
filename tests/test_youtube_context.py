@@ -87,6 +87,8 @@ def test_fetch_context_and_reference_without_external_transcript_for_test_sessio
         "https://youtu.be/dQw4w9WgXcQ", api_key="test-key", session=session
     )
     assert context.title == "테스트 영상"
+    assert context.channel_id == "channel-1"
+    assert context.to_dict()["channel_id"] == "channel-1"
     assert context.transcript_available is False
     assert context.to_dict()["transcript_status"] == "unavailable"
     assert context.category_id == "28"

@@ -43,3 +43,9 @@ class RecommendRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     useful: bool
+
+
+class YouTubeCommentPublishRequest(BaseModel):
+    video_id: str = Field(..., min_length=11, max_length=11)
+    channel_id: str = Field(..., min_length=1, max_length=100)
+    comment: str = Field(..., min_length=1, max_length=10_000)

@@ -1,4 +1,4 @@
-import { Check, Copy, LoaderCircle, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, Copy, LoaderCircle, RefreshCw, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
@@ -8,7 +8,16 @@ import { EmptyExamples, type ExampleVideo } from '../components/recommend/EmptyE
 import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { RecommendationTracePanel } from '../components/recommend/RecommendationTracePanel';
 import { TypeTag } from '../components/TypeTag';
-import { getAnalysis, getHealth, getVideoPreview, recommend, sendFeedback } from '../api/client';
+import {
+  getAnalysis,
+  getHealth,
+  getVideoPreview,
+  getYouTubeOAuthStatus,
+  publishYouTubeComment,
+  recommend,
+  sendFeedback,
+  startYouTubeOAuth,
+} from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
 import { isRecommendationInputReady } from '../utils/recommendationInput';
 import { getRecommendationReadinessMessage } from '../utils/readiness';
@@ -20,6 +29,7 @@ import type {
   RecommendationTrace,
   ServiceHealth,
   VideoPreviewData,
+  YouTubeOAuthStatus,
 } from '../types/comment';
 
 type Mode = 'url' | 'manual';
@@ -46,6 +56,9 @@ export function RecommendPage() {
   const [generation, setGeneration] = useState<GenerationMeta | null>(null);
   const [trace, setTrace] = useState<RecommendationTrace | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [youtubeOAuth, setYouTubeOAuth] = useState<YouTubeOAuthStatus | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishedUrls, setPublishedUrls] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const urlValid = useMemo(() => isValidYouTubeVideoUrl(url), [url]);
@@ -68,6 +81,8 @@ export function RecommendPage() {
     setGeneration(null);
     setTrace(null);
     setCopiedId(null);
+    setPublishingId(null);
+    setPublishedUrls({});
   };
 
   useEffect(() => {
@@ -76,6 +91,7 @@ export function RecommendPage() {
       .then((health) => {
         if (cancelled) return;
         setServiceHealth(health);
+        setYouTubeOAuth(health.youtube.oauth ?? null);
         setHealthError(null);
       })
       .catch((err) => {
@@ -269,6 +285,74 @@ export function RecommendPage() {
     }
   };
 
+  const waitForYouTubeAuthorization = async (popup: Window | null) => {
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      const status = await getYouTubeOAuthStatus();
+      setYouTubeOAuth(status);
+      if (status.authorized) {
+        if (popup && !popup.closed) popup.close();
+        return;
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1200));
+    }
+    if (popup && !popup.closed) popup.close();
+    throw new Error('YouTube 계정 인증 시간이 초과되었습니다. 다시 시도해주세요.');
+  };
+
+  const ensureYouTubeAuthorization = async () => {
+    const popup = youtubeOAuth?.authorized
+      ? null
+      : window.open('about:blank', 'youtube-oauth', 'width=520,height=720');
+
+    try {
+      const status = await getYouTubeOAuthStatus();
+      setYouTubeOAuth(status);
+      if (status.authorized) {
+        if (popup && !popup.closed) popup.close();
+        return;
+      }
+      if (!status.configured) {
+        if (popup && !popup.closed) popup.close();
+        throw new Error(
+          'YOUTUBE_OAUTH_CLIENT_ID / YOUTUBE_OAUTH_CLIENT_SECRET 설정 후 YouTube 계정을 연결해주세요.',
+        );
+      }
+      if (!popup) {
+        throw new Error('브라우저가 OAuth 팝업을 차단했습니다. 팝업을 허용한 뒤 다시 시도해주세요.');
+      }
+      const { authorization_url } = await startYouTubeOAuth();
+      popup.location.href = authorization_url;
+      await waitForYouTubeAuthorization(popup);
+    } catch (err) {
+      if (popup && !popup.closed) popup.close();
+      throw err;
+    }
+  };
+
+  const publishComment = async (recommendation: CommentRecommendation) => {
+    if (!preview?.video_id || !preview.channel_id) {
+      setError('YouTube 영상/채널 정보를 찾을 수 없어 댓글을 게시할 수 없습니다.');
+      return;
+    }
+
+    setPublishingId(recommendation.id);
+    setError(null);
+    try {
+      await ensureYouTubeAuthorization();
+      const posted = await publishYouTubeComment({
+        video_id: preview.video_id,
+        channel_id: preview.channel_id,
+        comment: recommendation.comment,
+      });
+      setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'YouTube 댓글 게시에 실패했습니다.');
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
     if (key === 'comments') navigate('/');
@@ -373,6 +457,29 @@ export function RecommendPage() {
                           {copiedId === r.id ? <Check size={13} /> : <Copy size={13} />}
                           {copiedId === r.id ? '복사됨' : '복사'}
                         </button>
+                        {mode === 'url' && preview?.video_id && preview.channel_id && (
+                          <button
+                            type="button"
+                            className={`result-action youtube-publish${publishedUrls[r.id] ? ' active' : ''}`}
+                            onClick={() => {
+                              if (publishedUrls[r.id]) {
+                                window.open(publishedUrls[r.id], '_blank', 'noopener,noreferrer');
+                                return;
+                              }
+                              void publishComment(r);
+                            }}
+                            disabled={publishingId !== null}
+                          >
+                            {publishingId === r.id ? (
+                              <LoaderCircle size={13} className="spin" />
+                            ) : publishedUrls[r.id] ? (
+                              <Check size={13} />
+                            ) : (
+                              <Send size={13} />
+                            )}
+                            {publishingId === r.id ? '게시 중...' : publishedUrls[r.id] ? '게시됨' : 'YouTube에 게시'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className={`result-action${r.feedback === 'useful' ? ' active' : ''}`}
