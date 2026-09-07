@@ -8,6 +8,8 @@ import type {
   RecommendResponse,
   ServiceHealth,
   VideoPreviewData,
+  YouTubeCommentPublishResponse,
+  YouTubeOAuthStatus,
 } from '../types/comment';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -115,4 +117,37 @@ export async function sendFeedback(recommendationId: string, useful: boolean): P
     '피드백 저장에 실패했습니다',
   );
   return body.feedback;
+}
+
+
+export async function getYouTubeOAuthStatus(): Promise<YouTubeOAuthStatus> {
+  return requestJson<YouTubeOAuthStatus>(
+    `${API_BASE}/youtube/oauth/status`,
+    undefined,
+    'YouTube 계정 연결 상태를 확인하지 못했습니다',
+  );
+}
+
+export async function startYouTubeOAuth(): Promise<{ authorization_url: string }> {
+  return requestJson<{ authorization_url: string }>(
+    `${API_BASE}/youtube/oauth/start`,
+    undefined,
+    'YouTube OAuth 로그인을 시작하지 못했습니다',
+  );
+}
+
+export async function publishYouTubeComment(request: {
+  video_id: string;
+  channel_id: string;
+  comment: string;
+}): Promise<YouTubeCommentPublishResponse> {
+  return requestJson<YouTubeCommentPublishResponse>(
+    `${API_BASE}/youtube/comments`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'YouTube 댓글 게시에 실패했습니다',
+  );
 }
