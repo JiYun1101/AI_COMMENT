@@ -4,9 +4,9 @@ import os
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
-from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest
+from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest, YouTubeCommentPublishRequest
 from src.llm.openai_client import LLMGenerationError, LLMNotReadyError
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
@@ -20,6 +20,17 @@ from src.storage.analysis_store import (
     list_comments,
     save_analysis,
     set_feedback,
+)
+from src.youtube.comments import (
+    YouTubeCommentPublishError,
+    YouTubeOAuthError,
+    YouTubeOAuthNotAuthorizedError,
+    YouTubeOAuthNotConfiguredError,
+    complete_youtube_oauth,
+    create_youtube_authorization_url,
+    disconnect_youtube_oauth,
+    publish_youtube_comment,
+    youtube_oauth_status,
 )
 from src.youtube.context import (
     InvalidYouTubeUrlError,
@@ -60,7 +71,10 @@ def health_check():
         "message": "AI Comment Recommender API is running",
         "model": model,
         "llm": llm,
-        "youtube": {"configured": bool(os.getenv("YOUTUBE_API_KEY"))},
+        "youtube": {
+            "configured": bool(os.getenv("YOUTUBE_API_KEY")),
+            "oauth": youtube_oauth_status(),
+        },
         "storage": {"ready": True},
     }
 
@@ -87,6 +101,69 @@ def _generation_http_error(exc: Exception) -> HTTPException:
 @app.get("/videos/preview")
 def preview_youtube_video(url: str = Query(..., min_length=1)):
     return _youtube_context_or_http_error(url).to_dict()
+
+
+@app.get("/youtube/oauth/status")
+def youtube_oauth_connection_status():
+    return youtube_oauth_status()
+
+
+@app.get("/youtube/oauth/start")
+def youtube_oauth_start():
+    try:
+        return {"authorization_url": create_youtube_authorization_url()}
+    except YouTubeOAuthNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/youtube/oauth/callback", response_class=HTMLResponse)
+def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
+    try:
+        complete_youtube_oauth(code, state)
+    except YouTubeOAuthError as exc:
+        return HTMLResponse(
+            content=(
+                "<!doctype html><meta charset='utf-8'><title>YouTube 연결 실패</title>"
+                "<body style='font-family:sans-serif;padding:32px'>"
+                f"<h2>YouTube 연결 실패</h2><p>{str(exc)}</p>"
+                "</body>"
+            ),
+            status_code=400,
+        )
+    return HTMLResponse(
+        content=(
+            "<!doctype html><meta charset='utf-8'><title>YouTube 연결 완료</title>"
+            "<body style='font-family:sans-serif;padding:32px'>"
+            "<h2>YouTube 계정 연결 완료</h2>"
+            "<p>이 창은 자동으로 닫힙니다.</p>"
+            "<script>setTimeout(() => window.close(), 700)</script>"
+            "</body>"
+        )
+    )
+
+
+@app.post("/youtube/oauth/disconnect")
+def youtube_oauth_disconnect():
+    disconnect_youtube_oauth()
+    return youtube_oauth_status()
+
+
+@app.post("/youtube/comments")
+def youtube_comment_publish(request: YouTubeCommentPublishRequest):
+    try:
+        return publish_youtube_comment(
+            video_id=request.video_id,
+            channel_id=request.channel_id,
+            comment=request.comment,
+        )
+    except YouTubeOAuthNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeOAuthNotAuthorizedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except YouTubeOAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/score")
