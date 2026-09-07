@@ -56,12 +56,12 @@ class YouTubeVideoContext:
     title: str
     description: str
     channel: str
-    channel_id: str | None
     subscriber_count: int | None
     view_count: int | None
     published_at: str | None
     duration_seconds: int | None
     thumbnail_url: str | None
+    channel_id: str | None = None
     transcript: str | None = None
     transcript_language: str | None = None
     transcript_status: str = TRANSCRIPT_UNAVAILABLE
