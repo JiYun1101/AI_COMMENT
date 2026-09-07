@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import os
 
 from fastapi import FastAPI, HTTPException, Query
@@ -125,7 +126,7 @@ def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
             content=(
                 "<!doctype html><meta charset='utf-8'><title>YouTube 연결 실패</title>"
                 "<body style='font-family:sans-serif;padding:32px'>"
-                f"<h2>YouTube 연결 실패</h2><p>{str(exc)}</p>"
+                f"<h2>YouTube 연결 실패</h2><p>{html.escape(str(exc))}</p>"
                 "</body>"
             ),
             status_code=400,
