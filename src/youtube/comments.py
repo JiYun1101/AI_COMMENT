@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import os
 import secrets
@@ -95,9 +96,10 @@ def youtube_oauth_status() -> dict:
     client_id = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip())
     client_secret = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip())
     token = _load_token()
+    access_valid = bool(token.get("access_token")) and float(token.get("expires_at") or 0) > time.time() + 60
     return {
         "configured": client_id and client_secret,
-        "authorized": bool(token.get("refresh_token") or token.get("access_token")),
+        "authorized": bool(token.get("refresh_token")) or access_valid,
         "scope": YOUTUBE_OAUTH_SCOPE,
     }
 
