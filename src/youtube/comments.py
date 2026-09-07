@@ -95,7 +95,11 @@ def youtube_oauth_status() -> dict:
     client_id = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip())
     client_secret = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip())
     token = _load_token()
-    access_valid = bool(token.get("access_token")) and float(token.get("expires_at") or 0) > time.time() + 60
+    try:
+        expires_at = float(token.get("expires_at") or 0)
+    except (TypeError, ValueError):
+        expires_at = 0
+    access_valid = bool(token.get("access_token")) and expires_at > time.time() + 60
     return {
         "configured": client_id and client_secret,
         "authorized": bool(token.get("refresh_token")) or access_valid,
