@@ -41,3 +41,24 @@ jobs:
         run: npm run lint
       - name: Build frontend
         run: npm run build
+
+
+  youtube-comment-live-smoke:
+    if: github.ref == 'refs/heads/feature/youtube-comment-live-smoke'
+    runs-on: ubuntu-latest
+    env:
+      YOUTUBE_OAUTH_CLIENT_ID: ${{ secrets.YOUTUBE_OAUTH_CLIENT_ID }}
+      YOUTUBE_OAUTH_CLIENT_SECRET: ${{ secrets.YOUTUBE_OAUTH_CLIENT_SECRET }}
+      YOUTUBE_OAUTH_REFRESH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_REFRESH_TOKEN }}
+      YOUTUBE_OAUTH_TOKEN_JSON: ${{ secrets.YOUTUBE_OAUTH_TOKEN_JSON }}
+      YOUTUBE_OAUTH_ACCESS_TOKEN: ${{ secrets.YOUTUBE_OAUTH_ACCESS_TOKEN }}
+      YOUTUBE_LIVE_TEST_VIDEO_URL: https://www.youtube.com/watch?v=hCZAcNPrq1I
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Install live smoke dependencies
+        run: pip install requests python-dotenv yt-dlp
+      - name: Insert, verify, and delete a real YouTube comment
+        run: python scripts/live_youtube_comment_smoke.py
