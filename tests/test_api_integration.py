@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 import src.api.main as api_main
@@ -140,6 +141,7 @@ def test_empty_recommend_request_is_rejected(tmp_path, monkeypatch):
 
 
 def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-token")
     captured = {}
 
     def fake_publish(**kwargs):
@@ -160,6 +162,7 @@ def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypat
             "channel_id": "UC-test-channel",
             "comment": "추천 결과를 실제 댓글로 게시합니다.",
         },
+        headers={"X-API-Key": "test-token"},
     )
 
     assert response.status_code == 200
@@ -170,3 +173,66 @@ def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypat
         "channel_id": "UC-test-channel",
         "comment": "추천 결과를 실제 댓글로 게시합니다.",
     }
+
+
+def _publish_payload():
+    return {
+        "video_id": "dQw4w9WgXcQ",
+        "channel_id": "UC-test-channel",
+        "comment": "추천 결과를 실제 댓글로 게시합니다.",
+    }
+
+
+def test_publish_rejects_wrong_api_key(monkeypatch):
+    """토큰이 설정된 경우 잘못된 키로는 사용자 계정에 접근할 수 없어야 한다."""
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(
+        api_main,
+        "publish_youtube_comment",
+        lambda **_: pytest.fail("인증 실패 시 publisher가 호출되면 안 된다"),
+    )
+
+    response = client.post(
+        "/youtube/comments", json=_publish_payload(), headers={"X-API-Key": "wrong"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_publish_rejects_remote_client_without_token(monkeypatch):
+    """토큰 미설정 시에는 loopback 요청만 허용한다."""
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        api_main,
+        "publish_youtube_comment",
+        lambda **_: pytest.fail("원격 요청에서 publisher가 호출되면 안 된다"),
+    )
+    remote_client = TestClient(api_main.app, client=("203.0.113.5", 51000))
+
+    response = remote_client.post("/youtube/comments", json=_publish_payload())
+
+    assert response.status_code == 403
+
+
+def test_publish_allows_loopback_client_without_token(monkeypatch):
+    monkeypatch.delenv("API_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        api_main,
+        "publish_youtube_comment",
+        lambda **kwargs: {"posted": True, "comment_id": "c1", **kwargs},
+    )
+    local_client = TestClient(api_main.app, client=("127.0.0.1", 51000))
+
+    response = local_client.post("/youtube/comments", json=_publish_payload())
+
+    assert response.status_code == 200
+    assert response.json()["posted"] is True
+
+
+def test_oauth_endpoints_are_protected(monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-token")
+
+    assert client.get("/youtube/oauth/start").status_code == 401
+    assert client.post("/youtube/oauth/disconnect").status_code == 401
+    # 읽기 전용 상태 조회는 계정을 건드리지 않으므로 열려 있다.
+    assert client.get("/youtube/oauth/status").status_code == 200

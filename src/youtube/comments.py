@@ -3,16 +3,20 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
-import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
 
+from src.recommender.safety_filter import get_block_reason
+from src.storage.analysis_store import pop_oauth_state, save_oauth_state
 from src.youtube.context import VIDEO_ID_RE
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 YOUTUBE_OAUTH_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"
@@ -23,8 +27,16 @@ DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/youtube/oauth/callback"
 DEFAULT_TOKEN_PATH = ROOT / "data" / "runtime" / "youtube_oauth_token.json"
 STATE_TTL_SECONDS = 10 * 60
 
-_AUTH_STATES: dict[str, tuple[float, str]] = {}
-_AUTH_STATE_LOCK = threading.Lock()
+# 게시 차단 사유별 사용자 안내 문구.
+BLOCK_REASON_MESSAGES = {
+    "empty": "게시할 댓글이 비어 있습니다.",
+    "too_short": "댓글이 너무 짧습니다 (5자 이상).",
+    "too_long": "댓글이 너무 깁니다 (200자 이하).",
+    "profanity": "비속어가 포함되어 게시할 수 없습니다.",
+    "hate_speech": "혐오/차별 표현이 포함되어 게시할 수 없습니다.",
+    "threat": "위협적인 표현이 포함되어 게시할 수 없습니다.",
+    "spam": "홍보/스팸으로 분류되는 표현이 포함되어 게시할 수 없습니다.",
+}
 
 
 class YouTubeOAuthError(RuntimeError):
@@ -119,12 +131,7 @@ def create_youtube_authorization_url() -> str:
     client_id, _, redirect_uri = _oauth_config()
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
-    now = time.time()
-    with _AUTH_STATE_LOCK:
-        expired = [key for key, (expires_at, _) in _AUTH_STATES.items() if expires_at <= now]
-        for key in expired:
-            _AUTH_STATES.pop(key, None)
-        _AUTH_STATES[state] = (now + STATE_TTL_SECONDS, verifier)
+    save_oauth_state(state, verifier, time.time() + STATE_TTL_SECONDS)
 
     params = {
         "client_id": client_id,
@@ -143,11 +150,9 @@ def create_youtube_authorization_url() -> str:
 
 def complete_youtube_oauth(code: str, state: str, *, session=None) -> dict:
     client_id, client_secret, redirect_uri = _oauth_config()
-    with _AUTH_STATE_LOCK:
-        pending = _AUTH_STATES.pop(state, None)
-    if pending is None or pending[0] <= time.time():
+    verifier = pop_oauth_state(state)
+    if verifier is None:
         raise YouTubeOAuthError("OAuth state가 만료되었거나 일치하지 않습니다.")
-    verifier = pending[1]
     http = session or requests.Session()
     try:
         response = http.post(
@@ -262,10 +267,16 @@ def publish_youtube_comment(
         raise YouTubeCommentPublishError("유효한 YouTube video_id가 아닙니다.", status_code=400)
     if not channel_id:
         raise YouTubeCommentPublishError("YouTube channel_id가 필요합니다.", status_code=400)
-    if not comment:
-        raise YouTubeCommentPublishError("게시할 댓글이 비어 있습니다.", status_code=400)
-    if len(comment) > 10_000:
-        raise YouTubeCommentPublishError("YouTube 댓글이 너무 깁니다.", status_code=400)
+    # 추천 파이프라인에서 이미 필터를 통과했더라도, composer에서 사용자가 자유롭게
+    # 편집한 텍스트가 그대로 들어올 수 있다. 외부로 나가는 마지막 지점에서 한 번 더
+    # 검사해야 안전 필터가 실제 게시물에 대한 보장이 된다.
+    block_reason = get_block_reason(comment)
+    if block_reason is not None:
+        logger.warning("youtube.publish.blocked reason=%s video_id=%s", block_reason, video_id)
+        raise YouTubeCommentPublishError(
+            BLOCK_REASON_MESSAGES.get(block_reason, "게시할 수 없는 댓글입니다."),
+            status_code=400,
+        )
 
     http = session or requests.Session()
     access_token = _refresh_access_token(session=http)
@@ -304,6 +315,9 @@ def publish_youtube_comment(
     if response.status_code < 200 or response.status_code >= 300:
         detail = (getattr(response, "text", "") or "")[:500]
         mapped = response.status_code if response.status_code in {400, 401, 403, 404} else 502
+        logger.warning(
+            "youtube.publish.failed video_id=%s status=%s", video_id, response.status_code
+        )
         raise YouTubeCommentPublishError(
             f"YouTube 댓글 게시에 실패했습니다 ({response.status_code}). {detail}".strip(),
             status_code=mapped,
@@ -315,6 +329,7 @@ def publish_youtube_comment(
 
     top_level = ((body.get("snippet") or {}).get("topLevelComment") or {})
     comment_id = top_level.get("id") or body.get("id")
+    logger.info("youtube.publish.ok video_id=%s comment_id=%s", video_id, comment_id)
     return {
         "posted": True,
         "video_id": video_id,

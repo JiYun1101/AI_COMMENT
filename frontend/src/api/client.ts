@@ -14,6 +14,15 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
+// 백엔드를 localhost 밖으로 노출할 때만 필요하다. 로컬 개발에서는 비워두면
+// 서버가 loopback 요청을 그대로 허용한다.
+const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? '';
+
+function withAuth(init?: RequestInit): RequestInit | undefined {
+  if (!API_TOKEN) return init;
+  return { ...init, headers: { ...(init?.headers ?? {}), 'X-API-Key': API_TOKEN } };
+}
+
 async function getErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: string };
@@ -25,7 +34,7 @@ async function getErrorMessage(res: Response, fallback: string): Promise<string>
 }
 
 async function requestJson<T>(url: string, init: RequestInit | undefined, fallback: string): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, withAuth(init));
   if (!res.ok) throw new Error(await getErrorMessage(res, fallback));
   return res.json() as Promise<T>;
 }

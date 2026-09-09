@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import html
+import logging
 import os
+import time
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest, YouTubeCommentPublishRequest
+from src.api.security import auth_status, require_trusted_client
 from src.llm.openai_client import LLMGenerationError, LLMNotReadyError
+from src.logging_config import configure_logging
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
@@ -40,6 +44,9 @@ from src.youtube.context import (
     build_reference_text,
     fetch_youtube_context,
 )
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AI Comment Recommender",
@@ -76,6 +83,7 @@ def health_check():
             "configured": bool(os.getenv("YOUTUBE_API_KEY")),
             "oauth": youtube_oauth_status(),
         },
+        "auth": auth_status(),
         "storage": {"ready": True},
     }
 
@@ -109,7 +117,7 @@ def youtube_oauth_connection_status():
     return youtube_oauth_status()
 
 
-@app.get("/youtube/oauth/start")
+@app.get("/youtube/oauth/start", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_start():
     try:
         return {"authorization_url": create_youtube_authorization_url()}
@@ -143,13 +151,13 @@ def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
     )
 
 
-@app.post("/youtube/oauth/disconnect")
+@app.post("/youtube/oauth/disconnect", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_disconnect():
     disconnect_youtube_oauth()
     return youtube_oauth_status()
 
 
-@app.post("/youtube/comments")
+@app.post("/youtube/comments", dependencies=[Depends(require_trusted_client)])
 def youtube_comment_publish(request: YouTubeCommentPublishRequest):
     try:
         return publish_youtube_comment(
@@ -205,6 +213,16 @@ def recommend_comment_candidates(request: RecommendRequest):
     if additional_context:
         ranking_reference_text = f"{source_reference_text}\n\n추가 맥락: {additional_context}"
 
+    started_at = time.monotonic()
+    active_llm = llm_readiness()
+    logger.info(
+        "recommend.started source=%s category=%s top_k=%s provider=%s model=%s",
+        "youtube" if youtube_context else "manual",
+        resolved_category,
+        request.top_k,
+        active_llm.get("provider"),
+        active_llm.get("model"),
+    )
     try:
         ranked = recommend_comments_with_meta(
             ranking_reference_text,
@@ -212,6 +230,12 @@ def recommend_comment_candidates(request: RecommendRequest):
             top_k=request.top_k,
         )
     except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
+        logger.warning(
+            "recommend.failed elapsed_ms=%d error=%s detail=%s",
+            (time.monotonic() - started_at) * 1000,
+            type(exc).__name__,
+            exc,
+        )
         raise _generation_http_error(exc) from exc
 
     youtube_data = youtube_context.to_dict() if youtube_context else None
@@ -228,7 +252,15 @@ def recommend_comment_candidates(request: RecommendRequest):
         additional_context=additional_context,
     )
 
-    active_llm = llm_readiness()
+    logger.info(
+        "recommend.completed analysis_id=%s elapsed_ms=%d candidates=%d safe=%d blocked=%d returned=%d",
+        analysis_id,
+        (time.monotonic() - started_at) * 1000,
+        ranked["candidate_count"],
+        ranked["safe_candidate_count"],
+        ranked["blocked_candidate_count"],
+        len(stored_recommendations),
+    )
     return {
         "analysis_id": analysis_id,
         "post_text": ranking_reference_text[:4_000],
