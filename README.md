@@ -120,6 +120,40 @@ curl http://127.0.0.1:8000/health
 
 # 업데이트 내역
 
+## 보안 / 운영
+
+### 2026-09-09 — 계정 보호, 게시 전 안전 재검사, 관측 가능성
+
+연결된 YouTube 계정을 실제로 건드리는 경로를 먼저 막고, 요청이 실패하거나 느릴 때
+원인을 추적할 수단을 추가했습니다.
+
+- **API 인증** — `API_AUTH_TOKEN`이 설정되면 `X-API-Key` 헤더가 일치해야 하고,
+  설정되지 않으면 loopback(localhost) 요청만 허용합니다. CORS는 브라우저에만
+  적용되므로 `curl`/스크립트를 막지 못했고, OAuth 토큰이 서버에 저장돼 있는 이상
+  서버에 도달할 수 있는 누구나 사용자 계정으로 댓글을 게시할 수 있었습니다.
+  적용 대상: `POST /youtube/comments`, `GET /youtube/oauth/start`,
+  `POST /youtube/oauth/disconnect`. OAuth callback은 브라우저 redirect라 헤더를
+  붙일 수 없어 `state` + PKCE로만 보호합니다.
+- **게시 전 안전 재검사** — composer에서 편집된 댓글도 게시 직전에
+  `get_block_reason()`을 다시 통과해야 합니다. 차단되면 YouTube 호출 자체가
+  일어나지 않습니다. 이에 따라 게시 가능 길이가 10,000자에서 생성 계약과 동일한
+  **5~200자**로 좁아졌습니다.
+- **OAuth state 영속화** — 프로세스 메모리 dict를 SQLite `oauth_states` 테이블로
+  옮겼습니다. worker가 여러 개이거나 서버가 재시작해도 callback이 자신이 발급한
+  state를 찾을 수 있습니다.
+- **구조화 로깅** — `LOG_LEVEL`로 제어하며 `recommend.started/completed/failed`,
+  `llm.generate.ok/failed`, `ranker.attempt`, `youtube.publish.*` 이벤트를
+  `key=value` 형태로 남깁니다. LLM 계측은 세 provider가 공유하는
+  `candidate_generator` 경계 한 곳에서 수행합니다.
+- **생성 시간 예산** — `RECOMMEND_TIME_BUDGET_SECONDS`(기본 90초). 첫 시도는 항상
+  수행하고, 이후 재시도는 예산이 남았을 때만 합니다. 재시도 3회 x provider timeout이
+  직렬로 쌓여 요청 하나가 몇 분씩 매달리던 문제를 막습니다.
+- **SQLite 커넥션 정리** — `with sqlite3.connect(...)`는 트랜잭션만 처리하고
+  커넥션을 닫지 않아 요청마다 커넥션이 GC 시점까지 남아 있었습니다. 커밋 후 반드시
+  닫는 `_session()` 헬퍼로 통일하고, WAL mode와 busy timeout을 켰습니다.
+
+---
+
 ## Frontend
 
 ### 2026-08-31 — 추천 생성 스피너 추가
@@ -151,6 +185,36 @@ LLM 원본 후보 → Safety → Ranker → 최종 선택
 ---
 
 ## Backend (Machine Learning)
+
+### 2026-09-09 — 사용 방식에 맞춘 ranker 평가와 baseline 비교
+
+기존 F1은 전체 데이터에 대한 이진 분류 지표라, 모델이 실제로 하는 일과 맞지
+않았습니다. 서비스에서 ranker는 **한 영상 안에서** 후보 수십 개를 재정렬해 상위
+k개를 고릅니다. 그래서 post 단위 랭킹 지표로 다시 측정했습니다
+(`python -m src.model.evaluate`).
+
+held-out 16개 post 기준:
+
+| ranker | NDCG@5 | P@5 | MRR |
+|---|---:|---:|---:|
+| model | 0.3093 | 0.2875 | 0.5767 |
+| random | 0.1423 | 0.1500 | 0.3146 |
+| comment_length | **0.3340** | 0.2625 | 0.5315 |
+
+paired bootstrap 95% 신뢰구간:
+
+| 비교 | 평균 차이 | 95% CI | 판정 |
+|---|---:|---|---|
+| model − random | +0.1670 | +0.0433 ~ +0.3066 | 모델 우위 |
+| model − length | −0.0246 | −0.2059 ~ +0.1323 | 구분 불가 |
+
+- 모델은 랜덤 정렬보다 확실히 낫습니다.
+- 그러나 **"긴 댓글을 위로" 정렬이라는 한 줄짜리 heuristic보다 낫다는 증거는 없습니다.**
+- held-out post가 16개뿐이라 어떤 결론이든 구간이 넓습니다. 모델 구조나 하이퍼파라미터
+  조정보다 **데이터 확대가 선행돼야 합니다.**
+- 사용자 피드백(useful/not_useful)은 지금까지 dashboard 집계에만 쓰였습니다.
+  `python -m scripts.export_feedback`으로 학습용 CSV로 꺼낼 수 있게 했지만, 아직
+  재학습 파이프라인에는 연결돼 있지 않습니다.
 
 ### 2026-08-26 — 실제 ranker 재학습 및 runtime 검증
 
@@ -351,6 +415,18 @@ npm audit --omit=dev --audit-level=high
 
 FastAPI API, 데이터 preprocessing, embedding feature, reaction ranker, SQLite 저장을 담당합니다.
 
+## Ranker 평가
+
+```bash
+python -m src.model.evaluate
+```
+
+학습 스크립트의 F1과 달리, 이 명령은 모델이 실제로 하는 일(한 영상 안에서 후보를
+재정렬해 상위 k개를 고르는 것)을 그대로 측정합니다. post 단위 NDCG@5 / P@5 / MRR을
+랜덤 정렬, "긴 댓글 우선" 정렬 baseline과 나란히 출력하고, 차이에 대한 95% 부트스트랩
+신뢰구간을 함께 보여줍니다. baseline을 유의하게 넘지 못하면 랭킹 단계가 값을 더하지
+못하고 있다는 뜻입니다.
+
 ## Reaction ranker 준비
 
 모델 artifact는 Git에 커밋하지 않습니다.
@@ -418,6 +494,9 @@ data/runtime/ai_comment.db
 
 다른 위치는 `AI_COMMENT_DB_PATH`로 지정합니다. 현재 generation trace는 저장하지 않습니다.
 
+DB는 WAL mode로 열리며, 진행 중인 OAuth 플로우의 `state`/PKCE verifier는 `oauth_states`
+테이블에 저장됩니다(프로세스 메모리가 아니라 DB이므로 재시작/다중 worker에 견딥니다).
+
 ## 주요 API
 
 - `GET /health`
@@ -429,6 +508,14 @@ data/runtime/ai_comment.db
 - `GET /comments?...`
 - `GET /dashboard/summary`
 - `POST /recommendations/{recommendation_id}/feedback`
+- `GET /youtube/oauth/status`
+- `GET /youtube/oauth/start` 🔒
+- `GET /youtube/oauth/callback`
+- `POST /youtube/oauth/disconnect` 🔒
+- `POST /youtube/comments` 🔒
+
+🔒 표시는 `API_AUTH_TOKEN` 설정 시 `X-API-Key` 헤더가 필요하고, 미설정 시
+loopback 요청만 허용되는 endpoint입니다.
 
 YouTube 추천 예시:
 
@@ -714,6 +801,19 @@ LLM_MODEL=qwen3:8b
 LLM_BASE_URL=http://localhost:11434
 ```
 
+운영/보안 관련 선택 변수:
+
+```env
+# 계정을 건드리는 endpoint 보호. 비워두면 loopback 요청만 허용한다.
+API_AUTH_TOKEN=
+# 추천 생성 재시도 전체에 허용할 시간(초). 기본 90.
+RECOMMEND_TIME_BUDGET_SECONDS=90
+# 애플리케이션 로그 레벨. 기본 INFO.
+LOG_LEVEL=INFO
+```
+
+Frontend는 `API_AUTH_TOKEN`을 설정한 경우에만 `VITE_API_TOKEN`에 같은 값을 넣으면 됩니다.
+
 OpenAI를 사용하면 `OPENAI_API_KEY`와 `OPENAI_MODEL`만 채우면 OpenAI가 우선됩니다.
 
 Gemini를 사용하려면 OpenAI 두 값을 비우고 `LLM_PROVIDER=gemini`, `LLM_API_KEY`, Gemini model/base URL을 설정합니다.
@@ -765,6 +865,17 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 
 # 현재 한계
 
+## 보안 / 운영
+
+- 계정을 건드리는 endpoint(`/youtube/comments`, `/youtube/oauth/start`, `/youtube/oauth/disconnect`)는
+  `API_AUTH_TOKEN`이 설정되면 `X-API-Key` 헤더를, 설정되지 않으면 loopback 요청만 허용합니다.
+  OAuth callback은 브라우저 redirect라 헤더를 붙일 수 없어 `state` + PKCE로만 보호됩니다.
+- `/recommend`, `/score`, `/comments` 등 나머지 endpoint는 아직 열려 있습니다. API를 외부에 노출한다면
+  같은 dependency를 확장해서 적용해야 합니다.
+- 게시 직전에 안전 필터를 한 번 더 통과시키므로, composer에서 편집한 댓글도 생성 계약과 동일한
+  5~200자 및 비속어/혐오/위협/스팸 규칙을 따릅니다. YouTube 자체 한도(10,000자)보다 좁습니다.
+- SQLite는 WAL mode로 열리며, OAuth state는 프로세스 메모리가 아닌 DB에 저장되어 worker 재시작을 견딥니다.
+
 ## Frontend
 
 - generation trace는 현재 생성 응답에서만 확인할 수 있고 과거 history에는 복원되지 않습니다.
@@ -773,7 +884,16 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 ## Backend (Machine Learning)
 
 - historical/ranker data는 social-issues/vlog 중심입니다.
-- 2026-08-26 실제 재학습 test F1은 **0.2819**로 predictive quality 개선이 필요합니다.
+- 2026-08-26 실제 재학습 test F1은 **0.2819**입니다. 다만 F1은 전체 데이터에 대한 이진 분류
+  지표라 실제 사용 방식(한 영상 안에서 후보 재정렬)과 맞지 않습니다. `python -m src.model.evaluate`가
+  post 단위 랭킹 지표를 baseline과 함께 출력합니다.
+- held-out 16개 post 기준 NDCG@5: **model 0.3093 / random 0.1423 / comment_length 0.3340**.
+  랜덤 대비 개선은 통계적으로 유의하지만(95% CI +0.0433 ~ +0.3066), "긴 댓글 우선"이라는
+  한 줄짜리 heuristic보다 낫다고는 말할 수 없습니다(95% CI −0.2059 ~ +0.1323).
+  **즉 현재 ML 랭커가 단순 heuristic 대비 가치를 더한다는 증거는 아직 없습니다.**
+- held-out post가 16개뿐이라 어떤 결론도 구간이 넓습니다. 데이터 확대가 선행돼야 합니다.
+- 사용자 피드백(useful/not_useful)은 `python -m scripts.export_feedback`으로 학습용 CSV로
+  꺼낼 수 있지만, 아직 재학습 파이프라인에 연결돼 있지는 않습니다.
 - reaction model artifact는 source control에 없으므로 production artifact 배포 절차가 별도로 필요합니다.
 - SQLite는 local/single-instance MVP 저장소입니다.
 

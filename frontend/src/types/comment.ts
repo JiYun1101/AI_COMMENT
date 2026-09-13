@@ -92,7 +92,8 @@ export interface ServiceHealth {
   message: string;
   model: ReadinessComponent;
   llm: ReadinessComponent;
-  youtube: { configured: boolean; oauth?: YouTubeOAuthStatus };
+  youtube: { configured: boolean; oauth?: YouTubeOAuthStatus }
+  auth?: { mode: 'api_key' | 'loopback_only'; header: string };
   storage: { ready: boolean };
 }
 

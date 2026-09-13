@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from src.llm.openai_client import LLMGenerationError
@@ -93,3 +95,44 @@ def test_ranker_fails_instead_of_returning_partial_or_empty_result(monkeypatch):
         recommend_comments_with_meta("reference", generation_context={}, top_k=5)
 
     assert len(calls) == 3
+
+
+def test_time_budget_stops_retrying_instead_of_hanging(monkeypatch):
+    """예산을 넘기면 남은 재시도를 포기하고 즉시 실패해야 한다."""
+    calls = []
+
+    def slow_generate(*args, **kwargs):
+        calls.append(kwargs["minimum_count"])
+        time.sleep(0.02)
+        return _batch(f"slow-{len(calls)}", 1)
+
+    monkeypatch.setenv("RECOMMEND_TIME_BUDGET_SECONDS", "0.01")
+    monkeypatch.setattr("src.recommender.ranker.generate_candidates", slow_generate)
+
+    with pytest.raises(LLMGenerationError, match="시간 예산"):
+        recommend_comments_with_meta("reference", generation_context={}, top_k=5)
+
+    # 첫 시도는 항상 수행하고, 예산이 없으므로 재시도는 하지 않는다.
+    assert len(calls) == 1
+
+
+def test_invalid_time_budget_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("RECOMMEND_TIME_BUDGET_SECONDS", "not-a-number")
+    batches = [_batch("first", 2), _batch("second", 5)]
+    calls = []
+
+    monkeypatch.setattr(
+        "src.recommender.ranker.generate_candidates",
+        lambda *a, **k: batches[len(calls)] if not calls.append(1) else batches[len(calls) - 1],
+    )
+    monkeypatch.setattr(
+        "src.recommender.ranker.score_comments",
+        lambda post_text, comments: [
+            {"comment": comment, "score": 90.0 - index}
+            for index, comment in enumerate(comments)
+        ],
+    )
+
+    result = recommend_comments_with_meta("reference", generation_context={}, top_k=5)
+
+    assert len(result["recommendations"]) == 5

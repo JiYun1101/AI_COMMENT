@@ -7,6 +7,8 @@ import pytest
 
 from src.youtube.comments import (
     YOUTUBE_COMMENT_THREADS_URL,
+    YouTubeCommentPublishError,
+    YouTubeOAuthError,
     YouTubeOAuthNotAuthorizedError,
     complete_youtube_oauth,
     create_youtube_authorization_url,
@@ -44,6 +46,8 @@ def oauth_env(tmp_path, monkeypatch):
     monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("YOUTUBE_OAUTH_REDIRECT_URI", "http://127.0.0.1:8000/youtube/oauth/callback")
     monkeypatch.setenv("YOUTUBE_OAUTH_TOKEN_PATH", str(token_path))
+    # OAuth state는 이제 DB에 저장되므로 테스트마다 격리된 DB를 쓴다.
+    monkeypatch.setenv("AI_COMMENT_DB_PATH", str(tmp_path / "oauth.db"))
     return token_path
 
 
@@ -164,3 +168,51 @@ def test_publish_requires_connected_account(oauth_env):
         )
 
     assert youtube_oauth_status()["authorized"] is False
+
+
+def test_state_survives_process_restart(oauth_env, monkeypatch):
+    """state/verifier가 프로세스 메모리가 아닌 DB에 있어야 worker 재시작을 견딘다."""
+    url = create_youtube_authorization_url()
+    state = _state_from_auth_url(url)
+
+    # 새 프로세스처럼 모듈 전역 상태를 신뢰하지 않고 DB에서만 복구한다.
+    from src.storage.analysis_store import pop_oauth_state
+
+    assert pop_oauth_state(state)
+    assert pop_oauth_state(state) is None
+
+
+def test_expired_state_is_rejected(oauth_env, monkeypatch):
+    import src.youtube.comments as comments_module
+
+    monkeypatch.setattr(comments_module, "STATE_TTL_SECONDS", -1)
+    url = create_youtube_authorization_url()
+    state = _state_from_auth_url(url)
+
+    with pytest.raises(YouTubeOAuthError, match="만료"):
+        complete_youtube_oauth("auth-code", state, session=FakeSession([]))
+
+
+@pytest.mark.parametrize(
+    "comment, expected",
+    [
+        ("이 영상 진짜 병신같네요", "비속어"),
+        ("구독 부탁드립니다 https://example.com", "홍보"),
+        ("ㅋㅋ", "짧"),
+    ],
+)
+def test_unsafe_comment_is_blocked_before_reaching_youtube(oauth_env, comment, expected):
+    """composer에서 편집된 텍스트도 게시 직전에 안전 필터를 다시 통과해야 한다."""
+    session = FakeSession([])
+
+    with pytest.raises(YouTubeCommentPublishError) as excinfo:
+        publish_youtube_comment(
+            video_id="dQw4w9WgXcQ",
+            channel_id="UC-test",
+            comment=comment,
+            session=session,
+        )
+
+    assert excinfo.value.status_code == 400
+    assert expected in str(excinfo.value)
+    assert session.calls == []  # 외부 호출이 아예 일어나지 않아야 한다

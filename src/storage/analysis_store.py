@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from src.config import BASE_DIR
 
@@ -23,10 +25,32 @@ def _db_path(path: str | Path | None = None) -> Path:
 def _connect(path: str | Path | None = None) -> sqlite3.Connection:
     db_path = _db_path(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path, timeout=10.0)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
+    # WAL은 읽기와 쓰기가 서로를 막지 않게 해준다. /recommend 저장 중에도
+    # dashboard/comments 조회가 "database is locked"로 실패하지 않도록 켠다.
+    # 일부 네트워크 파일시스템에서는 WAL 전환이 실패하므로 조용히 넘어간다.
+    try:
+        connection.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
     return connection
+
+
+@contextmanager
+def _session(path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
+    """트랜잭션을 커밋/롤백한 뒤 커넥션을 반드시 닫는다.
+
+    ``with sqlite3.connect(...)``는 트랜잭션만 처리하고 커넥션은 닫지 않아,
+    요청마다 열린 커넥션이 GC 시점까지 살아남는다. 모든 접근은 이 헬퍼를 쓴다.
+    """
+    connection = _connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def _ensure_analysis_columns(connection: sqlite3.Connection) -> None:
@@ -42,7 +66,7 @@ def _ensure_analysis_columns(connection: sqlite3.Connection) -> None:
 
 
 def init_db(path: str | Path | None = None) -> None:
-    with _connect(path) as connection:
+    with _session(path) as connection:
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS analyses (
@@ -70,6 +94,12 @@ def init_db(path: str | Path | None = None) -> None:
                 predicted_score REAL NOT NULL,
                 feedback TEXT CHECK (feedback IN ('useful', 'not_useful') OR feedback IS NULL),
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state TEXT PRIMARY KEY,
+                code_verifier TEXT NOT NULL,
+                expires_at REAL NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_recommendations_analysis_id ON recommendations(analysis_id);
@@ -111,7 +141,7 @@ def save_analysis(
     context_json = json.dumps(generation_context, ensure_ascii=False) if generation_context else None
 
     stored_recommendations: list[dict] = []
-    with _connect(path) as connection:
+    with _session(path) as connection:
         connection.execute(
             """
             INSERT INTO analyses (
@@ -163,7 +193,7 @@ def save_analysis(
 
 def list_analyses(*, limit: int = 10, path: str | Path | None = None) -> list[dict]:
     init_db(path)
-    with _connect(path) as connection:
+    with _session(path) as connection:
         rows = connection.execute(
             """
             SELECT a.id, a.source_type, a.source_text, a.youtube_url, a.video_id,
@@ -184,7 +214,7 @@ def list_analyses(*, limit: int = 10, path: str | Path | None = None) -> list[di
 
 def get_analysis(analysis_id: str, *, path: str | Path | None = None) -> dict | None:
     init_db(path)
-    with _connect(path) as connection:
+    with _session(path) as connection:
         analysis = connection.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
         if analysis is None:
             return None
@@ -242,7 +272,7 @@ def list_comments(
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     base_from = f"FROM recommendations r JOIN analyses a ON a.id = r.analysis_id {where_sql}"
 
-    with _connect(path) as connection:
+    with _session(path) as connection:
         total = connection.execute(f"SELECT COUNT(*) {base_from}", params).fetchone()[0]
         rows = connection.execute(
             f"""
@@ -261,7 +291,7 @@ def list_comments(
 
 def dashboard_summary(*, path: str | Path | None = None) -> dict:
     init_db(path)
-    with _connect(path) as connection:
+    with _session(path) as connection:
         analysis_count = connection.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
         recommendation_count = connection.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
         average_score = connection.execute("SELECT COALESCE(AVG(predicted_score), 0) FROM recommendations").fetchone()[0]
@@ -279,6 +309,73 @@ def dashboard_summary(*, path: str | Path | None = None) -> dict:
     }
 
 
+def list_feedback_examples(*, path: str | Path | None = None) -> list[dict]:
+    """사용자 피드백이 달린 추천을 학습에 쓸 수 있는 형태로 돌려준다.
+
+    ``useful``/``not_useful``은 like 기반 ``is_top_comment`` 라벨과 달리 실제
+    사용자가 채택 가치를 평가한 신호다. 수집만 하고 버리지 않도록 재학습
+    파이프라인이 읽어갈 수 있는 출구를 만든다.
+    """
+    init_db(path)
+    with _session(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT r.id AS recommendation_id,
+                   r.analysis_id,
+                   r.type,
+                   r.comment,
+                   r.predicted_score,
+                   r.feedback,
+                   r.created_at,
+                   a.category,
+                   a.source_type,
+                   COALESCE(a.video_title, a.source_text) AS post_text
+            FROM recommendations r
+            JOIN analyses a ON a.id = r.analysis_id
+            WHERE r.feedback IS NOT NULL
+            ORDER BY r.created_at ASC
+            """
+        ).fetchall()
+    return [{**dict(row), "label": 1 if row["feedback"] == "useful" else 0} for row in rows]
+
+
+def save_oauth_state(
+    state: str,
+    code_verifier: str,
+    expires_at: float,
+    *,
+    path: str | Path | None = None,
+) -> None:
+    """진행 중인 OAuth 플로우의 state/PKCE verifier를 저장한다.
+
+    프로세스 메모리 대신 DB에 두어야 worker가 여러 개이거나 서버가 재시작해도
+    callback이 자신이 발급한 state를 찾을 수 있다.
+    """
+    init_db(path)
+    with _session(path) as connection:
+        connection.execute("DELETE FROM oauth_states WHERE expires_at <= ?", (time.time(),))
+        connection.execute(
+            "INSERT OR REPLACE INTO oauth_states (state, code_verifier, expires_at) VALUES (?, ?, ?)",
+            (state, code_verifier, float(expires_at)),
+        )
+
+
+def pop_oauth_state(state: str, *, path: str | Path | None = None) -> str | None:
+    """state를 소비하고 verifier를 돌려준다. 없거나 만료됐으면 None."""
+    init_db(path)
+    with _session(path) as connection:
+        row = connection.execute(
+            "SELECT code_verifier, expires_at FROM oauth_states WHERE state = ?",
+            (state,),
+        ).fetchone()
+        connection.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+        if row is None:
+            return None
+        if float(row["expires_at"]) <= time.time():
+            return None
+        return str(row["code_verifier"])
+
+
 def set_feedback(
     recommendation_id: str,
     *,
@@ -287,7 +384,7 @@ def set_feedback(
 ) -> dict | None:
     init_db(path)
     feedback = "useful" if useful else "not_useful"
-    with _connect(path) as connection:
+    with _session(path) as connection:
         cursor = connection.execute(
             "UPDATE recommendations SET feedback = ? WHERE id = ?",
             (feedback, recommendation_id),

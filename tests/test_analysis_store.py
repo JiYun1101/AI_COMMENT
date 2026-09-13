@@ -3,6 +3,7 @@ from src.storage.analysis_store import (
     get_analysis,
     list_analyses,
     list_comments,
+    list_feedback_examples,
     save_analysis,
     set_feedback,
 )
@@ -50,3 +51,31 @@ def test_persistence_history_filters_and_feedback(tmp_path):
     assert summary["recommendation_count"] == 2
     assert summary["feedback_count"] == 1
     assert summary["helpful_rate"] == 100.0
+
+
+def test_feedback_examples_are_exportable_for_retraining(tmp_path):
+    db_path = tmp_path / "feedback.db"
+    analysis_id, stored = save_analysis(
+        source_type="youtube",
+        source_text="원본 영상 설명",
+        category="Entertainment",
+        recommendations=[
+            {"rank": 1, "type": "insight", "comment": "유용한 댓글", "predicted_score": 88.0},
+            {"rank": 2, "type": "casual", "comment": "그저 그런 댓글", "predicted_score": 61.0},
+            {"rank": 3, "type": "general", "comment": "평가 없는 댓글", "predicted_score": 55.0},
+        ],
+        youtube_context={"title": "영상 제목"},
+        path=db_path,
+    )
+
+    set_feedback(stored[0]["id"], useful=True, path=db_path)
+    set_feedback(stored[1]["id"], useful=False, path=db_path)
+
+    examples = list_feedback_examples(path=db_path)
+
+    # 평가가 없는 추천은 학습 데이터가 될 수 없으므로 제외된다.
+    assert len(examples) == 2
+    assert {row["label"] for row in examples} == {0, 1}
+    assert all(row["analysis_id"] == analysis_id for row in examples)
+    # video_title이 있으면 post_text로 쓰인다.
+    assert all(row["post_text"] == "영상 제목" for row in examples)
