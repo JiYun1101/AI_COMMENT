@@ -94,7 +94,6 @@ function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, 
     ...headers,
     ...(clientId ? { 'X-YouTube-OAuth-Client-ID': clientId } : {}),
     ...(clientSecret ? { 'X-YouTube-OAuth-Client-Secret': clientSecret } : {}),
-    'X-YouTube-OAuth-Redirect-URI': YOUTUBE_OAUTH_REDIRECT_URI,
   };
 }
 
