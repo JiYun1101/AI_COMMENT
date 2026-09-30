@@ -16,6 +16,25 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
   (import.meta.env.DEV ? 'http://localhost:8000' : 'https://ai-comment-api-vk9a.onrender.com');
 
+const YOUTUBE_API_KEY_STORAGE_KEY = 'ai-comment.youtube-api-key';
+
+export function getStoredYouTubeApiKey(): string {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(YOUTUBE_API_KEY_STORAGE_KEY)?.trim() ?? '';
+}
+
+export function setStoredYouTubeApiKey(value: string): void {
+  if (typeof window === 'undefined') return;
+  const normalized = value.trim();
+  if (normalized) window.localStorage.setItem(YOUTUBE_API_KEY_STORAGE_KEY, normalized);
+  else window.localStorage.removeItem(YOUTUBE_API_KEY_STORAGE_KEY);
+}
+
+function withYouTubeApiKey(headers: Record<string, string> = {}): Record<string, string> {
+  const apiKey = getStoredYouTubeApiKey();
+  return apiKey ? { ...headers, 'X-YouTube-API-Key': apiKey } : headers;
+}
+
 async function getErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { detail?: string };
@@ -33,7 +52,19 @@ async function requestJson<T>(url: string, init: RequestInit | undefined, fallba
 }
 
 export async function getHealth(): Promise<ServiceHealth> {
-  return requestJson<ServiceHealth>(`${API_BASE}/health`, undefined, '서비스 상태를 확인하지 못했습니다');
+  const health = await requestJson<ServiceHealth>(
+    `${API_BASE}/health`,
+    undefined,
+    '서비스 상태를 확인하지 못했습니다',
+  );
+  if (!getStoredYouTubeApiKey()) return health;
+  return {
+    ...health,
+    youtube: {
+      ...health.youtube,
+      configured: true,
+    },
+  };
 }
 
 export async function recommend(request: RecommendRequest): Promise<RecommendResponse> {
@@ -41,7 +72,7 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     `${API_BASE}/recommend`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withYouTubeApiKey({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(request),
     },
     '추천 요청이 실패했습니다',
@@ -52,7 +83,7 @@ export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
   const params = new URLSearchParams({ url });
   return requestJson<VideoPreviewData>(
     `${API_BASE}/videos/preview?${params.toString()}`,
-    undefined,
+    { headers: withYouTubeApiKey() },
     '영상 정보를 불러오지 못했습니다',
   );
 }
@@ -120,7 +151,6 @@ export async function sendFeedback(recommendationId: string, useful: boolean): P
   );
   return body.feedback;
 }
-
 
 export async function getYouTubeOAuthStatus(): Promise<YouTubeOAuthStatus> {
   return requestJson<YouTubeOAuthStatus>(
