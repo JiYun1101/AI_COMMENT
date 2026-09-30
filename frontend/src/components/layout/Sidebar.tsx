@@ -1,7 +1,7 @@
 import { LayoutGrid, MessageSquare } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-export type SidebarKey = 'dashboard' | 'comments';
+export type SidebarKey = 'dashboard' | 'comments' | 'account';
 
 interface SidebarItemProps {
   icon: ComponentType<{ size?: number | string }>;
