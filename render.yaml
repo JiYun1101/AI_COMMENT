@@ -4,6 +4,7 @@ services:
     runtime: docker
     repo: https://github.com/JiYun1101/AI_COMMENT.git
     branch: main
+    region: singapore
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
@@ -25,6 +26,8 @@ services:
         sync: false
       - key: YOUTUBE_OAUTH_REDIRECT_URI
         sync: false
+      - key: CORS_ALLOWED_ORIGIN_REGEX
+        value: https://.*\\.vercel\\.app
       - key: AI_COMMENT_DB_PATH
         value: /var/data/ai_comment.db
       - key: YOUTUBE_OAUTH_TOKEN_PATH
