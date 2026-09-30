@@ -23,7 +23,9 @@ DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/youtube/oauth/callback"
 DEFAULT_TOKEN_PATH = ROOT / "data" / "runtime" / "youtube_oauth_token.json"
 STATE_TTL_SECONDS = 10 * 60
 
-_AUTH_STATES: dict[str, tuple[float, str]] = {}
+# state -> (expires_at, pkce_verifier, (client_id, client_secret, redirect_uri))
+# Browser-provided OAuth credentials live here only for the short OAuth handshake.
+_AUTH_STATES: dict[str, tuple[float, str, tuple[str, str, str]]] = {}
 _AUTH_STATE_LOCK = threading.Lock()
 
 
@@ -45,16 +47,23 @@ class YouTubeCommentPublishError(RuntimeError):
         self.status_code = status_code
 
 
-def _oauth_config() -> tuple[str, str, str]:
-    client_id = (os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip()
-    client_secret = (os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip()
-    redirect_uri = (os.getenv("YOUTUBE_OAUTH_REDIRECT_URI") or DEFAULT_REDIRECT_URI).strip()
-    if not client_id or not client_secret:
+def _oauth_config(
+    *,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> tuple[str, str, str]:
+    resolved_client_id = (client_id or os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip()
+    resolved_client_secret = (client_secret or os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip()
+    resolved_redirect_uri = (
+        redirect_uri or os.getenv("YOUTUBE_OAUTH_REDIRECT_URI") or DEFAULT_REDIRECT_URI
+    ).strip()
+    if not resolved_client_id or not resolved_client_secret:
         raise YouTubeOAuthNotConfiguredError(
             "YouTube 댓글 게시용 OAuth 설정이 필요합니다: "
             "YOUTUBE_OAUTH_CLIENT_ID, YOUTUBE_OAUTH_CLIENT_SECRET"
         )
-    return client_id, client_secret, redirect_uri
+    return resolved_client_id, resolved_client_secret, resolved_redirect_uri
 
 
 def _token_path() -> Path:
@@ -91,9 +100,13 @@ def disconnect_youtube_oauth() -> None:
         pass
 
 
-def youtube_oauth_status() -> dict:
-    client_id = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip())
-    client_secret = bool((os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip())
+def youtube_oauth_status(
+    *,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+) -> dict:
+    resolved_client_id = bool((client_id or os.getenv("YOUTUBE_OAUTH_CLIENT_ID") or "").strip())
+    resolved_client_secret = bool((client_secret or os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET") or "").strip())
     token = _load_token()
     try:
         expires_at = float(token.get("expires_at") or 0)
@@ -101,7 +114,7 @@ def youtube_oauth_status() -> dict:
         expires_at = 0
     access_valid = bool(token.get("access_token")) and expires_at > time.time() + 60
     return {
-        "configured": client_id and client_secret,
+        "configured": resolved_client_id and resolved_client_secret,
         "authorized": bool(token.get("refresh_token")) or access_valid,
         "scope": YOUTUBE_OAUTH_SCOPE,
     }
@@ -115,20 +128,30 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def create_youtube_authorization_url() -> str:
-    client_id, _, redirect_uri = _oauth_config()
+def create_youtube_authorization_url(
+    *,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> str:
+    oauth_config = _oauth_config(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+    resolved_client_id, _, resolved_redirect_uri = oauth_config
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
     now = time.time()
     with _AUTH_STATE_LOCK:
-        expired = [key for key, (expires_at, _) in _AUTH_STATES.items() if expires_at <= now]
+        expired = [key for key, pending in _AUTH_STATES.items() if pending[0] <= now]
         for key in expired:
             _AUTH_STATES.pop(key, None)
-        _AUTH_STATES[state] = (now + STATE_TTL_SECONDS, verifier)
+        _AUTH_STATES[state] = (now + STATE_TTL_SECONDS, verifier, oauth_config)
 
     params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "client_id": resolved_client_id,
+        "redirect_uri": resolved_redirect_uri,
         "response_type": "code",
         "scope": YOUTUBE_OAUTH_SCOPE,
         "access_type": "offline",
@@ -142,12 +165,13 @@ def create_youtube_authorization_url() -> str:
 
 
 def complete_youtube_oauth(code: str, state: str, *, session=None) -> dict:
-    client_id, client_secret, redirect_uri = _oauth_config()
     with _AUTH_STATE_LOCK:
         pending = _AUTH_STATES.pop(state, None)
     if pending is None or pending[0] <= time.time():
         raise YouTubeOAuthError("OAuth state가 만료되었거나 일치하지 않습니다.")
+
     verifier = pending[1]
+    client_id, client_secret, redirect_uri = pending[2]
     http = session or requests.Session()
     try:
         response = http.post(
@@ -190,11 +214,22 @@ def complete_youtube_oauth(code: str, state: str, *, session=None) -> dict:
         "token_type": payload.get("token_type") or "Bearer",
     }
     _save_token(stored)
-    return youtube_oauth_status()
+    return youtube_oauth_status(client_id=client_id, client_secret=client_secret)
 
 
-def _refresh_access_token(*, session=None, force: bool = False) -> str:
-    client_id, client_secret, _ = _oauth_config()
+def _refresh_access_token(
+    *,
+    session=None,
+    force: bool = False,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> str:
+    resolved_client_id, resolved_client_secret, _ = _oauth_config(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
     token = _load_token()
     access_token = str(token.get("access_token") or "").strip()
     expires_at = float(token.get("expires_at") or 0)
@@ -212,8 +247,8 @@ def _refresh_access_token(*, session=None, force: bool = False) -> str:
         response = http.post(
             GOOGLE_TOKEN_URL,
             data={
-                "client_id": client_id,
-                "client_secret": client_secret,
+                "client_id": resolved_client_id,
+                "client_secret": resolved_client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },
@@ -254,6 +289,9 @@ def publish_youtube_comment(
     channel_id: str,
     comment: str,
     session=None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
 ) -> dict:
     video_id = video_id.strip()
     channel_id = channel_id.strip()
@@ -268,7 +306,12 @@ def publish_youtube_comment(
         raise YouTubeCommentPublishError("YouTube 댓글이 너무 깁니다.", status_code=400)
 
     http = session or requests.Session()
-    access_token = _refresh_access_token(session=http)
+    access_token = _refresh_access_token(
+        session=http,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
     payload = {
         "snippet": {
             "channelId": channel_id,
@@ -296,7 +339,13 @@ def publish_youtube_comment(
     try:
         response = send(access_token)
         if response.status_code == 401:
-            access_token = _refresh_access_token(session=http, force=True)
+            access_token = _refresh_access_token(
+                session=http,
+                force=True,
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+            )
             response = send(access_token)
     except requests.RequestException as exc:
         raise YouTubeCommentPublishError("YouTube 댓글 API에 연결할 수 없습니다.") from exc
