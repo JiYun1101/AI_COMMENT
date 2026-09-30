@@ -14,7 +14,7 @@ import type {
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? 'http://localhost:8000' : 'https://ai-comment-api-vk9a.onrender.com');
+  (import.meta.env.DEV ? 'http://localhost:8000' : 'https://ai-comment-api-lite.onrender.com');
 
 const YOUTUBE_API_KEY_STORAGE_KEY = 'ai-comment.youtube-api-key';
 
