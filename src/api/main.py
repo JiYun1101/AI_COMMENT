@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest, YouTubeCommentPublishRequest
-from src.llm.openai_client import LLMGenerationError, LLMNotReadyError
+from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, OpenAIResponsesClient
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
@@ -97,6 +97,28 @@ def _normalize_youtube_api_key(value: str | None) -> str | None:
     if len(key) > 256:
         raise HTTPException(status_code=400, detail="YouTube API Key 형식이 올바르지 않습니다.")
     return key
+
+
+def _normalize_openai_api_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    key = value.strip()
+    if not key:
+        return None
+    if len(key) > 512:
+        raise HTTPException(status_code=400, detail="OpenAI API Key 형식이 올바르지 않습니다.")
+    return key
+
+
+def _normalize_openai_model(value: str | None) -> str | None:
+    if value is None:
+        return None
+    model = value.strip()
+    if not model:
+        return None
+    if len(model) > 120:
+        raise HTTPException(status_code=400, detail="OpenAI 모델명이 올바르지 않습니다.")
+    return model
 
 
 def _youtube_context_or_http_error(url: str, api_key: str | None = None):
@@ -202,6 +224,8 @@ def score_comment_candidates(request: ScoreRequest):
 def recommend_comment_candidates(
     request: RecommendRequest,
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
+    openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
 ):
     youtube_context = None
     source_parts: list[str] = []
@@ -230,11 +254,27 @@ def recommend_comment_candidates(
     if additional_context:
         ranking_reference_text = f"{source_reference_text}\n\n추가 맥락: {additional_context}"
 
+    request_openai_key = _normalize_openai_api_key(openai_api_key)
+    request_openai_model = _normalize_openai_model(openai_model)
+    generation_client = None
+    active_llm = llm_readiness()
+    if request_openai_key:
+        resolved_model = request_openai_model or "gpt-5.6-luna"
+        generation_client = OpenAIResponsesClient(api_key=request_openai_key, model=resolved_model)
+        active_llm = {
+            "ready": True,
+            "provider": "openai_responses_api",
+            "selection": "request",
+            "model": resolved_model,
+            "missing": [],
+        }
+
     try:
         ranked = recommend_comments_with_meta(
             ranking_reference_text,
             generation_context=generation_context,
             top_k=request.top_k,
+            generation_client=generation_client,
         )
     except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
         raise _generation_http_error(exc) from exc
@@ -253,7 +293,6 @@ def recommend_comment_candidates(
         additional_context=additional_context,
     )
 
-    active_llm = llm_readiness()
     return {
         "analysis_id": analysis_id,
         "post_text": ranking_reference_text[:4_000],
