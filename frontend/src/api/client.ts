@@ -19,7 +19,10 @@ const API_BASE =
 const YOUTUBE_API_KEY_STORAGE_KEY = 'ai-comment.youtube-api-key';
 const OPENAI_API_KEY_STORAGE_KEY = 'ai-comment.openai-api-key';
 const OPENAI_MODEL_STORAGE_KEY = 'ai-comment.openai-model';
+const YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY = 'ai-comment.youtube-oauth-client-id';
+const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client-secret';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
+export const YOUTUBE_OAUTH_REDIRECT_URI = `${API_BASE}/youtube/oauth/callback`;
 
 function getStoredValue(key: string): string {
   if (typeof window === 'undefined') return '';
@@ -57,6 +60,22 @@ export function setStoredOpenAIModel(value: string): void {
   setStoredValue(OPENAI_MODEL_STORAGE_KEY, value || DEFAULT_OPENAI_MODEL);
 }
 
+export function getStoredYouTubeOAuthClientId(): string {
+  return getStoredValue(YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY);
+}
+
+export function setStoredYouTubeOAuthClientId(value: string): void {
+  setStoredValue(YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY, value);
+}
+
+export function getStoredYouTubeOAuthClientSecret(): string {
+  return getStoredValue(YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY);
+}
+
+export function setStoredYouTubeOAuthClientSecret(value: string): void {
+  setStoredValue(YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY, value);
+}
+
 function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, string> {
   const youtubeApiKey = getStoredYouTubeApiKey();
   const openaiApiKey = getStoredOpenAIApiKey();
@@ -65,6 +84,17 @@ function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, s
     ...headers,
     ...(youtubeApiKey ? { 'X-YouTube-API-Key': youtubeApiKey } : {}),
     ...(openaiApiKey ? { 'X-OpenAI-API-Key': openaiApiKey, 'X-OpenAI-Model': openaiModel } : {}),
+  };
+}
+
+function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, string> {
+  const clientId = getStoredYouTubeOAuthClientId();
+  const clientSecret = getStoredYouTubeOAuthClientSecret();
+  return {
+    ...headers,
+    ...(clientId ? { 'X-YouTube-OAuth-Client-ID': clientId } : {}),
+    ...(clientSecret ? { 'X-YouTube-OAuth-Client-Secret': clientSecret } : {}),
+    'X-YouTube-OAuth-Redirect-URI': YOUTUBE_OAUTH_REDIRECT_URI,
   };
 }
 
@@ -173,11 +203,27 @@ export async function sendFeedback(recommendationId: string, useful: boolean): P
 }
 
 export async function getYouTubeOAuthStatus(): Promise<YouTubeOAuthStatus> {
-  return requestJson<YouTubeOAuthStatus>(`${API_BASE}/youtube/oauth/status`, undefined, 'YouTube 계정 연결 상태를 확인하지 못했습니다');
+  return requestJson<YouTubeOAuthStatus>(
+    `${API_BASE}/youtube/oauth/status`,
+    { headers: withYouTubeOAuth() },
+    'YouTube 계정 연결 상태를 확인하지 못했습니다',
+  );
 }
 
 export async function startYouTubeOAuth(): Promise<{ authorization_url: string }> {
-  return requestJson<{ authorization_url: string }>(`${API_BASE}/youtube/oauth/start`, undefined, 'YouTube OAuth 로그인을 시작하지 못했습니다');
+  return requestJson<{ authorization_url: string }>(
+    `${API_BASE}/youtube/oauth/start`,
+    { headers: withYouTubeOAuth() },
+    'YouTube OAuth 로그인을 시작하지 못했습니다',
+  );
+}
+
+export async function disconnectYouTubeOAuth(): Promise<YouTubeOAuthStatus> {
+  return requestJson<YouTubeOAuthStatus>(
+    `${API_BASE}/youtube/oauth/disconnect`,
+    { method: 'POST', headers: withYouTubeOAuth() },
+    'YouTube 계정 연결 해제에 실패했습니다',
+  );
 }
 
 export async function publishYouTubeComment(request: {
@@ -187,7 +233,11 @@ export async function publishYouTubeComment(request: {
 }): Promise<YouTubeCommentPublishResponse> {
   return requestJson<YouTubeCommentPublishResponse>(
     `${API_BASE}/youtube/comments`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(request),
+    },
     'YouTube 댓글 게시에 실패했습니다',
   );
 }
