@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: ai-comment-api
+    runtime: docker
+    repo: https://github.com/JiYun1101/AI_COMMENT.git
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_PROVIDER
+        value: openai
+      - key: YOUTUBE_OAUTH_CLIENT_ID
+        sync: false
+      - key: YOUTUBE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: AI_COMMENT_DB_PATH
+        value: /var/data/ai_comment.db
+      - key: YOUTUBE_OAUTH_TOKEN_PATH
+        value: /var/data/youtube_oauth_token.json
+    disk:
+      name: ai-comment-data
+      mountPath: /var/data
+      sizeGB: 1
