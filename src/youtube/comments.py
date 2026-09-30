@@ -283,6 +283,18 @@ def _refresh_access_token(
     return access_token
 
 
+def _youtube_error_reason(response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    errors = ((body.get("error") or {}).get("errors") or []) if isinstance(body, dict) else []
+    for item in errors:
+        if isinstance(item, dict) and item.get("reason"):
+            return str(item["reason"])
+    return None
+
+
 def publish_youtube_comment(
     *,
     video_id: str,
@@ -351,6 +363,14 @@ def publish_youtube_comment(
         raise YouTubeCommentPublishError("YouTube 댓글 API에 연결할 수 없습니다.") from exc
 
     if response.status_code < 200 or response.status_code >= 300:
+        reason = _youtube_error_reason(response)
+        if response.status_code == 403 and reason == "ineligibleAccount":
+            raise YouTubeCommentPublishError(
+                "현재 연결한 Google 계정에는 댓글을 작성할 수 있는 YouTube 채널이 없습니다. "
+                "같은 계정으로 YouTube에 로그인해 채널을 만든 뒤, AI COMMENT의 내 계정에서 "
+                "YouTube 연결을 해제하고 다시 연결해주세요.",
+                status_code=403,
+            )
         detail = (getattr(response, "text", "") or "")[:500]
         mapped = response.status_code if response.status_code in {400, 401, 403, 404} else 502
         raise YouTubeCommentPublishError(
