@@ -17,22 +17,55 @@ const API_BASE =
   (import.meta.env.DEV ? 'http://localhost:8000' : 'https://ai-comment-api-lite.onrender.com');
 
 const YOUTUBE_API_KEY_STORAGE_KEY = 'ai-comment.youtube-api-key';
+const OPENAI_API_KEY_STORAGE_KEY = 'ai-comment.openai-api-key';
+const OPENAI_MODEL_STORAGE_KEY = 'ai-comment.openai-model';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
+
+function getStoredValue(key: string): string {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(key)?.trim() ?? '';
+}
+
+function setStoredValue(key: string, value: string): void {
+  if (typeof window === 'undefined') return;
+  const normalized = value.trim();
+  if (normalized) window.localStorage.setItem(key, normalized);
+  else window.localStorage.removeItem(key);
+}
 
 export function getStoredYouTubeApiKey(): string {
-  if (typeof window === 'undefined') return '';
-  return window.localStorage.getItem(YOUTUBE_API_KEY_STORAGE_KEY)?.trim() ?? '';
+  return getStoredValue(YOUTUBE_API_KEY_STORAGE_KEY);
 }
 
 export function setStoredYouTubeApiKey(value: string): void {
-  if (typeof window === 'undefined') return;
-  const normalized = value.trim();
-  if (normalized) window.localStorage.setItem(YOUTUBE_API_KEY_STORAGE_KEY, normalized);
-  else window.localStorage.removeItem(YOUTUBE_API_KEY_STORAGE_KEY);
+  setStoredValue(YOUTUBE_API_KEY_STORAGE_KEY, value);
 }
 
-function withYouTubeApiKey(headers: Record<string, string> = {}): Record<string, string> {
-  const apiKey = getStoredYouTubeApiKey();
-  return apiKey ? { ...headers, 'X-YouTube-API-Key': apiKey } : headers;
+export function getStoredOpenAIApiKey(): string {
+  return getStoredValue(OPENAI_API_KEY_STORAGE_KEY);
+}
+
+export function setStoredOpenAIApiKey(value: string): void {
+  setStoredValue(OPENAI_API_KEY_STORAGE_KEY, value);
+}
+
+export function getStoredOpenAIModel(): string {
+  return getStoredValue(OPENAI_MODEL_STORAGE_KEY) || DEFAULT_OPENAI_MODEL;
+}
+
+export function setStoredOpenAIModel(value: string): void {
+  setStoredValue(OPENAI_MODEL_STORAGE_KEY, value || DEFAULT_OPENAI_MODEL);
+}
+
+function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, string> {
+  const youtubeApiKey = getStoredYouTubeApiKey();
+  const openaiApiKey = getStoredOpenAIApiKey();
+  const openaiModel = getStoredOpenAIModel();
+  return {
+    ...headers,
+    ...(youtubeApiKey ? { 'X-YouTube-API-Key': youtubeApiKey } : {}),
+    ...(openaiApiKey ? { 'X-OpenAI-API-Key': openaiApiKey, 'X-OpenAI-Model': openaiModel } : {}),
+  };
 }
 
 async function getErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -57,13 +90,12 @@ export async function getHealth(): Promise<ServiceHealth> {
     undefined,
     '서비스 상태를 확인하지 못했습니다',
   );
-  if (!getStoredYouTubeApiKey()) return health;
   return {
     ...health,
-    youtube: {
-      ...health.youtube,
-      configured: true,
-    },
+    llm: getStoredOpenAIApiKey()
+      ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+      : health.llm,
+    youtube: getStoredYouTubeApiKey() ? { ...health.youtube, configured: true } : health.youtube,
   };
 }
 
@@ -72,7 +104,7 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     `${API_BASE}/recommend`,
     {
       method: 'POST',
-      headers: withYouTubeApiKey({ 'Content-Type': 'application/json' }),
+      headers: withRuntimeKeys({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(request),
     },
     '추천 요청이 실패했습니다',
@@ -83,7 +115,7 @@ export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
   const params = new URLSearchParams({ url });
   return requestJson<VideoPreviewData>(
     `${API_BASE}/videos/preview?${params.toString()}`,
-    { headers: withYouTubeApiKey() },
+    { headers: withRuntimeKeys() },
     '영상 정보를 불러오지 못했습니다',
   );
 }
@@ -124,48 +156,28 @@ export async function listComments(filters: CommentFilters = {}): Promise<Commen
   params.set('limit', String(filters.limit ?? 25));
   params.set('offset', String(filters.offset ?? 0));
 
-  return requestJson<CommentsResponse>(
-    `${API_BASE}/comments?${params.toString()}`,
-    undefined,
-    '댓글 목록을 불러오지 못했습니다',
-  );
+  return requestJson<CommentsResponse>(`${API_BASE}/comments?${params.toString()}`, undefined, '댓글 목록을 불러오지 못했습니다');
 }
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
-  return requestJson<DashboardSummary>(
-    `${API_BASE}/dashboard/summary`,
-    undefined,
-    '대시보드 요약을 불러오지 못했습니다',
-  );
+  return requestJson<DashboardSummary>(`${API_BASE}/dashboard/summary`, undefined, '대시보드 요약을 불러오지 못했습니다');
 }
 
 export async function sendFeedback(recommendationId: string, useful: boolean): Promise<FeedbackValue> {
   const body = await requestJson<{ id: string; feedback: FeedbackValue }>(
     `${API_BASE}/recommendations/${encodeURIComponent(recommendationId)}/feedback`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ useful }),
-    },
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ useful }) },
     '피드백 저장에 실패했습니다',
   );
   return body.feedback;
 }
 
 export async function getYouTubeOAuthStatus(): Promise<YouTubeOAuthStatus> {
-  return requestJson<YouTubeOAuthStatus>(
-    `${API_BASE}/youtube/oauth/status`,
-    undefined,
-    'YouTube 계정 연결 상태를 확인하지 못했습니다',
-  );
+  return requestJson<YouTubeOAuthStatus>(`${API_BASE}/youtube/oauth/status`, undefined, 'YouTube 계정 연결 상태를 확인하지 못했습니다');
 }
 
 export async function startYouTubeOAuth(): Promise<{ authorization_url: string }> {
-  return requestJson<{ authorization_url: string }>(
-    `${API_BASE}/youtube/oauth/start`,
-    undefined,
-    'YouTube OAuth 로그인을 시작하지 못했습니다',
-  );
+  return requestJson<{ authorization_url: string }>(`${API_BASE}/youtube/oauth/start`, undefined, 'YouTube OAuth 로그인을 시작하지 못했습니다');
 }
 
 export async function publishYouTubeComment(request: {
@@ -175,11 +187,7 @@ export async function publishYouTubeComment(request: {
 }): Promise<YouTubeCommentPublishResponse> {
   return requestJson<YouTubeCommentPublishResponse>(
     `${API_BASE}/youtube/comments`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    },
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },
     'YouTube 댓글 게시에 실패했습니다',
   );
 }
