@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
-from src.recommender.candidate_generator import generate_candidates
+from src.recommender.candidate_generator import CandidateGenerationClient, generate_candidates
 from src.recommender.safety_filter import get_block_reason
 
 MAX_GENERATION_ATTEMPTS = 3
@@ -17,6 +17,7 @@ def recommend_comments_with_meta(
     *,
     generation_context: dict,
     top_k: int = 5,
+    generation_client: CandidateGenerationClient | None = None,
 ) -> dict:
     safe_candidates: list[dict] = []
     seen_safe: set[str] = set()
@@ -30,6 +31,7 @@ def recommend_comments_with_meta(
         candidates = generate_candidates(
             generation_context,
             minimum_count=max(top_k, 10),
+            client=generation_client,
         )
         candidate_count += len(candidates)
 
@@ -123,9 +125,11 @@ def recommend_comments(
     *,
     generation_context: dict,
     top_k: int = 5,
+    generation_client: CandidateGenerationClient | None = None,
 ) -> list[dict]:
     return recommend_comments_with_meta(
         post_text,
         generation_context=generation_context,
         top_k=top_k,
+        generation_client=generation_client,
     )["recommendations"]
