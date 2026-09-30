@@ -88,37 +88,39 @@ def health_check():
     }
 
 
-def _normalize_youtube_api_key(value: str | None) -> str | None:
+def _normalize_header(value: str | None, *, label: str, max_length: int) -> str | None:
     if value is None:
         return None
-    key = value.strip()
-    if not key:
+    normalized = value.strip()
+    if not normalized:
         return None
-    if len(key) > 256:
-        raise HTTPException(status_code=400, detail="YouTube API Key 형식이 올바르지 않습니다.")
-    return key
+    if len(normalized) > max_length:
+        raise HTTPException(status_code=400, detail=f"{label} 형식이 올바르지 않습니다.")
+    return normalized
+
+
+def _normalize_youtube_api_key(value: str | None) -> str | None:
+    return _normalize_header(value, label="YouTube API Key", max_length=256)
 
 
 def _normalize_openai_api_key(value: str | None) -> str | None:
-    if value is None:
-        return None
-    key = value.strip()
-    if not key:
-        return None
-    if len(key) > 512:
-        raise HTTPException(status_code=400, detail="OpenAI API Key 형식이 올바르지 않습니다.")
-    return key
+    return _normalize_header(value, label="OpenAI API Key", max_length=512)
 
 
 def _normalize_openai_model(value: str | None) -> str | None:
-    if value is None:
-        return None
-    model = value.strip()
-    if not model:
-        return None
-    if len(model) > 120:
-        raise HTTPException(status_code=400, detail="OpenAI 모델명이 올바르지 않습니다.")
-    return model
+    return _normalize_header(value, label="OpenAI 모델명", max_length=120)
+
+
+def _normalize_oauth_client_id(value: str | None) -> str | None:
+    return _normalize_header(value, label="YouTube OAuth Client ID", max_length=512)
+
+
+def _normalize_oauth_client_secret(value: str | None) -> str | None:
+    return _normalize_header(value, label="YouTube OAuth Client Secret", max_length=512)
+
+
+def _normalize_oauth_redirect_uri(value: str | None) -> str | None:
+    return _normalize_header(value, label="YouTube OAuth Redirect URI", max_length=2048)
 
 
 def _youtube_context_or_http_error(url: str, api_key: str | None = None):
@@ -149,14 +151,30 @@ def preview_youtube_video(
 
 
 @app.get("/youtube/oauth/status")
-def youtube_oauth_connection_status():
-    return youtube_oauth_status()
+def youtube_oauth_connection_status(
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    return youtube_oauth_status(
+        client_id=_normalize_oauth_client_id(oauth_client_id),
+        client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+    )
 
 
 @app.get("/youtube/oauth/start")
-def youtube_oauth_start():
+def youtube_oauth_start(
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
     try:
-        return {"authorization_url": create_youtube_authorization_url()}
+        return {
+            "authorization_url": create_youtube_authorization_url(
+                client_id=_normalize_oauth_client_id(oauth_client_id),
+                client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+                redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+            )
+        }
     except YouTubeOAuthNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -188,18 +206,32 @@ def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
 
 
 @app.post("/youtube/oauth/disconnect")
-def youtube_oauth_disconnect():
+def youtube_oauth_disconnect(
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
     disconnect_youtube_oauth()
-    return youtube_oauth_status()
+    return youtube_oauth_status(
+        client_id=_normalize_oauth_client_id(oauth_client_id),
+        client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+    )
 
 
 @app.post("/youtube/comments")
-def youtube_comment_publish(request: YouTubeCommentPublishRequest):
+def youtube_comment_publish(
+    request: YouTubeCommentPublishRequest,
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
     try:
         return publish_youtube_comment(
             video_id=request.video_id,
             channel_id=request.channel_id,
             comment=request.comment,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
         )
     except YouTubeOAuthNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
