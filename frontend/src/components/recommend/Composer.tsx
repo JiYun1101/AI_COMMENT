@@ -10,8 +10,6 @@ import {
   Sparkles,
   Star,
 } from 'lucide-react';
-import { useState } from 'react';
-import { getStoredYouTubeApiKey, setStoredYouTubeApiKey } from '../../api/client';
 import { VideoPreview } from './VideoPreview';
 import { isRecommendationInputReady } from '../../utils/recommendationInput';
 import type { VideoPreviewData } from '../../types/comment';
@@ -65,8 +63,6 @@ export function Composer({
   onSubmit,
   submitting,
 }: ComposerProps) {
-  const [youtubeApiKey, setYoutubeApiKey] = useState(() => getStoredYouTubeApiKey());
-
   const inputReady = isRecommendationInputReady({
     mode,
     urlValid,
@@ -85,11 +81,6 @@ export function Composer({
     }
   };
 
-  const applyYouTubeApiKey = () => {
-    setStoredYouTubeApiKey(youtubeApiKey);
-    window.location.reload();
-  };
-
   return (
     <div className="composer">
       <div className="tabs" role="tablist">
@@ -106,24 +97,6 @@ export function Composer({
       <div className="tab-body">
         {mode === 'url' ? (
           <>
-            <div className="url-row">
-              <Shield className="lead" size={18} strokeWidth={1.75} />
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="YouTube Data API Key (AIza...)"
-                value={youtubeApiKey}
-                onChange={(e) => setYoutubeApiKey(e.target.value)}
-              />
-              <button type="button" className="paste-btn" onClick={applyYouTubeApiKey}>
-                적용
-              </button>
-            </div>
-            <div className="url-hint">
-              <Info size={12} strokeWidth={1.75} />
-              API Key는 이 브라우저에만 저장됩니다. GitHub·Render 환경변수·서비스 DB에는 저장하지 않습니다. 비우고 적용하면 삭제됩니다.
-            </div>
-
             <div className={`url-row${url && !urlValid ? ' invalid' : ''}`}>
               <svg className="lead" viewBox="0 0 24 24" fill="none" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M23 7l-7 5 7 5V7z" />
