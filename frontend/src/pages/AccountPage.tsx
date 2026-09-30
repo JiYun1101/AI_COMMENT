@@ -1,37 +1,63 @@
-import { Check, Eye, EyeOff, KeyRound, ShieldCheck, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, LoaderCircle, ShieldCheck, Trash2, Unlink } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   DEFAULT_OPENAI_MODEL,
+  YOUTUBE_OAUTH_REDIRECT_URI,
+  disconnectYouTubeOAuth,
   getStoredOpenAIApiKey,
   getStoredOpenAIModel,
   getStoredYouTubeApiKey,
+  getStoredYouTubeOAuthClientId,
+  getStoredYouTubeOAuthClientSecret,
+  getYouTubeOAuthStatus,
   setStoredOpenAIApiKey,
   setStoredOpenAIModel,
   setStoredYouTubeApiKey,
+  setStoredYouTubeOAuthClientId,
+  setStoredYouTubeOAuthClientSecret,
+  startYouTubeOAuth,
 } from '../api/client';
 import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
+import type { YouTubeOAuthStatus } from '../types/comment';
 
 export function AccountPage() {
   const navigate = useNavigate();
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
   const [openaiKey, setOpenaiKey] = useState(() => getStoredOpenAIApiKey());
   const [openaiModel, setOpenaiModel] = useState(() => getStoredOpenAIModel());
+  const [oauthClientId, setOauthClientId] = useState(() => getStoredYouTubeOAuthClientId());
+  const [oauthClientSecret, setOauthClientSecret] = useState(() => getStoredYouTubeOAuthClientSecret());
   const [showYouTubeKey, setShowYouTubeKey] = useState(false);
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
-  const [saved, setSaved] = useState<'youtube' | 'openai' | null>(null);
+  const [showOAuthSecret, setShowOAuthSecret] = useState(false);
+  const [saved, setSaved] = useState<'youtube' | 'openai' | 'oauth' | null>(null);
+  const [oauthStatus, setOauthStatus] = useState<YouTubeOAuthStatus | null>(null);
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [redirectCopied, setRedirectCopied] = useState(false);
+
+  useEffect(() => {
+    getYouTubeOAuthStatus()
+      .then(setOauthStatus)
+      .catch(() => setOauthStatus(null));
+  }, []);
 
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
     if (key === 'comments') navigate('/');
   };
 
+  const markSaved = (target: 'youtube' | 'openai' | 'oauth') => {
+    setSaved(target);
+    window.setTimeout(() => setSaved((current) => (current === target ? null : current)), 1800);
+  };
+
   const saveYouTube = () => {
     setStoredYouTubeApiKey(youtubeKey);
     setYoutubeKey(getStoredYouTubeApiKey());
-    setSaved('youtube');
-    window.setTimeout(() => setSaved((current) => (current === 'youtube' ? null : current)), 1800);
+    markSaved('youtube');
   };
 
   const clearYouTube = () => {
@@ -45,14 +71,102 @@ export function AccountPage() {
     setStoredOpenAIModel(openaiModel || DEFAULT_OPENAI_MODEL);
     setOpenaiKey(getStoredOpenAIApiKey());
     setOpenaiModel(getStoredOpenAIModel());
-    setSaved('openai');
-    window.setTimeout(() => setSaved((current) => (current === 'openai' ? null : current)), 1800);
+    markSaved('openai');
   };
 
   const clearOpenAI = () => {
     setOpenaiKey('');
     setStoredOpenAIApiKey('');
     setSaved(null);
+  };
+
+  const saveOAuth = () => {
+    setStoredYouTubeOAuthClientId(oauthClientId);
+    setStoredYouTubeOAuthClientSecret(oauthClientSecret);
+    setOauthClientId(getStoredYouTubeOAuthClientId());
+    setOauthClientSecret(getStoredYouTubeOAuthClientSecret());
+    setOauthError(null);
+    markSaved('oauth');
+  };
+
+  const clearOAuth = async () => {
+    try {
+      if (oauthStatus?.authorized) {
+        const status = await disconnectYouTubeOAuth();
+        setOauthStatus(status);
+      }
+    } catch {
+      // Local credential removal should still work if the server is unavailable.
+    }
+    setOauthClientId('');
+    setOauthClientSecret('');
+    setStoredYouTubeOAuthClientId('');
+    setStoredYouTubeOAuthClientSecret('');
+    setOauthStatus(null);
+    setOauthError(null);
+    setSaved(null);
+  };
+
+  const copyRedirectUri = async () => {
+    try {
+      await navigator.clipboard.writeText(YOUTUBE_OAUTH_REDIRECT_URI);
+      setRedirectCopied(true);
+      window.setTimeout(() => setRedirectCopied(false), 1500);
+    } catch {
+      setOauthError('Redirect URI를 복사하지 못했습니다. 직접 선택해 복사해주세요.');
+    }
+  };
+
+  const connectYouTube = async () => {
+    setOauthError(null);
+    setOauthBusy(true);
+    let popup: Window | null = null;
+    try {
+      setStoredYouTubeOAuthClientId(oauthClientId);
+      setStoredYouTubeOAuthClientSecret(oauthClientSecret);
+      if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
+        throw new Error('OAuth Client ID와 Client Secret을 먼저 입력해주세요.');
+      }
+
+      popup = window.open('about:blank', 'youtube-oauth', 'width=520,height=720');
+      if (!popup) {
+        throw new Error('브라우저가 OAuth 팝업을 차단했습니다. 팝업을 허용해주세요.');
+      }
+
+      const { authorization_url } = await startYouTubeOAuth();
+      popup.location.href = authorization_url;
+
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1200));
+        const status = await getYouTubeOAuthStatus();
+        setOauthStatus(status);
+        if (status.authorized) {
+          if (!popup.closed) popup.close();
+          markSaved('oauth');
+          return;
+        }
+      }
+      throw new Error('YouTube 계정 인증 시간이 초과되었습니다. 다시 시도해주세요.');
+    } catch (error) {
+      if (popup && !popup.closed) popup.close();
+      setOauthError(error instanceof Error ? error.message : 'YouTube 계정 연결에 실패했습니다.');
+    } finally {
+      setOauthBusy(false);
+    }
+  };
+
+  const disconnectYouTube = async () => {
+    setOauthBusy(true);
+    setOauthError(null);
+    try {
+      const status = await disconnectYouTubeOAuth();
+      setOauthStatus(status);
+    } catch (error) {
+      setOauthError(error instanceof Error ? error.message : 'YouTube 계정 연결 해제에 실패했습니다.');
+    } finally {
+      setOauthBusy(false);
+    }
   };
 
   return (
@@ -67,8 +181,8 @@ export function AccountPage() {
             <div>
               <h2>API 연결</h2>
               <p>
-                입력한 키는 이 브라우저의 localStorage에만 저장됩니다. GitHub 저장소나 서비스 DB에는 기록하지 않고,
-                필요한 API 요청에만 HTTPS 헤더로 전달합니다.
+                입력한 키와 OAuth 자격증명은 이 브라우저의 localStorage에만 저장됩니다. GitHub 저장소에는 기록하지 않고,
+                필요한 API 요청에만 HTTPS 헤더로 전달합니다. OAuth Client Secret은 인증 handshake 동안 서버 메모리에만 잠시 유지됩니다.
               </p>
             </div>
           </section>
@@ -77,7 +191,7 @@ export function AccountPage() {
             <section className="credential-card">
               <div className="credential-head">
                 <div>
-                  <span className="credential-kicker">YOUTUBE</span>
+                  <span className="credential-kicker">YOUTUBE DATA</span>
                   <h3>YouTube Data API Key</h3>
                   <p>영상 제목, 카테고리, 조회수 등 YouTube 공식 메타데이터를 불러올 때 사용합니다.</p>
                 </div>
@@ -156,11 +270,95 @@ export function AccountPage() {
                 </button>
               </div>
             </section>
+
+            <section className="credential-card oauth-card">
+              <div className="credential-head">
+                <div>
+                  <span className="credential-kicker">YOUTUBE OAUTH</span>
+                  <h3>YouTube 계정 연결 / 댓글 게시</h3>
+                  <p>내 YouTube 계정으로 실제 댓글을 게시하기 위한 Google OAuth 2.0 Web application 자격증명입니다.</p>
+                </div>
+                <Link2 size={20} />
+              </div>
+
+              <div className="oauth-status-row">
+                <span className={`oauth-status-dot${oauthStatus?.authorized ? ' connected' : ''}`} />
+                <span>{oauthStatus?.authorized ? 'YouTube 계정 연결됨' : 'YouTube 계정 연결 안 됨'}</span>
+              </div>
+
+              <div className="oauth-fields">
+                <div>
+                  <label className="account-label" htmlFor="youtube-oauth-client-id">OAuth Client ID</label>
+                  <input
+                    id="youtube-oauth-client-id"
+                    className="account-text-input"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="...apps.googleusercontent.com"
+                    value={oauthClientId}
+                    onChange={(event) => setOauthClientId(event.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="account-label" htmlFor="youtube-oauth-client-secret">OAuth Client Secret</label>
+                  <div className="secret-input">
+                    <input
+                      id="youtube-oauth-client-secret"
+                      type={showOAuthSecret ? 'text' : 'password'}
+                      autoComplete="off"
+                      placeholder="GOCSPX-..."
+                      value={oauthClientSecret}
+                      onChange={(event) => setOauthClientSecret(event.target.value)}
+                    />
+                    <button type="button" aria-label="OAuth Client Secret 표시 전환" onClick={() => setShowOAuthSecret((value) => !value)}>
+                      {showOAuthSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <label className="account-label account-model-label" htmlFor="youtube-oauth-redirect-uri">승인된 리디렉션 URI</label>
+              <div className="redirect-uri-row">
+                <input id="youtube-oauth-redirect-uri" className="account-text-input" type="text" readOnly value={YOUTUBE_OAUTH_REDIRECT_URI} />
+                <button type="button" className="btn secondary" onClick={copyRedirectUri}>
+                  {redirectCopied ? <Check size={14} /> : <Copy size={14} />}
+                  {redirectCopied ? '복사됨' : '복사'}
+                </button>
+              </div>
+              <p className="account-field-note">Google Cloud의 OAuth 클라이언트 → 승인된 리디렉션 URI에 위 주소를 정확히 추가하세요.</p>
+
+              {oauthError && <div className="oauth-error">{oauthError}</div>}
+
+              <div className="credential-actions oauth-actions">
+                <button type="button" className="btn secondary" onClick={saveOAuth}>
+                  {saved === 'oauth' ? <Check size={14} /> : null}
+                  {saved === 'oauth' ? '저장됨' : '자격증명 저장'}
+                </button>
+                {oauthStatus?.authorized ? (
+                  <button type="button" className="btn ghost danger" onClick={disconnectYouTube} disabled={oauthBusy}>
+                    {oauthBusy ? <LoaderCircle size={14} className="spin" /> : <Unlink size={14} />}
+                    연결 해제
+                  </button>
+                ) : (
+                  <button type="button" className="btn primary" onClick={connectYouTube} disabled={oauthBusy}>
+                    {oauthBusy ? <LoaderCircle size={14} className="spin" /> : <Link2 size={14} />}
+                    YouTube 계정 연결
+                  </button>
+                )}
+                <button type="button" className="btn ghost danger" onClick={clearOAuth} disabled={!oauthClientId && !oauthClientSecret && !oauthStatus?.authorized}>
+                  <Trash2 size={14} /> 자격증명 삭제
+                </button>
+                <a className="btn ghost account-external-link" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} /> Google Cloud
+                </a>
+              </div>
+            </section>
           </div>
 
           <section className="account-note">
             <strong>사용 방법</strong>
-            <span>키를 저장한 뒤 상단 JY 아이콘 또는 왼쪽 메뉴로 댓글 추천 화면으로 돌아가면 바로 적용됩니다.</span>
+            <span>API Key와 OAuth 자격증명을 저장한 뒤 댓글 추천 화면으로 돌아가면 바로 적용됩니다. 실제 YouTube 댓글 게시는 OAuth 연결까지 완료해야 합니다.</span>
           </section>
         </main>
       </div>
