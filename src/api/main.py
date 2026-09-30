@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import os
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -88,9 +88,20 @@ def health_check():
     }
 
 
-def _youtube_context_or_http_error(url: str):
+def _normalize_youtube_api_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    key = value.strip()
+    if not key:
+        return None
+    if len(key) > 256:
+        raise HTTPException(status_code=400, detail="YouTube API Key 형식이 올바르지 않습니다.")
+    return key
+
+
+def _youtube_context_or_http_error(url: str, api_key: str | None = None):
     try:
-        return fetch_youtube_context(url)
+        return fetch_youtube_context(url, api_key=_normalize_youtube_api_key(api_key))
     except InvalidYouTubeUrlError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except YouTubeConfigurationError as exc:
@@ -108,8 +119,11 @@ def _generation_http_error(exc: Exception) -> HTTPException:
 
 
 @app.get("/videos/preview")
-def preview_youtube_video(url: str = Query(..., min_length=1)):
-    return _youtube_context_or_http_error(url).to_dict()
+def preview_youtube_video(
+    url: str = Query(..., min_length=1),
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+):
+    return _youtube_context_or_http_error(url, youtube_api_key).to_dict()
 
 
 @app.get("/youtube/oauth/status")
@@ -185,12 +199,15 @@ def score_comment_candidates(request: ScoreRequest):
 
 
 @app.post("/recommend")
-def recommend_comment_candidates(request: RecommendRequest):
+def recommend_comment_candidates(
+    request: RecommendRequest,
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+):
     youtube_context = None
     source_parts: list[str] = []
 
     if request.youtube_url and request.youtube_url.strip():
-        youtube_context = _youtube_context_or_http_error(request.youtube_url.strip())
+        youtube_context = _youtube_context_or_http_error(request.youtube_url.strip(), youtube_api_key)
         source_parts.append(build_reference_text(youtube_context))
 
     if request.post_text and request.post_text.strip():
