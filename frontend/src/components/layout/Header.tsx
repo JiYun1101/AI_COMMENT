@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface HeaderProps {
   title: string;
@@ -7,6 +8,8 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle, onGenerate }: HeaderProps) {
+  const navigate = useNavigate();
+
   return (
     <header className="app-header">
       <div className="hd-left">
@@ -26,7 +29,15 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
             <Plus size={14} /> 새 댓글 추천
           </button>
         )}
-        <div className="avatar" aria-label="사용자">JY</div>
+        <button
+          type="button"
+          className="avatar avatar-button"
+          aria-label="내 계정 설정"
+          title="내 계정"
+          onClick={() => navigate('/account')}
+        >
+          JY
+        </button>
       </div>
     </header>
   );
