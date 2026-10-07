@@ -18,6 +18,7 @@ def recommend_comments_with_meta(
     generation_context: dict,
     top_k: int = 5,
     generation_client: CandidateGenerationClient | None = None,
+    persona: dict | None = None,
 ) -> dict:
     safe_candidates: list[dict] = []
     seen_safe: set[str] = set()
@@ -32,6 +33,7 @@ def recommend_comments_with_meta(
             generation_context,
             minimum_count=max(top_k, 10),
             client=generation_client,
+            persona=persona,
         )
         candidate_count += len(candidates)
 
@@ -126,10 +128,12 @@ def recommend_comments(
     generation_context: dict,
     top_k: int = 5,
     generation_client: CandidateGenerationClient | None = None,
+    persona: dict | None = None,
 ) -> list[dict]:
     return recommend_comments_with_meta(
         post_text,
         generation_context=generation_context,
         top_k=top_k,
         generation_client=generation_client,
+        persona=persona,
     )["recommendations"]
