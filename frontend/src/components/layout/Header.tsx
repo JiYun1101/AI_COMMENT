@@ -1,5 +1,7 @@
-import { Plus } from 'lucide-react';
+import { Plus, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getSelectedPersona } from '../../api/client';
+import { getPersonaLabel } from '../../data/personas';
 
 interface HeaderProps {
   title: string;
@@ -9,6 +11,8 @@ interface HeaderProps {
 
 export function Header({ title, subtitle, onGenerate }: HeaderProps) {
   const navigate = useNavigate();
+  const selectedPersona = getSelectedPersona();
+  const personaLabel = getPersonaLabel(selectedPersona);
 
   return (
     <header className="app-header">
@@ -24,6 +28,15 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
         {subtitle && <p className="hd-sub">{subtitle}</p>}
       </div>
       <div className="hd-right">
+        <button
+          type="button"
+          className={'persona-header-chip' + (selectedPersona !== 'none' ? ' active' : '')}
+          onClick={() => navigate('/persona')}
+          title="페르소나 선택"
+        >
+          <UserRound size={13} />
+          <span>{personaLabel}</span>
+        </button>
         {onGenerate && (
           <button type="button" className="btn primary" onClick={onGenerate}>
             <Plus size={14} /> 새 댓글 추천
