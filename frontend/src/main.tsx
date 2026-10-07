@@ -10,6 +10,7 @@ import './styles/completion.css';
 import './styles/account.css';
 import './styles/persona.css';
 import './styles/reaction-preview.css';
+import './styles/creator-seed.css';
 import App from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(

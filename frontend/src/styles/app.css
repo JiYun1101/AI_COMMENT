@@ -975,3 +975,14 @@ button {
 .avatar-persona-badge:hover {
   transform: translateY(-1px);
 }
+
+
+/* Sidebar audience split */
+.side-divider {
+  height: 1px;
+  margin: 16px 8px 11px;
+  background: var(--border);
+}
+.side-h-creator {
+  padding-top: 1px;
+}
