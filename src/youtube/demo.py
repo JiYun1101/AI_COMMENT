@@ -67,7 +67,11 @@ def _trim_events(now: float, visitor_key: str) -> tuple[deque[float], deque[floa
 
 
 def demo_status(visitor_key: str | None = None) -> dict:
-    configured = all(
+    youtube_api_configured = bool((os.getenv("DEMO_YOUTUBE_API_KEY") or "").strip())
+    openai_configured = bool((os.getenv("DEMO_OPENAI_API_KEY") or "").strip()) and bool(
+        (os.getenv("DEMO_OPENAI_MODEL") or "").strip()
+    )
+    posting_configured = all(
         bool((os.getenv(name) or "").strip())
         for name in (
             "DEMO_YOUTUBE_OAUTH_CLIENT_ID",
@@ -75,6 +79,7 @@ def demo_status(visitor_key: str | None = None) -> dict:
             "DEMO_YOUTUBE_OAUTH_REFRESH_TOKEN",
         )
     )
+    configured = youtube_api_configured and openai_configured and posting_configured
     hourly_limit = _positive_int_env("DEMO_YOUTUBE_HOURLY_LIMIT", 3)
     daily_limit = _positive_int_env("DEMO_YOUTUBE_DAILY_LIMIT", 30)
 
@@ -90,6 +95,9 @@ def demo_status(visitor_key: str | None = None) -> dict:
     return {
         "configured": configured,
         "ready": configured,
+        "youtube_api_configured": youtube_api_configured,
+        "openai_configured": openai_configured,
+        "posting_configured": posting_configured,
         "hourly_limit": hourly_limit,
         "daily_limit": daily_limit,
         "remaining_hourly": remaining_hourly,
