@@ -180,7 +180,10 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     {
       method: 'POST',
       headers: withRuntimeKeys({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        ...request,
+        persona_id: request.persona_id ?? getSelectedPersona(),
+      }),
     },
     '추천 요청이 실패했습니다',
   );
