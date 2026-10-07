@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import os
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -32,6 +32,13 @@ from src.youtube.comments import (
     disconnect_youtube_oauth,
     publish_youtube_comment,
     youtube_oauth_status,
+)
+from src.youtube.demo import (
+    DemoYouTubeNotConfiguredError,
+    DemoYouTubeRateLimitError,
+    demo_status,
+    demo_visitor_key,
+    publish_demo_youtube_comment,
 )
 from src.youtube.context import (
     InvalidYouTubeUrlError,
@@ -83,6 +90,7 @@ def health_check():
         "youtube": {
             "configured": bool(os.getenv("YOUTUBE_API_KEY")),
             "oauth": youtube_oauth_status(),
+            "demo": demo_status(),
         },
         "storage": {"ready": True},
     }
@@ -217,18 +225,57 @@ def youtube_oauth_disconnect(
     )
 
 
+def _request_identity(request: Request) -> str:
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded_for:
+        return forwarded_for
+    return request.client.host if request.client else "anonymous"
+
+
+@app.get("/youtube/demo/status")
+def youtube_demo_status(request: Request):
+    visitor_key = demo_visitor_key(_request_identity(request))
+    return demo_status(visitor_key)
+
+
 @app.post("/youtube/comments")
 def youtube_comment_publish(
-    request: YouTubeCommentPublishRequest,
+    request: Request,
+    payload: YouTubeCommentPublishRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
     oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
 ):
+    normalized_mode = (account_mode or "demo").strip().lower()
+    if normalized_mode not in {"demo", "personal"}:
+        raise HTTPException(status_code=400, detail="지원하지 않는 계정 모드입니다.")
+
+    if normalized_mode == "demo":
+        visitor_key = demo_visitor_key(_request_identity(request))
+        try:
+            return publish_demo_youtube_comment(
+                video_id=payload.video_id,
+                channel_id=payload.channel_id,
+                comment=payload.comment,
+                visitor_key=visitor_key,
+            )
+        except DemoYouTubeNotConfiguredError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except DemoYouTubeRateLimitError as exc:
+            raise HTTPException(
+                status_code=429,
+                detail=f"{exc} 잠시 후 다시 시도해주세요.",
+                headers={"Retry-After": str(exc.retry_after_seconds)},
+            ) from exc
+        except YouTubeCommentPublishError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     try:
         return publish_youtube_comment(
-            video_id=request.video_id,
-            channel_id=request.channel_id,
-            comment=request.comment,
+            video_id=payload.video_id,
+            channel_id=payload.channel_id,
+            comment=payload.comment,
             client_id=_normalize_oauth_client_id(oauth_client_id),
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
             redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
