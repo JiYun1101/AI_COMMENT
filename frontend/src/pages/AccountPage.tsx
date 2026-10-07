@@ -48,6 +48,7 @@ export function AccountPage() {
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
     if (key === 'comments') navigate('/');
+    if (key === 'persona') navigate('/persona');
   };
 
   const markSaved = (target: 'youtube' | 'openai' | 'oauth') => {
