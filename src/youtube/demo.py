@@ -67,9 +67,13 @@ def _trim_events(now: float, visitor_key: str) -> tuple[deque[float], deque[floa
 
 
 def demo_status(visitor_key: str | None = None) -> dict:
-    youtube_api_configured = bool((os.getenv("DEMO_YOUTUBE_API_KEY") or "").strip())
-    openai_configured = bool((os.getenv("DEMO_OPENAI_API_KEY") or "").strip()) and bool(
-        (os.getenv("DEMO_OPENAI_MODEL") or "").strip()
+    youtube_api_configured = bool(
+        (os.getenv("DEMO_YOUTUBE_API_KEY") or os.getenv("YOUTUBE_API_KEY") or "").strip()
+    )
+    openai_configured = bool(
+        (os.getenv("DEMO_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+    ) and bool(
+        (os.getenv("DEMO_OPENAI_MODEL") or os.getenv("OPENAI_MODEL") or "").strip()
     )
     posting_configured = all(
         bool((os.getenv(name) or "").strip())
