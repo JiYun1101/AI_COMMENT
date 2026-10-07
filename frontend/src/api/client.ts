@@ -94,6 +94,7 @@ function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, s
   const openaiModel = getStoredOpenAIModel();
   return {
     ...headers,
+    'X-AI-Comment-Account-Mode': getAccountMode(),
     ...(youtubeApiKey ? { 'X-YouTube-API-Key': youtubeApiKey } : {}),
     ...(openaiApiKey ? { 'X-OpenAI-API-Key': openaiApiKey, 'X-OpenAI-Model': openaiModel } : {}),
   };
