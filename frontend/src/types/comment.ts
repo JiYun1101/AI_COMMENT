@@ -3,6 +3,7 @@ export type Category = string;
 export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
 export type TranscriptStatus = 'available' | 'unavailable' | 'fetch_failed';
+export type AccountMode = 'demo' | 'personal';
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
   insight: '인사이트',
@@ -79,12 +80,22 @@ export interface YouTubeOAuthStatus {
   scope: string;
 }
 
+export interface YouTubeDemoStatus {
+  configured: boolean;
+  ready: boolean;
+  hourly_limit: number;
+  daily_limit: number;
+  remaining_hourly: number;
+  remaining_daily: number;
+}
+
 export interface YouTubeCommentPublishResponse {
   posted: boolean;
   video_id: string;
   comment_id: string | null;
   comment: string;
   comment_url: string;
+  account_mode?: AccountMode;
 }
 
 export interface ServiceHealth {
@@ -92,7 +103,7 @@ export interface ServiceHealth {
   message: string;
   model: ReadinessComponent;
   llm: ReadinessComponent;
-  youtube: { configured: boolean; oauth?: YouTubeOAuthStatus };
+  youtube: { configured: boolean; oauth?: YouTubeOAuthStatus; demo?: YouTubeDemoStatus };
   storage: { ready: boolean };
 }
 
