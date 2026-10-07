@@ -78,7 +78,7 @@ export function AccountHomePage() {
                     <div>
                       <strong>방문자당 1시간 {demoStatus.hourly_limit}회 · 전체 24시간 {demoStatus.daily_limit}회</strong>
                       <span>
-                        현재 남은 횟수: 내 브라우저 {demoStatus.remaining_hourly}회 · 전체 {demoStatus.remaining_daily}회
+                        현재 남은 횟수: 내 접속 {demoStatus.remaining_hourly}회 · 전체 {demoStatus.remaining_daily}회
                       </span>
                     </div>
                   ) : (
