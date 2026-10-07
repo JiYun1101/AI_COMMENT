@@ -420,6 +420,7 @@ export function RecommendPage() {
                     {results.length}개 추천
                     {resolvedCategory && <> · {formatCategoryLabel(resolvedCategory)}</>}
                     {generation && <> · LLM 후보 {generation.candidate_count}개 / 안전 {generation.safe_candidate_count}개</>}
+                    {generation?.persona_name && <> · 페르소나 {generation.persona_name}</>}
                     {analysisId && <span className="result-saved"> · 자동 저장됨</span>}
                   </div>
                   {contextSummary && (
