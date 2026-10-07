@@ -939,29 +939,39 @@ button {
 }
 
 
-.persona-header-chip {
+.avatar-persona-wrap {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  justify-content: center;
+  padding: 0 8px 7px 0;
+}
+
+.avatar-persona-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 24px;
+  height: 16px;
+  padding: 0 5px;
+  border: 1.5px solid #fff;
   border-radius: 999px;
-  background: #fff;
-  color: var(--fg3);
+  background: var(--neutral-500);
+  color: #fff;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
   cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  white-space: nowrap;
 }
 
-.persona-header-chip:hover {
-  border-color: var(--brand-200);
-  color: var(--fg2);
-  background: var(--brand-50);
+.avatar-persona-badge.active {
+  background: var(--brand-600);
 }
 
-.persona-header-chip.active {
-  border-color: var(--brand-200);
-  background: var(--brand-50);
-  color: var(--brand-700);
+.avatar-persona-badge:hover {
+  transform: translateY(-1px);
 }
