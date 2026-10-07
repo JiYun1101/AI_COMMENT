@@ -9,6 +9,7 @@ import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { RecommendationTracePanel } from '../components/recommend/RecommendationTracePanel';
 import { TypeTag } from '../components/TypeTag';
 import {
+  getAccountMode,
   getAnalysis,
   getHealth,
   getVideoPreview,
@@ -60,6 +61,7 @@ export function RecommendPage() {
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishedUrls, setPublishedUrls] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const accountMode = getAccountMode();
 
   const urlValid = useMemo(() => isValidYouTubeVideoUrl(url), [url]);
   const isEmpty = mode === 'url' ? !url.trim() : !manual.trim();
@@ -339,7 +341,9 @@ export function RecommendPage() {
     setPublishingId(recommendation.id);
     setError(null);
     try {
-      await ensureYouTubeAuthorization();
+      if (accountMode === 'personal') {
+        await ensureYouTubeAuthorization();
+      }
       const posted = await publishYouTubeComment({
         video_id: preview.video_id,
         channel_id: preview.channel_id,
@@ -356,6 +360,7 @@ export function RecommendPage() {
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
     if (key === 'comments') navigate('/');
+    if (key === 'persona') navigate('/persona');
   };
 
   return (
@@ -477,7 +482,13 @@ export function RecommendPage() {
                             ) : (
                               <Send size={13} />
                             )}
-                            {publishingId === r.id ? '게시 중...' : publishedUrls[r.id] ? '게시됨' : 'YouTube에 게시'}
+                            {publishingId === r.id
+                              ? '게시 중...'
+                              : publishedUrls[r.id]
+                                ? '게시됨'
+                                : accountMode === 'demo'
+                                  ? '데모 채널에 게시'
+                                  : 'YouTube에 게시'}
                           </button>
                         )}
                         <button
