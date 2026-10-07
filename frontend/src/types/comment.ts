@@ -87,6 +87,9 @@ export interface YouTubeDemoStatus {
   daily_limit: number;
   remaining_hourly: number;
   remaining_daily: number;
+  youtube_api_configured?: boolean;
+  openai_configured?: boolean;
+  posting_configured?: boolean;
 }
 
 export interface YouTubeCommentPublishResponse {
