@@ -1,0 +1,228 @@
+.persona-page {
+  width: min(980px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 30px 0 64px;
+}
+
+.persona-intro {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 18px;
+}
+
+.persona-kicker {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--brand-600);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+
+.persona-intro h2 {
+  margin: 0 0 7px;
+  font-size: 20px;
+  color: var(--fg1);
+}
+
+.persona-intro p {
+  margin: 0;
+  max-width: 620px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--fg3);
+}
+
+.persona-current {
+  min-width: 160px;
+  padding: 13px 15px;
+  border: 1px solid var(--brand-100);
+  border-radius: 10px;
+  background: var(--brand-50);
+}
+
+.persona-current > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--fg3);
+  font-size: 11px;
+}
+
+.persona-current strong {
+  display: block;
+  color: var(--fg1);
+  font-size: 14px;
+}
+
+.persona-current em {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  color: var(--success-600);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.persona-card {
+  min-height: 250px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 140ms var(--ease-out), transform 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+}
+
+.persona-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--brand-200);
+  box-shadow: var(--shadow-sm);
+}
+
+.persona-card.active {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-50);
+}
+
+.persona-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.persona-icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--neutral-100);
+  color: var(--fg2);
+}
+
+.persona-card.active .persona-icon {
+  background: var(--brand-50);
+  color: var(--brand-600);
+}
+
+.persona-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.persona-tagline {
+  color: var(--brand-600);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.persona-card h3 {
+  margin: 4px 0 6px;
+  color: var(--fg1);
+  font-size: 16px;
+}
+
+.persona-card p {
+  margin: 0;
+  color: var(--fg3);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.persona-example {
+  margin-top: auto;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.persona-example span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--fg3);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.persona-example q {
+  display: block;
+  color: var(--fg2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.persona-coming {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: var(--neutral-50);
+  color: var(--fg3);
+}
+
+.persona-coming strong,
+.persona-coming span {
+  display: block;
+}
+
+.persona-coming strong {
+  margin-bottom: 3px;
+  color: var(--fg2);
+  font-size: 12px;
+}
+
+.persona-coming span {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .persona-page {
+    width: min(100% - 36px, 720px);
+  }
+
+  .persona-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .persona-intro {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 620px) {
+  .persona-grid {
+    grid-template-columns: 1fr;
+  }
+}
