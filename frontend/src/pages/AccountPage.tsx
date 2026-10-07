@@ -11,6 +11,7 @@ import {
   getStoredYouTubeOAuthClientId,
   getStoredYouTubeOAuthClientSecret,
   getYouTubeOAuthStatus,
+  setAccountMode,
   setStoredOpenAIApiKey,
   setStoredOpenAIModel,
   setStoredYouTubeApiKey,
@@ -143,6 +144,7 @@ export function AccountPage() {
         setOauthStatus(status);
         if (status.authorized) {
           if (!popup.closed) popup.close();
+          setAccountMode('personal');
           markSaved('oauth');
           return;
         }
@@ -173,13 +175,13 @@ export function AccountPage() {
     <div className="app">
       <Sidebar current="account" onNav={handleNav} />
       <div className="main">
-        <Header title="내 계정" subtitle="API 연결과 개인 실행 설정을 관리합니다." />
+        <Header title="내 계정 추가하기" subtitle="개인 API Key와 YouTube 계정을 연결합니다." />
 
         <main className="account-page">
           <section className="account-intro">
             <div className="account-intro-icon"><ShieldCheck size={20} /></div>
             <div>
-              <h2>API 연결</h2>
+              <h2>개인 계정 연결</h2>
               <p>
                 입력한 키와 OAuth 자격증명은 이 브라우저의 localStorage에만 저장됩니다. GitHub 저장소에는 기록하지 않고,
                 필요한 API 요청에만 HTTPS 헤더로 전달합니다. OAuth Client Secret은 인증 handshake 동안 서버 메모리에만 잠시 유지됩니다.
@@ -358,7 +360,7 @@ export function AccountPage() {
 
           <section className="account-note">
             <strong>사용 방법</strong>
-            <span>API Key와 OAuth 자격증명을 저장한 뒤 댓글 추천 화면으로 돌아가면 바로 적용됩니다. 실제 YouTube 댓글 게시는 OAuth 연결까지 완료해야 합니다.</span>
+            <span>YouTube OAuth 연결이 완료되면 게시 계정이 자동으로 개인 계정으로 전환됩니다. 데모 계정으로 돌아가려면 상단 JY → 계정에서 데모 계정을 선택하세요.</span>
           </section>
         </main>
       </div>
