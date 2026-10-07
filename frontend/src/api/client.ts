@@ -1,4 +1,5 @@
 import type {
+  AccountMode,
   AnalysisDetail,
   AnalysisSummary,
   CommentsResponse,
@@ -9,6 +10,7 @@ import type {
   ServiceHealth,
   VideoPreviewData,
   YouTubeCommentPublishResponse,
+  YouTubeDemoStatus,
   YouTubeOAuthStatus,
 } from '../types/comment';
 
@@ -21,6 +23,7 @@ const OPENAI_API_KEY_STORAGE_KEY = 'ai-comment.openai-api-key';
 const OPENAI_MODEL_STORAGE_KEY = 'ai-comment.openai-model';
 const YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY = 'ai-comment.youtube-oauth-client-id';
 const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client-secret';
+const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
 export const YOUTUBE_OAUTH_REDIRECT_URI = `${API_BASE}/youtube/oauth/callback`;
 
@@ -34,6 +37,15 @@ function setStoredValue(key: string, value: string): void {
   const normalized = value.trim();
   if (normalized) window.localStorage.setItem(key, normalized);
   else window.localStorage.removeItem(key);
+}
+
+export function getAccountMode(): AccountMode {
+  const value = getStoredValue(ACCOUNT_MODE_STORAGE_KEY);
+  return value === 'personal' ? 'personal' : 'demo';
+}
+
+export function setAccountMode(value: AccountMode): void {
+  setStoredValue(ACCOUNT_MODE_STORAGE_KEY, value);
 }
 
 export function getStoredYouTubeApiKey(): string {
@@ -201,6 +213,14 @@ export async function sendFeedback(recommendationId: string, useful: boolean): P
   return body.feedback;
 }
 
+export async function getYouTubeDemoStatus(): Promise<YouTubeDemoStatus> {
+  return requestJson<YouTubeDemoStatus>(
+    `${API_BASE}/youtube/demo/status`,
+    undefined,
+    '데모 계정 상태를 확인하지 못했습니다',
+  );
+}
+
 export async function getYouTubeOAuthStatus(): Promise<YouTubeOAuthStatus> {
   return requestJson<YouTubeOAuthStatus>(
     `${API_BASE}/youtube/oauth/status`,
@@ -234,7 +254,10 @@ export async function publishYouTubeComment(request: {
     `${API_BASE}/youtube/comments`,
     {
       method: 'POST',
-      headers: withYouTubeOAuth({ 'Content-Type': 'application/json' }),
+      headers: withYouTubeOAuth({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': getAccountMode(),
+      }),
       body: JSON.stringify(request),
     },
     'YouTube 댓글 게시에 실패했습니다',
