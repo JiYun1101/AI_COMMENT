@@ -293,3 +293,137 @@
     grid-template-columns: 1fr;
   }
 }
+
+.account-home {
+  max-width: 900px;
+}
+
+.account-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.account-choice-card {
+  min-height: 300px;
+  display: flex;
+  gap: 15px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.account-choice-card.featured {
+  border-color: var(--brand-200);
+}
+
+.account-choice-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--brand-50);
+  color: var(--brand-600);
+}
+
+.account-choice-icon.personal {
+  background: var(--neutral-100);
+  color: var(--fg2);
+}
+
+.account-choice-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-choice-title-row {
+  min-height: 22px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.account-choice-card h3 {
+  margin: 5px 0 7px;
+  font-size: 18px;
+  color: var(--fg1);
+}
+
+.account-choice-card p {
+  margin: 0;
+  color: var(--fg3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.account-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--success-50);
+  color: var(--success-600);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.demo-limit-box {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 20px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--neutral-50);
+  color: var(--fg3);
+}
+
+.demo-limit-box strong,
+.demo-limit-box span {
+  display: block;
+}
+
+.demo-limit-box strong {
+  color: var(--fg2);
+  font-size: 11.5px;
+}
+
+.demo-limit-box span {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.demo-setup-notice {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--warning-50, #fff7e6);
+  color: var(--warning-700, #8a5a00);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.account-choice-action {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .account-choice-grid {
+    grid-template-columns: 1fr;
+  }
+}
