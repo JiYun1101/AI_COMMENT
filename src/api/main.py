@@ -335,7 +335,9 @@ def recommend_comment_candidates(
 
     resolved_youtube_key = _normalize_youtube_api_key(youtube_api_key)
     if mode == "demo" and not resolved_youtube_key:
-        resolved_youtube_key = _normalize_youtube_api_key(os.getenv("DEMO_YOUTUBE_API_KEY"))
+        resolved_youtube_key = _normalize_youtube_api_key(
+            os.getenv("DEMO_YOUTUBE_API_KEY") or os.getenv("YOUTUBE_API_KEY")
+        )
 
     if request.youtube_url and request.youtube_url.strip():
         youtube_context = _youtube_context_or_http_error(request.youtube_url.strip(), resolved_youtube_key)
@@ -364,8 +366,12 @@ def recommend_comment_candidates(
     request_openai_key = _normalize_openai_api_key(openai_api_key)
     request_openai_model = _normalize_openai_model(openai_model)
     if mode == "demo":
-        request_openai_key = request_openai_key or _normalize_openai_api_key(os.getenv("DEMO_OPENAI_API_KEY"))
-        request_openai_model = request_openai_model or _normalize_openai_model(os.getenv("DEMO_OPENAI_MODEL"))
+        request_openai_key = request_openai_key or _normalize_openai_api_key(
+            os.getenv("DEMO_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        )
+        request_openai_model = request_openai_model or _normalize_openai_model(
+            os.getenv("DEMO_OPENAI_MODEL") or os.getenv("OPENAI_MODEL")
+        )
     generation_client = None
     active_llm = llm_readiness()
     if request_openai_key:
