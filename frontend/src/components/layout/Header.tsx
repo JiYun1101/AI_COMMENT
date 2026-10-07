@@ -1,4 +1,4 @@
-import { Plus, UserRound } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getSelectedPersona } from '../../api/client';
 import { getPersonaLabel } from '../../data/personas';
@@ -13,6 +13,18 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
   const navigate = useNavigate();
   const selectedPersona = getSelectedPersona();
   const personaLabel = getPersonaLabel(selectedPersona);
+  const personaBadge =
+    selectedPersona === 'none'
+      ? '기본'
+      : selectedPersona === 'polite_viewer'
+        ? '정중'
+        : selectedPersona === 'friendly_viewer'
+          ? '친근'
+          : selectedPersona === 'warm_supporter'
+            ? '응원'
+            : selectedPersona === 'calm_analyst'
+              ? '분석'
+              : '캐주얼';
 
   return (
     <header className="app-header">
@@ -28,29 +40,31 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
         {subtitle && <p className="hd-sub">{subtitle}</p>}
       </div>
       <div className="hd-right">
-        <button
-          type="button"
-          className={'persona-header-chip' + (selectedPersona !== 'none' ? ' active' : '')}
-          onClick={() => navigate('/persona')}
-          title="페르소나 선택"
-        >
-          <UserRound size={13} />
-          <span>{personaLabel}</span>
-        </button>
         {onGenerate && (
           <button type="button" className="btn primary" onClick={onGenerate}>
             <Plus size={14} /> 새 댓글 추천
           </button>
         )}
-        <button
-          type="button"
-          className="avatar avatar-button"
-          aria-label="내 계정 설정"
-          title="내 계정"
-          onClick={() => navigate('/account')}
-        >
-          JY
-        </button>
+        <div className="avatar-persona-wrap">
+          <button
+            type="button"
+            className="avatar avatar-button"
+            aria-label="내 계정 설정"
+            title="내 계정"
+            onClick={() => navigate('/account')}
+          >
+            JY
+          </button>
+          <button
+            type="button"
+            className={'avatar-persona-badge' + (selectedPersona !== 'none' ? ' active' : '')}
+            aria-label={`현재 페르소나: ${personaLabel}. 페르소나 선택으로 이동`}
+            title={`페르소나: ${personaLabel}`}
+            onClick={() => navigate('/persona')}
+          >
+            {personaBadge}
+          </button>
+        </div>
       </div>
     </header>
   );
