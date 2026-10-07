@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -37,6 +39,17 @@ class RecommendRequest(BaseModel):
         default=None,
         max_length=80,
         description="하위 호환용 선택 힌트. 공식/파생 분류는 서버의 deterministic context builder가 결정합니다.",
+    )
+    persona_id: Literal[
+        "none",
+        "polite_viewer",
+        "friendly_viewer",
+        "warm_supporter",
+        "calm_analyst",
+        "playful_casual",
+    ] = Field(
+        default="none",
+        description="선택한 댓글 말투 페르소나. none이면 기존 생성 방식과 동일하게 동작합니다.",
     )
     top_k: int = Field(default=5, ge=1, le=10)
 
