@@ -8,6 +8,7 @@ import './styles/recommend-loading.css';
 import './styles/trace.css';
 import './styles/completion.css';
 import './styles/account.css';
+import './styles/persona.css';
 import App from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(
