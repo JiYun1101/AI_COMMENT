@@ -4,6 +4,7 @@ export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
 export type TranscriptStatus = 'available' | 'unavailable' | 'fetch_failed';
 export type AccountMode = 'demo' | 'personal';
+export type PersonaId = 'balanced' | 'observer' | 'empathy' | 'friendly' | 'question' | 'witty';
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
   insight: '인사이트',
