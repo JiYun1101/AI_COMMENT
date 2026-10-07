@@ -82,15 +82,27 @@ def root():
 def health_check():
     model = model_readiness()
     llm = llm_readiness()
+    demo = demo_status()
+    if not llm.get("ready") and demo.get("openai_configured"):
+        llm = {
+            "ready": True,
+            "provider": "openai_responses_api",
+            "selection": "demo",
+            "model": (os.getenv("DEMO_OPENAI_MODEL") or "").strip(),
+            "missing": [],
+        }
     return {
         "status": "ok" if model["ready"] and llm["ready"] else "degraded",
         "message": "AI Comment Recommender API is running",
         "model": model,
         "llm": llm,
         "youtube": {
-            "configured": bool(os.getenv("YOUTUBE_API_KEY")),
+            "configured": bool(
+                (os.getenv("YOUTUBE_API_KEY") or "").strip()
+                or (os.getenv("DEMO_YOUTUBE_API_KEY") or "").strip()
+            ),
             "oauth": youtube_oauth_status(),
-            "demo": demo_status(),
+            "demo": demo,
         },
         "storage": {"ready": True},
     }
@@ -131,6 +143,13 @@ def _normalize_oauth_redirect_uri(value: str | None) -> str | None:
     return _normalize_header(value, label="YouTube OAuth Redirect URI", max_length=2048)
 
 
+def _normalize_account_mode(value: str | None) -> str:
+    mode = (value or "demo").strip().lower()
+    if mode not in {"demo", "personal"}:
+        raise HTTPException(status_code=400, detail="지원하지 않는 계정 모드입니다.")
+    return mode
+
+
 def _youtube_context_or_http_error(url: str, api_key: str | None = None):
     try:
         return fetch_youtube_context(url, api_key=_normalize_youtube_api_key(api_key))
@@ -154,8 +173,13 @@ def _generation_http_error(exc: Exception) -> HTTPException:
 def preview_youtube_video(
     url: str = Query(..., min_length=1),
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
 ):
-    return _youtube_context_or_http_error(url, youtube_api_key).to_dict()
+    mode = _normalize_account_mode(account_mode)
+    resolved_key = _normalize_youtube_api_key(youtube_api_key)
+    if mode == "demo" and not resolved_key:
+        resolved_key = _normalize_youtube_api_key(os.getenv("DEMO_YOUTUBE_API_KEY"))
+    return _youtube_context_or_http_error(url, resolved_key).to_dict()
 
 
 @app.get("/youtube/oauth/status")
@@ -247,9 +271,7 @@ def youtube_comment_publish(
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
     oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
 ):
-    normalized_mode = (account_mode or "demo").strip().lower()
-    if normalized_mode not in {"demo", "personal"}:
-        raise HTTPException(status_code=400, detail="지원하지 않는 계정 모드입니다.")
+    normalized_mode = _normalize_account_mode(account_mode)
 
     if normalized_mode == "demo":
         visitor_key = demo_visitor_key(_request_identity(request))
@@ -305,12 +327,18 @@ def recommend_comment_candidates(
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
     openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
     openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
 ):
+    mode = _normalize_account_mode(account_mode)
     youtube_context = None
     source_parts: list[str] = []
 
+    resolved_youtube_key = _normalize_youtube_api_key(youtube_api_key)
+    if mode == "demo" and not resolved_youtube_key:
+        resolved_youtube_key = _normalize_youtube_api_key(os.getenv("DEMO_YOUTUBE_API_KEY"))
+
     if request.youtube_url and request.youtube_url.strip():
-        youtube_context = _youtube_context_or_http_error(request.youtube_url.strip(), youtube_api_key)
+        youtube_context = _youtube_context_or_http_error(request.youtube_url.strip(), resolved_youtube_key)
         source_parts.append(build_reference_text(youtube_context))
 
     if request.post_text and request.post_text.strip():
@@ -335,10 +363,18 @@ def recommend_comment_candidates(
 
     request_openai_key = _normalize_openai_api_key(openai_api_key)
     request_openai_model = _normalize_openai_model(openai_model)
+    if mode == "demo":
+        request_openai_key = request_openai_key or _normalize_openai_api_key(os.getenv("DEMO_OPENAI_API_KEY"))
+        request_openai_model = request_openai_model or _normalize_openai_model(os.getenv("DEMO_OPENAI_MODEL"))
     generation_client = None
     active_llm = llm_readiness()
     if request_openai_key:
-        resolved_model = request_openai_model or "gpt-5.6-luna"
+        resolved_model = request_openai_model
+        if not resolved_model:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI 모델 설정이 필요합니다. 데모 계정은 DEMO_OPENAI_MODEL을 설정해주세요.",
+            )
         generation_client = OpenAIResponsesClient(api_key=request_openai_key, model=resolved_model)
         active_llm = {
             "ready": True,
