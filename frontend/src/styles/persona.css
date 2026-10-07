@@ -226,3 +226,86 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+.persona-current small {
+  display: block;
+  margin-top: 5px;
+  color: var(--fg3);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.persona-reset-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.persona-reset-row > span {
+  color: var(--fg3);
+  font-size: 11.5px;
+}
+
+.persona-none-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.persona-none-button.active {
+  border-color: var(--brand-400);
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.persona-none-button span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.persona-dials {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.persona-dials span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--neutral-50);
+  color: var(--fg2);
+  font-size: 10.5px;
+}
+
+.persona-dials b {
+  color: var(--fg3);
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+@media (max-width: 620px) {
+  .persona-reset-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
