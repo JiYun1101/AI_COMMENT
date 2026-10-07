@@ -7,7 +7,13 @@ from src.llm.provider import get_llm_client
 
 
 class CandidateGenerationClient(Protocol):
-    def generate(self, context: dict, *, candidate_count: int) -> list[dict]: ...
+    def generate(
+        self,
+        context: dict,
+        *,
+        candidate_count: int,
+        persona: dict | None = None,
+    ) -> list[dict]: ...
 
 
 def generate_candidates(
@@ -15,6 +21,7 @@ def generate_candidates(
     *,
     minimum_count: int = 10,
     client: CandidateGenerationClient | None = None,
+    persona: dict | None = None,
 ) -> list[dict]:
     """Generate candidates from deterministic context using the configured LLM.
 
@@ -29,7 +36,11 @@ def generate_candidates(
 
     provider = client or get_llm_client()
     target_pool_size = min(30, max(20, minimum_count * 2))
-    candidates = provider.generate(generation_context, candidate_count=target_pool_size)
+    candidates = provider.generate(
+        generation_context,
+        candidate_count=target_pool_size,
+        persona=persona,
+    )
     if len(candidates) < minimum_count:
         raise LLMGenerationError(f"LLM 후보 수가 부족합니다 ({len(candidates)}/{minimum_count}).")
     return candidates
