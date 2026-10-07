@@ -5,6 +5,7 @@ import type {
   CommentsResponse,
   DashboardSummary,
   FeedbackValue,
+  PersonaId,
   RecommendRequest,
   RecommendResponse,
   ServiceHealth,
@@ -24,6 +25,7 @@ const OPENAI_MODEL_STORAGE_KEY = 'ai-comment.openai-model';
 const YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY = 'ai-comment.youtube-oauth-client-id';
 const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client-secret';
 const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
+const PERSONA_STORAGE_KEY = 'ai-comment.persona';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
 export const YOUTUBE_OAUTH_REDIRECT_URI = `${API_BASE}/youtube/oauth/callback`;
 
@@ -41,11 +43,30 @@ function setStoredValue(key: string, value: string): void {
 
 export function getAccountMode(): AccountMode {
   const value = getStoredValue(ACCOUNT_MODE_STORAGE_KEY);
-  return value === 'personal' ? 'personal' : 'demo';
+  if (value === 'personal' || value === 'demo') return value;
+
+  const hasPersonalCredentials = Boolean(
+    getStoredValue(YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY)
+      || getStoredValue(YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY)
+      || getStoredValue(YOUTUBE_API_KEY_STORAGE_KEY)
+      || getStoredValue(OPENAI_API_KEY_STORAGE_KEY)
+  );
+  return hasPersonalCredentials ? 'personal' : 'demo';
 }
 
 export function setAccountMode(value: AccountMode): void {
   setStoredValue(ACCOUNT_MODE_STORAGE_KEY, value);
+}
+
+export function getSelectedPersona(): PersonaId {
+  const value = getStoredValue(PERSONA_STORAGE_KEY) as PersonaId;
+  return ['balanced', 'observer', 'empathy', 'friendly', 'question', 'witty'].includes(value)
+    ? value
+    : 'balanced';
+}
+
+export function setSelectedPersona(value: PersonaId): void {
+  setStoredValue(PERSONA_STORAGE_KEY, value);
 }
 
 export function getStoredYouTubeApiKey(): string {
@@ -89,12 +110,13 @@ export function setStoredYouTubeOAuthClientSecret(value: string): void {
 }
 
 function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, string> {
-  const youtubeApiKey = getStoredYouTubeApiKey();
-  const openaiApiKey = getStoredOpenAIApiKey();
+  const mode = getAccountMode();
+  const youtubeApiKey = mode === 'personal' ? getStoredYouTubeApiKey() : '';
+  const openaiApiKey = mode === 'personal' ? getStoredOpenAIApiKey() : '';
   const openaiModel = getStoredOpenAIModel();
   return {
     ...headers,
-    'X-AI-Comment-Account-Mode': getAccountMode(),
+    'X-AI-Comment-Account-Mode': mode,
     ...(youtubeApiKey ? { 'X-YouTube-API-Key': youtubeApiKey } : {}),
     ...(openaiApiKey ? { 'X-OpenAI-API-Key': openaiApiKey, 'X-OpenAI-Model': openaiModel } : {}),
   };
@@ -134,10 +156,14 @@ export async function getHealth(): Promise<ServiceHealth> {
   );
   return {
     ...health,
-    llm: getStoredOpenAIApiKey()
-      ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
-      : health.llm,
-    youtube: getStoredYouTubeApiKey() ? { ...health.youtube, configured: true } : health.youtube,
+    llm:
+      getAccountMode() === 'personal' && getStoredOpenAIApiKey()
+        ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+        : health.llm,
+    youtube:
+      getAccountMode() === 'personal' && getStoredYouTubeApiKey()
+        ? { ...health.youtube, configured: true }
+        : health.youtube,
   };
 }
 
