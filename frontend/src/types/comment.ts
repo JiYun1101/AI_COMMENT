@@ -4,7 +4,13 @@ export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
 export type TranscriptStatus = 'available' | 'unavailable' | 'fetch_failed';
 export type AccountMode = 'demo' | 'personal';
-export type PersonaId = 'balanced' | 'observer' | 'empathy' | 'friendly' | 'question' | 'witty';
+export type PersonaId =
+  | 'none'
+  | 'polite_viewer'
+  | 'friendly_viewer'
+  | 'warm_supporter'
+  | 'calm_analyst'
+  | 'playful_casual';
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
   insight: '인사이트',
