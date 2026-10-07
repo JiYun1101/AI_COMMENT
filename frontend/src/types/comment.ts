@@ -35,6 +35,7 @@ export interface RecommendRequest {
   youtube_url?: string;
   additional_context?: string;
   category?: string;
+  persona_id?: PersonaId;
   top_k: number;
 }
 
@@ -140,6 +141,8 @@ export interface GenerationMeta {
   generator?: string;
   provider?: string | null;
   model?: string | null;
+  persona_id?: PersonaId;
+  persona_name?: string | null;
 }
 
 export interface RecommendationTraceCandidate {
