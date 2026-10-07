@@ -12,6 +12,7 @@ from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, OpenAIRe
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
+from src.recommender.persona import resolve_persona
 from src.recommender.ranker import recommend_comments_with_meta
 from src.storage.analysis_store import (
     dashboard_summary,
@@ -357,6 +358,7 @@ def recommend_comment_candidates(
         additional_context=additional_context,
         category_hint=request.category,
     )
+    persona = resolve_persona(request.persona_id)
     context_summary = summarize_generation_context(generation_context)
     resolved_category = str(context_summary["primary_category"] or "Other")
     ranking_reference_text = source_reference_text
@@ -396,6 +398,7 @@ def recommend_comment_candidates(
             generation_context=generation_context,
             top_k=request.top_k,
             generation_client=generation_client,
+            persona=persona,
         )
     except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
         raise _generation_http_error(exc) from exc
@@ -430,6 +433,8 @@ def recommend_comment_candidates(
             "generator": "llm",
             "provider": active_llm.get("provider"),
             "model": active_llm.get("model"),
+            "persona_id": persona.get("id") if persona else "none",
+            "persona_name": persona.get("name") if persona else None,
         },
         "trace": ranked["trace"],
     }
