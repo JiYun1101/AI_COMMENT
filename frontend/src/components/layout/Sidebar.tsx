@@ -1,7 +1,7 @@
-import { LayoutGrid, MessageSquare } from 'lucide-react';
+import { LayoutGrid, MessageSquare, UserRound } from 'lucide-react';
 import type { ComponentType } from 'react';
 
-export type SidebarKey = 'dashboard' | 'comments' | 'account';
+export type SidebarKey = 'dashboard' | 'comments' | 'persona' | 'account';
 
 interface SidebarItemProps {
   icon: ComponentType<{ size?: number | string }>;
@@ -41,6 +41,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <div className="side-h">MVP WORKSPACE</div>
         <SidebarItem icon={MessageSquare} label="댓글 추천" active={current === 'comments'} onClick={() => onNav('comments')} />
         <SidebarItem icon={LayoutGrid} label="대시보드" active={current === 'dashboard'} onClick={() => onNav('dashboard')} />
+        <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => onNav('persona')} />
       </div>
 
       <div className="side-footer">
