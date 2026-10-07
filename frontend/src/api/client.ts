@@ -60,9 +60,16 @@ export function setAccountMode(value: AccountMode): void {
 
 export function getSelectedPersona(): PersonaId {
   const value = getStoredValue(PERSONA_STORAGE_KEY) as PersonaId;
-  return ['balanced', 'observer', 'empathy', 'friendly', 'question', 'witty'].includes(value)
+  return [
+    'none',
+    'polite_viewer',
+    'friendly_viewer',
+    'warm_supporter',
+    'calm_analyst',
+    'playful_casual',
+  ].includes(value)
     ? value
-    : 'balanced';
+    : 'none';
 }
 
 export function setSelectedPersona(value: PersonaId): void {
