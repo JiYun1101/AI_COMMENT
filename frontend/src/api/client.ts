@@ -277,14 +277,23 @@ export async function publishYouTubeComment(request: {
   channel_id: string;
   comment: string;
 }): Promise<YouTubeCommentPublishResponse> {
+  const mode = getAccountMode();
+  const headers =
+    mode === 'personal'
+      ? withYouTubeOAuth({
+          'Content-Type': 'application/json',
+          'X-AI-Comment-Account-Mode': mode,
+        })
+      : {
+          'Content-Type': 'application/json',
+          'X-AI-Comment-Account-Mode': mode,
+        };
+
   return requestJson<YouTubeCommentPublishResponse>(
     `${API_BASE}/youtube/comments`,
     {
       method: 'POST',
-      headers: withYouTubeOAuth({
-        'Content-Type': 'application/json',
-        'X-AI-Comment-Account-Mode': getAccountMode(),
-      }),
+      headers,
       body: JSON.stringify(request),
     },
     'YouTube 댓글 게시에 실패했습니다',
