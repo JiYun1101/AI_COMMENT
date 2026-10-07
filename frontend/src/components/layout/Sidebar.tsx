@@ -1,7 +1,8 @@
-import { LayoutGrid, MessageSquare, UserRound } from 'lucide-react';
+import { Activity, LayoutGrid, MessageSquare, UserRound } from 'lucide-react';
 import type { ComponentType } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-export type SidebarKey = 'dashboard' | 'comments' | 'persona' | 'account';
+export type SidebarKey = 'dashboard' | 'comments' | 'reaction' | 'persona' | 'account';
 
 interface SidebarItemProps {
   icon: ComponentType<{ size?: number | string }>;
@@ -25,6 +26,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ current, onNav }: SidebarProps) {
+  const navigate = useNavigate();
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -40,6 +43,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
       <div className="side-section">
         <div className="side-h">MVP WORKSPACE</div>
         <SidebarItem icon={MessageSquare} label="댓글 추천" active={current === 'comments'} onClick={() => onNav('comments')} />
+        <SidebarItem icon={Activity} label="영상 반응 미리보기" active={current === 'reaction'} onClick={() => navigate('/reaction-preview')} />
         <SidebarItem icon={LayoutGrid} label="대시보드" active={current === 'dashboard'} onClick={() => onNav('dashboard')} />
         <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => onNav('persona')} />
       </div>
