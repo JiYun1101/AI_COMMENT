@@ -1,0 +1,38 @@
+/* Uploaded AI_COMMENT brand asset */
+.brand.brand-button {
+  min-height: 92px;
+  justify-content: center;
+  padding: 0 4px 14px;
+}
+
+.brand-uploaded-logo {
+  display: block;
+  width: 100%;
+  max-width: 205px;
+  height: auto;
+  object-fit: contain;
+  filter: saturate(.98);
+  transition: transform 150ms var(--ease-out), filter 150ms var(--ease-out);
+}
+
+.brand-button:hover .brand-uploaded-logo {
+  transform: translateY(-1px);
+  filter: saturate(1.05);
+}
+
+.about-brand {
+  padding: 0;
+}
+
+.about-uploaded-logo {
+  display: block;
+  width: 172px;
+  height: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 760px) {
+  .about-uploaded-logo {
+    width: 145px;
+  }
+}

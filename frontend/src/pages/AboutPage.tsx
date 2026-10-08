@@ -8,13 +8,7 @@ export function AboutPage() {
     <main className="about-page">
       <header className="about-topbar">
         <button type="button" className="about-brand" onClick={() => navigate('/about')}>
-          <span className="about-brand-mark">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 6h11a4 4 0 010 8H8l-4 4V6z" />
-              <circle cx="18" cy="6" r="2.5" fill="currentColor" stroke="none" />
-            </svg>
-          </span>
-          <span>AI<em>_</em>COMMENT</span>
+          <img className="about-uploaded-logo" src="/ai-comment-brand.webp" alt="맛있는 댓글 자동 댓글" />
         </button>
 
         <button type="button" className="about-enter" onClick={() => navigate('/')}>
