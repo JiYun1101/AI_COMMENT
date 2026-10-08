@@ -1234,3 +1234,17 @@ button {
   font-size: 9.5px;
   color: var(--fg3);
 }
+
+.brand-button {
+  width: 100%;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.brand-button:hover .brand-word {
+  color: var(--brand-700);
+}

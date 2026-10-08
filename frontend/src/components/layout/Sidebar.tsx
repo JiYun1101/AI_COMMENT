@@ -73,7 +73,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
 
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <button type="button" className="brand brand-button" onClick={() => navigate('/about')} aria-label="AI_COMMENT 소개 페이지로 이동">
         <span className="brand-mark">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 6h11a4 4 0 010 8H8l-4 4V6z" />
@@ -81,7 +81,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
           </svg>
         </span>
         <div className="brand-word">AI<em>_</em>COMMENT</div>
-      </div>
+      </button>
 
       <div className="side-section">
         <div className="side-h">시청자 도구</div>
