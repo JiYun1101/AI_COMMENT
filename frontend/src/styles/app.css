@@ -986,3 +986,101 @@ button {
 .side-h-creator {
   padding-top: 1px;
 }
+
+
+/* ChatGPT-like sidebar account row */
+.side-account {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 8px 4px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-account:hover {
+  background: var(--neutral-50);
+  border-radius: 8px;
+}
+
+.side-account.active {
+  background: var(--neutral-100);
+  border-radius: 8px;
+}
+
+.side-account-avatar-wrap {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+
+.side-account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.side-account-persona {
+  position: absolute;
+  right: -3px;
+  bottom: -1px;
+  min-width: 22px;
+  height: 14px;
+  padding: 0 4px;
+  border: 1.5px solid #fff;
+  border-radius: 999px;
+  background: var(--neutral-500);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.side-account-persona.active {
+  background: var(--brand-600);
+}
+
+.side-account-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.side-account-copy strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg1);
+}
+
+.side-account-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--fg3);
+}
+
+.side-account-more {
+  flex: 0 0 auto;
+  color: var(--fg3);
+}

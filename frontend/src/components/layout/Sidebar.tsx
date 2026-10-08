@@ -1,6 +1,8 @@
-import { Activity, LayoutGrid, MessageSquare, Sparkles, UserRound } from 'lucide-react';
+import { Activity, LayoutGrid, MessageSquare, MoreHorizontal, Sparkles, UserRound } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getAccountMode, getSelectedPersona } from '../../api/client';
+import { getPersonaLabel } from '../../data/personas';
 
 export type SidebarKey = 'dashboard' | 'comments' | 'reaction' | 'seed' | 'persona' | 'account';
 
@@ -27,6 +29,21 @@ interface SidebarProps {
 
 export function Sidebar({ current, onNav }: SidebarProps) {
   const navigate = useNavigate();
+  const accountMode = getAccountMode();
+  const selectedPersona = getSelectedPersona();
+  const personaLabel = getPersonaLabel(selectedPersona);
+  const personaBadge =
+    selectedPersona === 'none'
+      ? '기본'
+      : selectedPersona === 'polite_viewer'
+        ? '정중'
+        : selectedPersona === 'friendly_viewer'
+          ? '친근'
+          : selectedPersona === 'warm_supporter'
+            ? '응원'
+            : selectedPersona === 'calm_analyst'
+              ? '분석'
+              : '캐주얼';
 
   return (
     <aside className="sidebar">
@@ -58,6 +75,29 @@ export function Sidebar({ current, onNav }: SidebarProps) {
           <b>v0.5 LLM MVP</b>
           <span>시청자 댓글과 작성자용 커뮤니티 도구를 분리해 제공합니다.</span>
         </div>
+
+        <button
+          type="button"
+          className={`side-account${current === 'account' ? ' active' : ''}`}
+          onClick={() => navigate('/account')}
+          aria-label="내 계정으로 이동"
+          title="내 계정"
+        >
+          <span className="side-account-avatar-wrap">
+            <span className="side-account-avatar">JY</span>
+            <span
+              className={`side-account-persona${selectedPersona !== 'none' ? ' active' : ''}`}
+              title={`페르소나: ${personaLabel}`}
+            >
+              {personaBadge}
+            </span>
+          </span>
+          <span className="side-account-copy">
+            <strong>JY</strong>
+            <span>{accountMode === 'personal' ? '개인 계정' : '데모 계정'} · {personaLabel}</span>
+          </span>
+          <MoreHorizontal className="side-account-more" size={17} />
+        </button>
       </div>
     </aside>
   );
