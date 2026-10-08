@@ -1,4 +1,14 @@
-import { Activity, LayoutGrid, MessageSquare, MoreHorizontal, Sparkles, UserRound } from 'lucide-react';
+import {
+  Activity,
+  Cable,
+  ChevronUp,
+  LayoutGrid,
+  MessageSquare,
+  Settings2,
+  Sparkles,
+  UserRound,
+} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getSelectedPersona } from '../../api/client';
@@ -29,6 +39,8 @@ interface SidebarProps {
 
 export function Sidebar({ current, onNav }: SidebarProps) {
   const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
   const accountMode = getAccountMode();
   const selectedPersona = getSelectedPersona();
   const personaLabel = getPersonaLabel(selectedPersona);
@@ -44,6 +56,20 @@ export function Sidebar({ current, onNav }: SidebarProps) {
             : selectedPersona === 'calm_analyst'
               ? '분석'
               : '캐주얼';
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [accountOpen]);
+
+  const go = (path: string) => {
+    setAccountOpen(false);
+    navigate(path);
+  };
 
   return (
     <aside className="sidebar">
@@ -70,25 +96,51 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <SidebarItem icon={Sparkles} label="맛있는 댓글 미리 달기" active={current === 'seed'} onClick={() => navigate('/creator-comment')} />
       </div>
 
-      <div className="side-footer">
+      <div className="side-footer" ref={menuRef}>
         <div className="sidebar-note">
           <b>v0.5 LLM MVP</b>
           <span>시청자 댓글과 작성자용 커뮤니티 도구를 분리해 제공합니다.</span>
         </div>
 
+        {accountOpen && (
+          <div className="account-hub" role="menu" aria-label="계정 메뉴">
+            <div className="account-hub-head">
+              <span className="account-hub-avatar">JY</span>
+              <div>
+                <strong>JY workspace</strong>
+                <span>{accountMode === 'personal' ? '개인 계정 사용 중' : '데모 계정 사용 중'}</span>
+              </div>
+              <span className="account-hub-status">{personaBadge}</span>
+            </div>
+
+            <div className="account-hub-grid">
+              <button type="button" role="menuitem" onClick={() => go('/account')}>
+                <span className="account-hub-icon"><Settings2 size={15} /></span>
+                <span><strong>내 계정</strong><small>계정 모드 선택</small></span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => go('/account/connect')}>
+                <span className="account-hub-icon"><Cable size={15} /></span>
+                <span><strong>연결 설정</strong><small>API · YouTube</small></span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => go('/persona')}>
+                <span className="account-hub-icon"><UserRound size={15} /></span>
+                <span><strong>페르소나</strong><small>{personaLabel}</small></span>
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           type="button"
-          className={`side-account${current === 'account' ? ' active' : ''}`}
-          onClick={() => navigate('/account')}
-          aria-label="내 계정으로 이동"
-          title="내 계정"
+          className={`side-account${accountOpen ? ' open' : ''}${current === 'account' ? ' active' : ''}`}
+          onClick={() => setAccountOpen((value) => !value)}
+          aria-expanded={accountOpen}
+          aria-haspopup="menu"
+          aria-label="계정 메뉴 열기"
         >
           <span className="side-account-avatar-wrap">
             <span className="side-account-avatar">JY</span>
-            <span
-              className={`side-account-persona${selectedPersona !== 'none' ? ' active' : ''}`}
-              title={`페르소나: ${personaLabel}`}
-            >
+            <span className={`side-account-persona${selectedPersona !== 'none' ? ' active' : ''}`}>
               {personaBadge}
             </span>
           </span>
@@ -96,7 +148,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
             <strong>JY</strong>
             <span>{accountMode === 'personal' ? '개인 계정' : '데모 계정'} · {personaLabel}</span>
           </span>
-          <MoreHorizontal className="side-account-more" size={17} />
+          <ChevronUp className="side-account-chevron" size={16} />
         </button>
       </div>
     </aside>
