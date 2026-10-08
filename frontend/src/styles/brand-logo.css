@@ -1,38 +1,57 @@
-/* Uploaded AI_COMMENT brand asset */
+/* Uploaded AI_COMMENT brand asset — show the original artwork tightly cropped */
 .brand.brand-button {
-  min-height: 92px;
+  width: 100%;
+  height: 72px;
+  min-height: 72px;
+  padding: 0 2px 12px;
+  overflow: hidden;
   justify-content: center;
-  padding: 0 4px 14px;
 }
 
 .brand-uploaded-logo {
   display: block;
-  width: 100%;
-  max-width: 205px;
+  width: 232px;
+  max-width: none;
   height: auto;
   object-fit: contain;
-  filter: saturate(.98);
+  transform: translateY(-28px);
+  image-rendering: auto;
+  filter: saturate(1.02) contrast(1.015);
   transition: transform 150ms var(--ease-out), filter 150ms var(--ease-out);
 }
 
 .brand-button:hover .brand-uploaded-logo {
-  transform: translateY(-1px);
-  filter: saturate(1.05);
+  transform: translateY(-29px) scale(1.005);
+  filter: saturate(1.06) contrast(1.02);
 }
 
 .about-brand {
+  width: 206px;
+  height: 58px;
   padding: 0;
+  overflow: hidden;
+  align-items: center;
 }
 
 .about-uploaded-logo {
   display: block;
-  width: 172px;
+  width: 224px;
+  max-width: none;
   height: auto;
   object-fit: contain;
+  transform: translate(-9px, -27px);
+  image-rendering: auto;
+  filter: saturate(1.02) contrast(1.015);
 }
 
 @media (max-width: 760px) {
+  .about-brand {
+    width: 172px;
+    height: 52px;
+  }
+
   .about-uploaded-logo {
-    width: 145px;
+    width: 190px;
+    transform: translate(-9px, -23px);
   }
 }
