@@ -348,6 +348,7 @@ export function RecommendPage() {
         video_id: preview.video_id,
         channel_id: preview.channel_id,
         comment: recommendation.comment,
+        recommendation_id: recommendation.id,
       });
       setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
     } catch (err) {

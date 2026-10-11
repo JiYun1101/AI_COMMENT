@@ -107,6 +107,7 @@ export interface YouTubeCommentPublishResponse {
   comment: string;
   comment_url: string;
   account_mode?: AccountMode;
+  tracked?: boolean;
 }
 
 export interface ServiceHealth {
@@ -227,3 +228,97 @@ export interface CommentsResponse {
 }
 
 export type VideoPreviewData = YouTubeVideoContext;
+
+export interface PublishedComment {
+  id: string;
+  recommendation_id: string | null;
+  account_mode: AccountMode;
+  video_id: string;
+  comment_id: string;
+  comment: string;
+  comment_url: string | null;
+  published_at: string;
+  hours_since_publish: number;
+  like_count: number | null;
+  reply_count: number | null;
+  likes_24h: number | null;
+  replies_24h: number | null;
+  likes_7d: number | null;
+  replies_7d: number | null;
+  status: 'pending' | 'active' | 'missing';
+  last_checked_at: string | null;
+  predicted_score: number | null;
+  comment_type: string | null;
+  video_title: string | null;
+  channel: string | null;
+}
+
+export interface PublishedSummary {
+  tracked_count: number;
+  measured_count: number;
+  missing_count: number;
+  average_likes: number | null;
+  replied_rate: number | null;
+  prediction_pair_count: number;
+  prediction_spearman: number | null;
+  by_type: { type: string; count: number; average_likes: number | null }[];
+}
+
+export interface PublishedCommentsResponse {
+  summary: PublishedSummary;
+  items: PublishedComment[];
+  checked_count?: number;
+}
+
+export type InboxCategory = 'question' | 'complaint' | 'risk' | 'praise' | 'other';
+
+export interface InboxItem {
+  id: string;
+  author: string;
+  text: string;
+  like_count: number;
+  reply_count: number;
+  published_at: string | null;
+  can_reply: boolean;
+  category: InboxCategory;
+  category_label: string;
+  risk_reason: string | null;
+  creator_replied: boolean;
+  needs_reply: boolean;
+  priority: number;
+}
+
+export interface CreatorInboxResponse {
+  video: {
+    video_id: string;
+    url: string;
+    title: string;
+    channel: string;
+    channel_id: string | null;
+    thumbnail_url: string | null;
+    comment_count: number | null;
+  };
+  order: 'relevance' | 'time';
+  items: InboxItem[];
+  summary: {
+    total: number;
+    needs_reply: number;
+    creator_replied: number;
+    own_comments: number;
+    by_category: Record<InboxCategory, number>;
+  };
+}
+
+export interface ReplyDraftsResponse {
+  source: 'llm' | 'template';
+  drafts: string[];
+}
+
+export interface CreatorReplyResponse {
+  posted: boolean;
+  parent_id: string;
+  reply_id: string | null;
+  video_id: string | null;
+  text: string;
+  comment_url: string | null;
+}

@@ -2,10 +2,12 @@ import {
   Activity,
   Cable,
   ChevronUp,
+  Inbox,
   LayoutGrid,
   MessageSquare,
   Settings2,
   Sparkles,
+  TrendingUp,
   UserRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -14,7 +16,15 @@ import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getSelectedPersona } from '../../api/client';
 import { getPersonaLabel } from '../../data/personas';
 
-export type SidebarKey = 'dashboard' | 'comments' | 'reaction' | 'seed' | 'persona' | 'account';
+export type SidebarKey =
+  | 'dashboard'
+  | 'comments'
+  | 'mycomments'
+  | 'reaction'
+  | 'seed'
+  | 'inbox'
+  | 'persona'
+  | 'account';
 
 interface SidebarItemProps {
   icon: ComponentType<{ size?: number | string }>;
@@ -82,12 +92,14 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <SidebarItem icon={MessageSquare} label="댓글 추천" active={current === 'comments'} onClick={() => onNav('comments')} />
         <SidebarItem icon={LayoutGrid} label="대시보드" active={current === 'dashboard'} onClick={() => onNav('dashboard')} />
         <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => onNav('persona')} />
+        <SidebarItem icon={TrendingUp} label="내 댓글 성과" active={current === 'mycomments'} onClick={() => navigate('/my-comments')} />
 
         <div className="side-divider" aria-hidden="true" />
 
         <div className="side-h side-h-creator">작성자 도구</div>
         <SidebarItem icon={Activity} label="영상 반응 미리보기" active={current === 'reaction'} onClick={() => navigate('/reaction-preview')} />
         <SidebarItem icon={Sparkles} label="맛있는 댓글 미리 달기" active={current === 'seed'} onClick={() => navigate('/creator-comment')} />
+        <SidebarItem icon={Inbox} label="받은 댓글함" active={current === 'inbox'} onClick={() => navigate('/creator-inbox')} />
       </div>
 
       <div className="side-footer" ref={menuRef}>

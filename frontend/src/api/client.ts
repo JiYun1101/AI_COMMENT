@@ -3,10 +3,14 @@ import type {
   AnalysisDetail,
   AnalysisSummary,
   CommentsResponse,
+  CreatorInboxResponse,
+  CreatorReplyResponse,
   DashboardSummary,
   FeedbackValue,
   PersonaId,
+  PublishedCommentsResponse,
   RecommendRequest,
+  ReplyDraftsResponse,
   RecommendResponse,
   ServiceHealth,
   VideoPreviewData,
@@ -286,6 +290,7 @@ export async function publishYouTubeComment(request: {
   video_id: string;
   channel_id: string;
   comment: string;
+  recommendation_id?: string;
 }): Promise<YouTubeCommentPublishResponse> {
   const mode = getAccountMode();
   const headers =
@@ -307,5 +312,61 @@ export async function publishYouTubeComment(request: {
       body: JSON.stringify(request),
     },
     'YouTube 댓글 게시에 실패했습니다',
+  );
+}
+
+export async function listMyComments(): Promise<PublishedCommentsResponse> {
+  return requestJson<PublishedCommentsResponse>(
+    `${API_BASE}/my-comments`,
+    { headers: withRuntimeKeys() },
+    '내가 단 댓글을 불러오지 못했습니다',
+  );
+}
+
+export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
+  return requestJson<PublishedCommentsResponse>(
+    `${API_BASE}/my-comments/refresh`,
+    { method: 'POST', headers: withRuntimeKeys() },
+    '실제 반응을 새로 확인하지 못했습니다',
+  );
+}
+
+export async function getCreatorInbox(url: string, order: 'relevance' | 'time' = 'relevance'): Promise<CreatorInboxResponse> {
+  const params = new URLSearchParams({ url, order });
+  return requestJson<CreatorInboxResponse>(
+    `${API_BASE}/creator/inbox?${params.toString()}`,
+    { headers: withRuntimeKeys() },
+    '받은 댓글을 불러오지 못했습니다',
+  );
+}
+
+export async function getReplyDrafts(request: {
+  comment: string;
+  category: string;
+  video_title?: string;
+}): Promise<ReplyDraftsResponse> {
+  return requestJson<ReplyDraftsResponse>(
+    `${API_BASE}/creator/inbox/reply-drafts`,
+    {
+      method: 'POST',
+      headers: withRuntimeKeys({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(request),
+    },
+    '답글 초안을 만들지 못했습니다',
+  );
+}
+
+export async function postCreatorReply(request: { parent_id: string; text: string }): Promise<CreatorReplyResponse> {
+  return requestJson<CreatorReplyResponse>(
+    `${API_BASE}/creator/inbox/replies`,
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': getAccountMode(),
+      }),
+      body: JSON.stringify(request),
+    },
+    'YouTube 답글 게시에 실패했습니다',
   );
 }
