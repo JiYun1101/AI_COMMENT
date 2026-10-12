@@ -13,6 +13,7 @@ import type { ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getSelectedPersona } from '../../api/client';
 import { getPersonaLabel } from '../../data/personas';
+import brandLogo from '../../assets/ai-comment-brand-v1.png';
 
 export type SidebarKey = 'dashboard' | 'comments' | 'reaction' | 'seed' | 'persona' | 'account';
 
@@ -74,7 +75,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
   return (
     <aside className="sidebar">
       <button type="button" className="brand brand-button" onClick={() => navigate('/about')} aria-label="AI_COMMENT 소개 페이지로 이동">
-        <img className="brand-uploaded-logo" src="/ai-comment-brand-v2.png" alt="맛있는 댓글 자동 댓글" />
+        <img className="brand-uploaded-logo" src={brandLogo} alt="맛있는 댓글 자동 댓글" />
       </button>
 
       <div className="side-section">
