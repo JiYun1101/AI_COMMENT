@@ -59,5 +59,12 @@ jobs:
               print("FULL_GRAPH_FAIL: see error response above",flush=True)
           else:
             print("FULL_GRAPH_SKIPPED: deployment lacks model/LLM/YouTube readiness",flush=True)
+          print("MANUAL_RECOMMEND: testing real provider with plain-text input",flush=True)
+          status,body=req("POST",API+"/recommend",{"post_text":"AI 도구와 프론트엔드 개발에 관한 짧은 영상","top_k":1})
+          print("MANUAL_RECOMMEND_HTTP: "+str(status)+" RESULT: "+body[:1400],flush=True)
+          if status==200:
+            print("MANUAL_RECOMMEND_PASS",flush=True)
+          else:
+            print("MANUAL_RECOMMEND_FAIL: provider not usable in production",flush=True)
           print("SMOKE_BASELINE_PASSED",flush=True)
           PY
