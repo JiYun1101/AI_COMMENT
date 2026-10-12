@@ -82,6 +82,7 @@ def test_refresh_skips_recently_checked_comments(tmp_path):
 
 
 def test_publish_tracks_comment_and_refresh_reads_real_reactions(tmp_path, monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-key")
     monkeypatch.setenv("AI_COMMENT_DB_PATH", str(tmp_path / "api.db"))
     monkeypatch.setenv("DEMO_YOUTUBE_API_KEY", "demo-key")
     stored = _recommendations(tmp_path / "api.db", [70.0])
@@ -119,13 +120,13 @@ def test_publish_tracks_comment_and_refresh_reads_real_reactions(tmp_path, monke
     assert posted.status_code == 200
     assert posted.json()["tracked"] is True
 
-    refreshed = client.post("/my-comments/refresh", headers={"X-AI-Comment-Account-Mode": "demo"})
+    refreshed = client.post("/my-comments/refresh", headers={"X-AI-Comment-Account-Mode": "demo", "X-API-Key": "test-key"})
     assert refreshed.status_code == 200
     assert captured == {"ids": ["posted-1"], "key": "demo-key"}
     item = refreshed.json()["items"][0]
     assert item["like_count"] == 5 and item["predicted_score"] == 70.0
 
-    personal = client.get("/my-comments", headers={"X-AI-Comment-Account-Mode": "personal"})
+    personal = client.get("/my-comments", headers={"X-AI-Comment-Account-Mode": "personal", "X-API-Key": "test-key"})
     assert personal.json()["items"] == []
 
 
