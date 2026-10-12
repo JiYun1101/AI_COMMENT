@@ -108,6 +108,9 @@ def init_db(path: str | Path | None = None) -> None:
             """
         )
         _ensure_analysis_columns(connection)
+        oauth_cols = {row[1] for row in connection.execute("PRAGMA table_info(oauth_states)").fetchall()}
+        if "config_json" not in oauth_cols:
+            connection.execute("ALTER TABLE oauth_states ADD COLUMN config_json TEXT")
 
 
 def _now_iso() -> str:
@@ -396,3 +399,40 @@ def set_feedback(
             (recommendation_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def save_oauth_handshake(
+    state: str,
+    verifier: str,
+    expires_at: float,
+    oauth_config: tuple[str, str, str],
+    *,
+    path: str | Path | None = None,
+) -> None:
+    """Persist short-lived PKCE + credentials for callbacks on another worker."""
+    init_db(path)
+    with _session(path) as conn:
+        conn.execute("DELETE FROM oauth_states WHERE expires_at <= ?", (time.time(),))
+        conn.execute(
+            "INSERT OR REPLACE INTO oauth_states (state, code_verifier, expires_at, config_json) VALUES (?, ?, ?, ?)",
+            (state, verifier, float(expires_at), json.dumps(oauth_config)),
+        )
+
+
+def pop_oauth_handshake(
+    state: str, *, path: str | Path | None = None
+) -> tuple[str, tuple[str, str, str]] | None:
+    """Atomically consume a pending OAuth handshake; a state cannot be replayed."""
+    init_db(path)
+    with _session(path) as conn:
+        row = conn.execute(
+            "SELECT code_verifier, expires_at, config_json FROM oauth_states WHERE state = ?",
+            (state,),
+        ).fetchone()
+        conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+        if row is None or float(row["expires_at"]) <= time.time() or not row["config_json"]:
+            return None
+        cfg = json.loads(row["config_json"])
+        if not isinstance(cfg, list) or len(cfg) != 3:
+            return None
+        return str(row["code_verifier"]), (str(cfg[0]), str(cfg[1]), str(cfg[2]))

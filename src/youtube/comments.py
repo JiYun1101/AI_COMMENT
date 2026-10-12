@@ -5,13 +5,13 @@ import hashlib
 import json
 import os
 import secrets
-import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
 
+from src.storage.analysis_store import save_oauth_handshake, pop_oauth_handshake
 from src.recommender.safety_filter import get_block_reason
 from src.youtube.context import VIDEO_ID_RE
 
@@ -23,11 +23,6 @@ YOUTUBE_COMMENT_THREADS_URL = "https://www.googleapis.com/youtube/v3/commentThre
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/youtube/oauth/callback"
 DEFAULT_TOKEN_PATH = ROOT / "data" / "runtime" / "youtube_oauth_token.json"
 STATE_TTL_SECONDS = 10 * 60
-
-# state -> (expires_at, pkce_verifier, (client_id, client_secret, redirect_uri))
-# Browser-provided OAuth credentials live here only for the short OAuth handshake.
-_AUTH_STATES: dict[str, tuple[float, str, tuple[str, str, str]]] = {}
-_AUTH_STATE_LOCK = threading.Lock()
 
 
 class YouTubeOAuthError(RuntimeError):
@@ -143,12 +138,7 @@ def create_youtube_authorization_url(
     resolved_client_id, _, resolved_redirect_uri = oauth_config
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
-    now = time.time()
-    with _AUTH_STATE_LOCK:
-        expired = [key for key, pending in _AUTH_STATES.items() if pending[0] <= now]
-        for key in expired:
-            _AUTH_STATES.pop(key, None)
-        _AUTH_STATES[state] = (now + STATE_TTL_SECONDS, verifier, oauth_config)
+    save_oauth_handshake(state, verifier, time.time() + STATE_TTL_SECONDS, oauth_config)
 
     params = {
         "client_id": resolved_client_id,
@@ -166,13 +156,11 @@ def create_youtube_authorization_url(
 
 
 def complete_youtube_oauth(code: str, state: str, *, session=None) -> dict:
-    with _AUTH_STATE_LOCK:
-        pending = _AUTH_STATES.pop(state, None)
-    if pending is None or pending[0] <= time.time():
+    pending = pop_oauth_handshake(state)
+    if pending is None:
         raise YouTubeOAuthError("OAuth state가 만료되었거나 일치하지 않습니다.")
 
-    verifier = pending[1]
-    client_id, client_secret, redirect_uri = pending[2]
+    verifier, (client_id, client_secret, redirect_uri) = pending
     http = session or requests.Session()
     try:
         response = http.post(
