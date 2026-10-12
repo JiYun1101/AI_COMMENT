@@ -5,6 +5,8 @@ import {
   DEFAULT_OPENAI_MODEL,
   YOUTUBE_OAUTH_REDIRECT_URI,
   disconnectYouTubeOAuth,
+  getStoredApiAccessToken,
+  setStoredApiAccessToken,
   getStoredOpenAIApiKey,
   getStoredOpenAIModel,
   getStoredYouTubeApiKey,
@@ -25,6 +27,7 @@ import type { YouTubeOAuthStatus } from '../types/comment';
 
 export function AccountPage() {
   const navigate = useNavigate();
+  const [serverToken, setServerToken] = useState(() => getStoredApiAccessToken());
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
   const [openaiKey, setOpenaiKey] = useState(() => getStoredOpenAIApiKey());
   const [openaiModel, setOpenaiModel] = useState(() => getStoredOpenAIModel());
@@ -33,7 +36,7 @@ export function AccountPage() {
   const [showYouTubeKey, setShowYouTubeKey] = useState(false);
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
   const [showOAuthSecret, setShowOAuthSecret] = useState(false);
-  const [saved, setSaved] = useState<'youtube' | 'openai' | 'oauth' | null>(null);
+  const [saved, setSaved] = useState<'youtube' | 'openai' | 'oauth' | 'server' | null>(null);
   const [oauthStatus, setOauthStatus] = useState<YouTubeOAuthStatus | null>(null);
   const [oauthBusy, setOauthBusy] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
@@ -51,7 +54,7 @@ export function AccountPage() {
     if (key === 'persona') navigate('/persona');
   };
 
-  const markSaved = (target: 'youtube' | 'openai' | 'oauth') => {
+  const markSaved = (target: 'youtube' | 'openai' | 'oauth' | 'server') => {
     setSaved(target);
     window.setTimeout(() => setSaved((current) => (current === target ? null : current)), 1800);
   };
@@ -185,13 +188,40 @@ export function AccountPage() {
               <h2>개인 계정 연결</h2>
               <p>
                 입력한 키와 OAuth 자격증명은 이 브라우저의 localStorage에만 저장됩니다. GitHub 저장소에는 기록하지 않고,
-                필요한 API 요청에만 HTTPS 헤더로 전달합니다. OAuth Client Secret은 인증 handshake 동안 서버 메모리에만 잠시 유지됩니다.
+                필요한 API 요청에만 HTTPS 헤더로 전달합니다. 서버 토큰과 OAuth 자격증명은 브라우저 보안 설정에 유의해야 합니다.
               </p>
             </div>
           </section>
 
           <div className="account-grid">
-            <section className="credential-card">
+             <section className="credential-card">
+              <div className="credential-head">
+                <div>
+                  <span className="credential-kicker">SERVER ACCESS</span>
+                  <h3>서버 인증 토큰</h3>
+                  <p>계정 연결, 게시한 댓글 성과, 작성자 답글을 사용할 때 필요한 개인 서버 토큰입니다.
+                     서버의 API_AUTH_TOKEN과 동일한 값을 입력하세요. 코드나 공개 빌드 환경 변수에 넣지 마세요.</p>
+                </div>
+                <ShieldCheck size={20} />
+              </div>
+              <label className="account-label" htmlFor="api-access-token">Access Token</label>
+              <div className="secret-input">
+                <input id="api-access-token" type="password" autoComplete="off"
+                  placeholder="서버가 발급한 토큰" value={serverToken}
+                  onChange={(event) => setServerToken(event.target.value)} />
+              </div>
+              <div className="credential-actions">
+                <button type="button" className="btn primary" onClick={() => {
+                  setStoredApiAccessToken(serverToken);
+                  markSaved('server');
+                  void getYouTubeOAuthStatus().then(setOauthStatus).catch(() => setOauthStatus(null));
+                }}>{saved === 'server' ? '저장됨' : '저장'}</button>
+                <button type="button" className="btn ghost danger" onClick={() => {
+                  setServerToken(''); setStoredApiAccessToken('');
+                }}>삭제</button>
+              </div>
+            </section>
+           <section className="credential-card">
               <div className="credential-head">
                 <div>
                   <span className="credential-kicker">YOUTUBE DATA</span>

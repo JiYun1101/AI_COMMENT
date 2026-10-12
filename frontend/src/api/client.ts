@@ -28,6 +28,7 @@ const OPENAI_API_KEY_STORAGE_KEY = 'ai-comment.openai-api-key';
 const OPENAI_MODEL_STORAGE_KEY = 'ai-comment.openai-model';
 const YOUTUBE_OAUTH_CLIENT_ID_STORAGE_KEY = 'ai-comment.youtube-oauth-client-id';
 const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client-secret';
+const API_ACCESS_TOKEN_STORAGE_KEY = 'ai-comment.server-access-token';
 const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
 const PERSONA_STORAGE_KEY = 'ai-comment.persona';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
@@ -43,6 +44,14 @@ function setStoredValue(key: string, value: string): void {
   const normalized = value.trim();
   if (normalized) window.localStorage.setItem(key, normalized);
   else window.localStorage.removeItem(key);
+}
+
+export function getStoredApiAccessToken(): string {
+  return getStoredValue(API_ACCESS_TOKEN_STORAGE_KEY);
+}
+
+export function setStoredApiAccessToken(value: string): void {
+  setStoredValue(API_ACCESS_TOKEN_STORAGE_KEY, value);
 }
 
 export function getAccountMode(): AccountMode {
@@ -128,6 +137,7 @@ function withRuntimeKeys(headers: Record<string, string> = {}): Record<string, s
   return {
     ...headers,
     'X-AI-Comment-Account-Mode': mode,
+    ...(getStoredApiAccessToken() ? { 'X-API-Key': getStoredApiAccessToken() } : {}),
     ...(youtubeApiKey ? { 'X-YouTube-API-Key': youtubeApiKey } : {}),
     ...(openaiApiKey ? { 'X-OpenAI-API-Key': openaiApiKey, 'X-OpenAI-Model': openaiModel } : {}),
   };
@@ -138,6 +148,7 @@ function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, 
   const clientSecret = getStoredYouTubeOAuthClientSecret();
   return {
     ...headers,
+    ...(getStoredApiAccessToken() ? { 'X-API-Key': getStoredApiAccessToken() } : {}),
     ...(clientId ? { 'X-YouTube-OAuth-Client-ID': clientId } : {}),
     ...(clientSecret ? { 'X-YouTube-OAuth-Client-Secret': clientSecret } : {}),
   };

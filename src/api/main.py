@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.api.security import auth_status, require_trusted_client
+from casts.comment_writer.graph import comment_writer_graph
 from src.logging_config import configure_logging
 from src.api.schemas import (
     CreatorReplyRequest,
@@ -499,6 +500,23 @@ def creator_reply_publish(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except YouTubeOAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/recommend/graph")
+def recommend_comment_graph(request: RecommendRequest):
+    """Run the real LangGraph adapter using the same generation/safety/ranker code."""
+    if not request.youtube_url:
+        raise HTTPException(status_code=422, detail="LangGraph 경로는 youtube_url이 필요합니다.")
+    try:
+        return comment_writer_graph.invoke({
+            "video_url": request.youtube_url,
+            "top_k": request.top_k,
+            "additional_context": request.additional_context or "",
+            "category_hint": request.category or "",
+            "persona_id": request.persona_id,
+        })
+    except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
+        raise _generation_http_error(exc) from exc
 
 
 @app.post("/score")

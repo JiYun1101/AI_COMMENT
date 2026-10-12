@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 
 import requests
 
+from src.recommender.safety_filter import get_block_reason
 from src.youtube.context import VIDEO_ID_RE
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -312,10 +313,11 @@ def publish_youtube_comment(
         raise YouTubeCommentPublishError("유효한 YouTube video_id가 아닙니다.", status_code=400)
     if not channel_id:
         raise YouTubeCommentPublishError("YouTube channel_id가 필요합니다.", status_code=400)
-    if not comment:
-        raise YouTubeCommentPublishError("게시할 댓글이 비어 있습니다.", status_code=400)
-    if len(comment) > 10_000:
-        raise YouTubeCommentPublishError("YouTube 댓글이 너무 깁니다.", status_code=400)
+    block_reason = get_block_reason(comment)
+    if block_reason is not None:
+        raise YouTubeCommentPublishError(
+            f"안전 검사를 통과하지 못한 댓글입니다: {block_reason}", status_code=422
+        )
 
     http = session or requests.Session()
     access_token = _refresh_access_token(
