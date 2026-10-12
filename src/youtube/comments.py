@@ -5,13 +5,14 @@ import hashlib
 import json
 import os
 import secrets
-import threading
 import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
 
+from src.storage.analysis_store import save_oauth_handshake, pop_oauth_handshake
+from src.recommender.safety_filter import get_block_reason
 from src.youtube.context import VIDEO_ID_RE
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,11 +23,6 @@ YOUTUBE_COMMENT_THREADS_URL = "https://www.googleapis.com/youtube/v3/commentThre
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/youtube/oauth/callback"
 DEFAULT_TOKEN_PATH = ROOT / "data" / "runtime" / "youtube_oauth_token.json"
 STATE_TTL_SECONDS = 10 * 60
-
-# state -> (expires_at, pkce_verifier, (client_id, client_secret, redirect_uri))
-# Browser-provided OAuth credentials live here only for the short OAuth handshake.
-_AUTH_STATES: dict[str, tuple[float, str, tuple[str, str, str]]] = {}
-_AUTH_STATE_LOCK = threading.Lock()
 
 
 class YouTubeOAuthError(RuntimeError):
@@ -142,12 +138,7 @@ def create_youtube_authorization_url(
     resolved_client_id, _, resolved_redirect_uri = oauth_config
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
-    now = time.time()
-    with _AUTH_STATE_LOCK:
-        expired = [key for key, pending in _AUTH_STATES.items() if pending[0] <= now]
-        for key in expired:
-            _AUTH_STATES.pop(key, None)
-        _AUTH_STATES[state] = (now + STATE_TTL_SECONDS, verifier, oauth_config)
+    save_oauth_handshake(state, verifier, time.time() + STATE_TTL_SECONDS, oauth_config)
 
     params = {
         "client_id": resolved_client_id,
@@ -165,13 +156,11 @@ def create_youtube_authorization_url(
 
 
 def complete_youtube_oauth(code: str, state: str, *, session=None) -> dict:
-    with _AUTH_STATE_LOCK:
-        pending = _AUTH_STATES.pop(state, None)
-    if pending is None or pending[0] <= time.time():
+    pending = pop_oauth_handshake(state)
+    if pending is None:
         raise YouTubeOAuthError("OAuth state가 만료되었거나 일치하지 않습니다.")
 
-    verifier = pending[1]
-    client_id, client_secret, redirect_uri = pending[2]
+    verifier, (client_id, client_secret, redirect_uri) = pending
     http = session or requests.Session()
     try:
         response = http.post(
@@ -312,10 +301,11 @@ def publish_youtube_comment(
         raise YouTubeCommentPublishError("유효한 YouTube video_id가 아닙니다.", status_code=400)
     if not channel_id:
         raise YouTubeCommentPublishError("YouTube channel_id가 필요합니다.", status_code=400)
-    if not comment:
-        raise YouTubeCommentPublishError("게시할 댓글이 비어 있습니다.", status_code=400)
-    if len(comment) > 10_000:
-        raise YouTubeCommentPublishError("YouTube 댓글이 너무 깁니다.", status_code=400)
+    block_reason = get_block_reason(comment)
+    if block_reason is not None:
+        raise YouTubeCommentPublishError(
+            f"안전 검사를 통과하지 못한 댓글입니다: {block_reason}", status_code=422
+        )
 
     http = session or requests.Session()
     access_token = _refresh_access_token(
@@ -393,5 +383,151 @@ def publish_youtube_comment(
             f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}"
             if comment_id
             else f"https://www.youtube.com/watch?v={video_id}"
+        ),
+    }
+
+YOUTUBE_COMMENTS_URL = "https://www.googleapis.com/youtube/v3/comments"
+YOUTUBE_CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
+
+
+def _authorized_request(
+    http,
+    method: str,
+    url: str,
+    *,
+    client_id: str | None,
+    client_secret: str | None,
+    redirect_uri: str | None,
+    **kwargs,
+):
+    """OAuth 토큰으로 요청하고, 401이면 토큰을 한 번 갱신해 재시도한다."""
+
+    extra_headers = kwargs.pop("headers", {})
+
+    def send(token: str):
+        headers = {"Authorization": f"Bearer {token}", **extra_headers}
+        return http.request(method, url, headers=headers, timeout=15, **kwargs)
+
+    token_options = {
+        "session": http,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+    }
+    response = send(_refresh_access_token(**token_options))
+    if response.status_code == 401:
+        response = send(_refresh_access_token(force=True, **token_options))
+    return response
+
+
+def _authorized_json(http, url: str, *, params: dict, failure: str, **oauth) -> dict:
+    try:
+        response = _authorized_request(http, "GET", url, params=params, **oauth)
+    except requests.RequestException as exc:
+        raise YouTubeCommentPublishError("YouTube API에 연결할 수 없습니다.") from exc
+    if response.status_code < 200 or response.status_code >= 300:
+        mapped = response.status_code if response.status_code in {400, 401, 403, 404} else 502
+        raise YouTubeCommentPublishError(f"{failure} ({response.status_code}).", status_code=mapped)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise YouTubeCommentPublishError("YouTube API 응답을 해석할 수 없습니다.") from exc
+
+
+def publish_youtube_reply(
+    *,
+    parent_id: str,
+    text: str,
+    session=None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> dict:
+    """연결된 계정이 소유한 영상의 댓글에만 답글을 단다.
+
+    받은 댓글함은 작성자 본인 채널의 댓글을 관리하는 도구라서, 다른 채널 영상에
+    답글을 다는 데 쓰이지 않도록 서버에서 영상 소유 채널과 연결 계정을 대조한다.
+    """
+    parent_id = parent_id.strip()
+    text = text.strip()
+    if not parent_id or len(parent_id) > 100:
+        raise YouTubeCommentPublishError("답글을 달 댓글 ID가 올바르지 않습니다.", status_code=400)
+    if not text:
+        raise YouTubeCommentPublishError("게시할 답글이 비어 있습니다.", status_code=400)
+    if len(text) > 10_000:
+        raise YouTubeCommentPublishError("YouTube 답글이 너무 깁니다.", status_code=400)
+
+    http = session or requests.Session()
+    oauth = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+
+    mine = _authorized_json(
+        http,
+        YOUTUBE_CHANNELS_URL,
+        params={"part": "id", "mine": "true"},
+        failure="연결된 YouTube 채널을 확인하지 못했습니다",
+        **oauth,
+    )
+    my_channel_ids = {item.get("id") for item in mine.get("items") or [] if item.get("id")}
+    if not my_channel_ids:
+        raise YouTubeCommentPublishError(
+            "연결한 Google 계정에 YouTube 채널이 없습니다. 채널을 만든 뒤 다시 연결해주세요.",
+            status_code=403,
+        )
+
+    thread = _authorized_json(
+        http,
+        YOUTUBE_COMMENT_THREADS_URL,
+        params={"part": "snippet", "id": parent_id},
+        failure="답글을 달 댓글을 찾지 못했습니다",
+        **oauth,
+    )
+    items = thread.get("items") or []
+    if not items:
+        raise YouTubeCommentPublishError("답글을 달 댓글을 찾지 못했습니다.", status_code=404)
+    snippet = items[0].get("snippet") or {}
+    video_channel_id = snippet.get("channelId")
+    video_id = snippet.get("videoId")
+    if video_channel_id not in my_channel_ids:
+        raise YouTubeCommentPublishError(
+            "받은 댓글함은 연결한 계정이 소유한 영상의 댓글에만 답글을 달 수 있습니다.",
+            status_code=403,
+        )
+
+    try:
+        response = _authorized_request(
+            http,
+            "POST",
+            YOUTUBE_COMMENTS_URL,
+            params={"part": "snippet"},
+            headers={"Content-Type": "application/json"},
+            json={"snippet": {"parentId": parent_id, "textOriginal": text}},
+            **oauth,
+        )
+    except requests.RequestException as exc:
+        raise YouTubeCommentPublishError("YouTube 댓글 API에 연결할 수 없습니다.") from exc
+
+    if response.status_code < 200 or response.status_code >= 300:
+        detail = (getattr(response, "text", "") or "")[:500]
+        mapped = response.status_code if response.status_code in {400, 401, 403, 404} else 502
+        raise YouTubeCommentPublishError(
+            f"YouTube 답글 게시에 실패했습니다 ({response.status_code}). {detail}".strip(),
+            status_code=mapped,
+        )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise YouTubeCommentPublishError("YouTube 답글 게시 응답을 해석할 수 없습니다.") from exc
+
+    reply_id = body.get("id")
+    return {
+        "posted": True,
+        "parent_id": parent_id,
+        "reply_id": reply_id,
+        "video_id": video_id,
+        "text": text,
+        "comment_url": (
+            f"https://www.youtube.com/watch?v={video_id}&lc={reply_id}"
+            if video_id and reply_id
+            else None
         ),
     }

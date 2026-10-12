@@ -7,7 +7,7 @@ class FakeClient:
     def __init__(self):
         self.calls = []
 
-    def generate(self, context, *, candidate_count):
+    def generate(self, context, *, candidate_count, persona=None):
         self.calls.append((context, candidate_count))
         types = ["insight", "empathy", "question", "casual", "general"]
         return [

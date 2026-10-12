@@ -5,7 +5,7 @@ import src.api.main as api_main
 client = TestClient(api_main.app)
 
 
-def _fake_ranked(post_text: str, *, generation_context: dict, top_k: int):
+def _fake_ranked(post_text: str, *, generation_context: dict, top_k: int, generation_client=None, persona=None):
     recommendations = [
         {
             "rank": index,
@@ -111,7 +111,7 @@ def test_additional_context_is_separate_from_source_and_added_once_for_ranking(t
             "primary_category": "software",
         }
 
-    def fake_ranker(post_text: str, *, generation_context: dict, top_k: int):
+    def fake_ranker(post_text: str, *, generation_context: dict, top_k: int, generation_client=None, persona=None):
         captured["ranking_reference_text"] = post_text
         return _fake_ranked(post_text, generation_context=generation_context, top_k=top_k)
 
@@ -140,6 +140,7 @@ def test_empty_recommend_request_is_rejected(tmp_path, monkeypatch):
 
 
 def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-key")
     captured = {}
 
     def fake_publish(**kwargs):
@@ -155,6 +156,7 @@ def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypat
     monkeypatch.setattr(api_main, "publish_youtube_comment", fake_publish)
     response = client.post(
         "/youtube/comments",
+        headers={"X-API-Key": "test-key", "X-AI-Comment-Account-Mode": "personal"},
         json={
             "video_id": "dQw4w9WgXcQ",
             "channel_id": "UC-test-channel",
@@ -169,4 +171,7 @@ def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypat
         "video_id": "dQw4w9WgXcQ",
         "channel_id": "UC-test-channel",
         "comment": "추천 결과를 실제 댓글로 게시합니다.",
+        "client_id": None,
+        "client_secret": None,
+        "redirect_uri": None,
     }

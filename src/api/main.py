@@ -1,19 +1,41 @@
 from __future__ import annotations
 
 import html
+import logging
 import os
+import time
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from src.api.schemas import FeedbackRequest, RecommendRequest, ScoreRequest, YouTubeCommentPublishRequest
+from src.api.security import auth_status, require_trusted_client
+from casts.comment_writer.graph import comment_writer_graph
+from src.logging_config import configure_logging
+from src.api.schemas import (
+    CreatorReplyRequest,
+    FeedbackRequest,
+    RecommendRequest,
+    ReplyDraftRequest,
+    ScoreRequest,
+    YouTubeCommentPublishRequest,
+)
+from src.creator.inbox import build_inbox
+from src.creator.reply_drafts import draft_replies
 from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, OpenAIResponsesClient
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
 from src.recommender.persona import resolve_persona
 from src.recommender.ranker import recommend_comments_with_meta
+from src.recommender.safety_filter import get_block_reason
+from src.storage.published_store import (
+    apply_comment_metrics,
+    comment_ids_to_refresh,
+    list_published_comments,
+    published_summary,
+    record_published_comment,
+)
 from src.storage.analysis_store import (
     dashboard_summary,
     get_analysis,
@@ -32,8 +54,10 @@ from src.youtube.comments import (
     create_youtube_authorization_url,
     disconnect_youtube_oauth,
     publish_youtube_comment,
+    publish_youtube_reply,
     youtube_oauth_status,
 )
+from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads
 from src.youtube.demo import (
     DemoYouTubeNotConfiguredError,
     DemoYouTubeRateLimitError,
@@ -48,6 +72,9 @@ from src.youtube.context import (
     build_reference_text,
     fetch_youtube_context,
 )
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AI Comment Recommender",
@@ -106,6 +133,7 @@ def health_check():
             "demo": demo,
         },
         "storage": {"ready": True},
+        "auth": auth_status(),
     }
 
 
@@ -183,7 +211,7 @@ def preview_youtube_video(
     return _youtube_context_or_http_error(url, resolved_key).to_dict()
 
 
-@app.get("/youtube/oauth/status")
+@app.get("/youtube/oauth/status", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_connection_status(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -194,7 +222,7 @@ def youtube_oauth_connection_status(
     )
 
 
-@app.get("/youtube/oauth/start")
+@app.get("/youtube/oauth/start", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_start(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -238,7 +266,7 @@ def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
     )
 
 
-@app.post("/youtube/oauth/disconnect")
+@app.post("/youtube/oauth/disconnect", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_disconnect(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -273,11 +301,13 @@ def youtube_comment_publish(
     oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
 ):
     normalized_mode = _normalize_account_mode(account_mode)
+    if normalized_mode == "personal":
+        require_trusted_client(request)
 
     if normalized_mode == "demo":
         visitor_key = demo_visitor_key(_request_identity(request))
         try:
-            return publish_demo_youtube_comment(
+            result = publish_demo_youtube_comment(
                 video_id=payload.video_id,
                 channel_id=payload.channel_id,
                 comment=payload.comment,
@@ -293,9 +323,10 @@ def youtube_comment_publish(
             ) from exc
         except YouTubeCommentPublishError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        return _track_published_comment(result, payload, normalized_mode)
 
     try:
-        return publish_youtube_comment(
+        result = publish_youtube_comment(
             video_id=payload.video_id,
             channel_id=payload.channel_id,
             comment=payload.comment,
@@ -311,6 +342,181 @@ def youtube_comment_publish(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except YouTubeOAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _track_published_comment(result, payload, normalized_mode)
+
+
+def _track_published_comment(result: dict, payload: YouTubeCommentPublishRequest, mode: str) -> dict:
+    """게시에 성공한 댓글을 성과 추적 대상으로 기록한다. 기록 실패가 게시 결과를 바꾸지는 않는다."""
+    comment_id = result.get("comment_id")
+    if not comment_id:
+        return {**result, "tracked": False}
+    try:
+        record_published_comment(
+            video_id=result.get("video_id") or payload.video_id,
+            comment_id=str(comment_id),
+            comment=result.get("comment") or payload.comment,
+            comment_url=result.get("comment_url"),
+            account_mode=mode,
+            recommendation_id=payload.recommendation_id,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("published comment tracking failed")
+        return {**result, "tracked": False}
+    return {**result, "tracked": True}
+
+
+def _resolve_youtube_api_key(header_value: str | None, mode: str) -> str:
+    resolved = _normalize_youtube_api_key(header_value)
+    if not resolved:
+        env_names = ("DEMO_YOUTUBE_API_KEY", "YOUTUBE_API_KEY") if mode == "demo" else ("YOUTUBE_API_KEY",)
+        resolved = next(
+            (os.getenv(name, "").strip() for name in env_names if os.getenv(name, "").strip()),
+            None,
+        )
+    if not resolved:
+        raise HTTPException(status_code=503, detail="YouTube API key가 필요합니다. 계정 설정에서 연결해주세요.")
+    return resolved
+
+
+@app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
+def my_published_comments(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    limit: int = Query(default=100, ge=1, le=300),
+):
+    mode = _normalize_account_mode(account_mode)
+    items = list_published_comments(account_mode=mode, limit=limit)
+    return {"summary": published_summary(items), "items": items}
+
+
+@app.post("/my-comments/refresh", dependencies=[Depends(require_trusted_client)])
+def refresh_my_published_comments(
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    mode = _normalize_account_mode(account_mode)
+    comment_ids = comment_ids_to_refresh(account_mode=mode)
+    updated = 0
+    if comment_ids:
+        api_key = _resolve_youtube_api_key(youtube_api_key, mode)
+        try:
+            metrics = fetch_comment_metrics(comment_ids, api_key=api_key)
+        except YouTubeConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except YouTubeLookupError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        updated = apply_comment_metrics(comment_ids, metrics)
+    items = list_published_comments(account_mode=mode)
+    return {"checked_count": updated, "summary": published_summary(items), "items": items}
+
+
+@app.get("/creator/inbox")
+def creator_inbox(
+    url: str = Query(..., min_length=1, max_length=500),
+    order: str = Query(default="relevance", pattern="^(relevance|time)$"),
+    limit: int = Query(default=100, ge=1, le=300),
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    mode = _normalize_account_mode(account_mode)
+    api_key = _resolve_youtube_api_key(youtube_api_key, mode)
+    video = _youtube_context_or_http_error(url.strip(), api_key)
+    try:
+        threads = fetch_video_comment_threads(video.video_id, api_key=api_key, order=order, limit=limit)
+    except YouTubeConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    inbox = build_inbox(threads, channel_id=video.channel_id)
+    return {
+        "video": {
+            "video_id": video.video_id,
+            "url": video.url,
+            "title": video.title,
+            "channel": video.channel,
+            "channel_id": video.channel_id,
+            "thumbnail_url": video.thumbnail_url,
+            "comment_count": video.comment_count,
+        },
+        "order": order,
+        **inbox,
+    }
+
+
+def _optional_openai_client(api_key: str | None, model: str | None, mode: str) -> OpenAIResponsesClient | None:
+    key = _normalize_openai_api_key(api_key)
+    resolved_model = _normalize_openai_model(model)
+    for env_prefix in (("DEMO_", "") if mode == "demo" else ("",)):
+        key = key or _normalize_openai_api_key(os.getenv(f"{env_prefix}OPENAI_API_KEY"))
+        resolved_model = resolved_model or _normalize_openai_model(os.getenv(f"{env_prefix}OPENAI_MODEL"))
+    if not key or not resolved_model:
+        return None
+    return OpenAIResponsesClient(api_key=key, model=resolved_model)
+
+
+@app.post("/creator/inbox/reply-drafts")
+def creator_reply_drafts(
+    payload: ReplyDraftRequest,
+    openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
+    openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    mode = _normalize_account_mode(account_mode)
+    return draft_replies(
+        comment=payload.comment,
+        category=payload.category,
+        video_title=payload.video_title,
+        client=_optional_openai_client(openai_api_key, openai_model, mode),
+    )
+
+
+@app.post("/creator/inbox/replies", dependencies=[Depends(require_trusted_client)])
+def creator_reply_publish(
+    payload: CreatorReplyRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(
+            status_code=403,
+            detail="데모 계정은 답글을 게시할 수 없습니다. 개인 계정에서 본인 YouTube 채널을 연결해주세요.",
+        )
+    if get_block_reason(payload.text) in {"profanity", "hate_speech", "threat", "spam"}:
+        raise HTTPException(status_code=422, detail="안전 기준을 통과하지 못한 답글은 게시할 수 없습니다.")
+    try:
+        return publish_youtube_reply(
+            parent_id=payload.parent_id,
+            text=payload.text,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except YouTubeOAuthNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeOAuthNotAuthorizedError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except YouTubeOAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/recommend/graph")
+def recommend_comment_graph(request: RecommendRequest):
+    """Run the real LangGraph adapter using the same generation/safety/ranker code."""
+    if not request.youtube_url:
+        raise HTTPException(status_code=422, detail="LangGraph 경로는 youtube_url이 필요합니다.")
+    try:
+        return comment_writer_graph.invoke({
+            "video_url": request.youtube_url,
+            "top_k": request.top_k,
+            "additional_context": request.additional_context or "",
+            "category_hint": request.category or "",
+            "persona_id": request.persona_id,
+        })
+    except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
+        raise _generation_http_error(exc) from exc
 
 
 @app.post("/score")

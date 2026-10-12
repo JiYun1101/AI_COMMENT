@@ -9,3 +9,5 @@ python-dotenv
 requests
 youtube-transcript-api==1.2.4
 pytest
+httpx2
+langgraph>=1,<2
