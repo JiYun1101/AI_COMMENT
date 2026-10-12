@@ -171,4 +171,7 @@ def test_youtube_comment_publish_endpoint_uses_authenticated_publisher(monkeypat
         "video_id": "dQw4w9WgXcQ",
         "channel_id": "UC-test-channel",
         "comment": "추천 결과를 실제 댓글로 게시합니다.",
+        "client_id": None,
+        "client_secret": None,
+        "redirect_uri": None,
     }
