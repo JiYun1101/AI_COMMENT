@@ -6,8 +6,8 @@ from src.model.predict import score_comments
 from src.recommender.candidate_generator import generate_candidates
 
 
-def collect_video_context(video_url: str, *, additional_context: str | None = None, category_hint: str | None = None) -> dict:
-    video = fetch_youtube_context(video_url)
+def collect_video_context(video_url: str, *, additional_context: str | None = None, category_hint: str | None = None, youtube_api_key: str | None = None) -> dict:
+    video = fetch_youtube_context(video_url, api_key=youtube_api_key)
     source = build_reference_text(video)
     extra = (additional_context or "").strip() or None
     context = build_generation_context(source, youtube_context=video, additional_context=extra, category_hint=category_hint)
