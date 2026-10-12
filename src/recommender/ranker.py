@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import logging
+import os
+import time
+
 from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
 from src.recommender.candidate_generator import CandidateGenerationClient, generate_candidates
 from src.recommender.safety_filter import get_block_reason
 
+logger = logging.getLogger(__name__)
 MAX_GENERATION_ATTEMPTS = 3
+
+
+def _time_budget_seconds() -> float:
+    try:
+        v = float(os.getenv("RECOMMEND_TIME_BUDGET_SECONDS", "90"))
+        return v if v > 0 else 90.0
+    except ValueError:
+        return 90.0
 
 
 def _normalized_comment(value: str) -> str:
@@ -28,7 +41,14 @@ def recommend_comments_with_meta(
     safety_blocked_count = 0
     duplicate_candidate_count = 0
 
+    started_at = time.monotonic()
+    time_budget = _time_budget_seconds()
+    budget_exhausted = False
     for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+        if attempt > 1 and time.monotonic() - started_at >= time_budget:
+            budget_exhausted = True
+            logger.warning("ranker.budget_exhausted attempt=%d safe=%d", attempt, len(safe_candidates))
+            break
         candidates = generate_candidates(
             generation_context,
             minimum_count=max(top_k, 10),
@@ -70,12 +90,15 @@ def recommend_comments_with_meta(
             trace_candidates.append(trace_item)
             trace_by_normalized[normalized] = trace_item
 
+        logger.info("ranker.attempt attempt=%d generated=%d safe=%d elapsed_ms=%d",
+                    attempt, len(candidates), len(safe_candidates),
+                    int((time.monotonic()-started_at)*1000))
         if len(safe_candidates) >= top_k:
             break
 
     if len(safe_candidates) < top_k:
         raise LLMGenerationError(
-            f"안전 필터 통과 후보가 부족합니다 ({len(safe_candidates)}/{top_k}). 새 후보 생성에 실패했습니다."
+            f"안전 필터 통과 후보가 부족합니다 ({len(safe_candidates)}/{top_k}). " + ("생성 시간 예산을 초과했습니다." if budget_exhausted else "새 후보 생성에 실패했습니다.")
         )
 
     comments = [item["comment"] for item in safe_candidates]

@@ -3,11 +3,14 @@ from __future__ import annotations
 import html
 import logging
 import os
+import time
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from src.api.security import auth_status, require_trusted_client
+from src.logging_config import configure_logging
 from src.api.schemas import (
     CreatorReplyRequest,
     FeedbackRequest,
@@ -69,6 +72,7 @@ from src.youtube.context import (
     fetch_youtube_context,
 )
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -128,6 +132,7 @@ def health_check():
             "demo": demo,
         },
         "storage": {"ready": True},
+        "auth": auth_status(),
     }
 
 
@@ -205,7 +210,7 @@ def preview_youtube_video(
     return _youtube_context_or_http_error(url, resolved_key).to_dict()
 
 
-@app.get("/youtube/oauth/status")
+@app.get("/youtube/oauth/status", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_connection_status(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -216,7 +221,7 @@ def youtube_oauth_connection_status(
     )
 
 
-@app.get("/youtube/oauth/start")
+@app.get("/youtube/oauth/start", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_start(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -260,7 +265,7 @@ def youtube_oauth_callback(code: str = Query(...), state: str = Query(...)):
     )
 
 
-@app.post("/youtube/oauth/disconnect")
+@app.post("/youtube/oauth/disconnect", dependencies=[Depends(require_trusted_client)])
 def youtube_oauth_disconnect(
     oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
     oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
@@ -295,6 +300,8 @@ def youtube_comment_publish(
     oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
 ):
     normalized_mode = _normalize_account_mode(account_mode)
+    if normalized_mode == "personal":
+        require_trusted_client(request)
 
     if normalized_mode == "demo":
         visitor_key = demo_visitor_key(_request_identity(request))
@@ -370,7 +377,7 @@ def _resolve_youtube_api_key(header_value: str | None, mode: str) -> str:
     return resolved
 
 
-@app.get("/my-comments")
+@app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
 def my_published_comments(
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
     limit: int = Query(default=100, ge=1, le=300),
@@ -380,7 +387,7 @@ def my_published_comments(
     return {"summary": published_summary(items), "items": items}
 
 
-@app.post("/my-comments/refresh")
+@app.post("/my-comments/refresh", dependencies=[Depends(require_trusted_client)])
 def refresh_my_published_comments(
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
@@ -461,7 +468,7 @@ def creator_reply_drafts(
     )
 
 
-@app.post("/creator/inbox/replies")
+@app.post("/creator/inbox/replies", dependencies=[Depends(require_trusted_client)])
 def creator_reply_publish(
     payload: CreatorReplyRequest,
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),

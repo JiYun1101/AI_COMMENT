@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import Protocol
 
 from src.llm.openai_client import LLMGenerationError
 from src.llm.provider import get_llm_client
+
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateGenerationClient(Protocol):
@@ -36,11 +41,20 @@ def generate_candidates(
 
     provider = client or get_llm_client()
     target_pool_size = min(30, max(20, minimum_count * 2))
-    candidates = provider.generate(
-        generation_context,
-        candidate_count=target_pool_size,
-        persona=persona,
-    )
+    started_at = time.monotonic()
+    provider_name = type(provider).__name__
+    try:
+        candidates = provider.generate(
+            generation_context,
+            candidate_count=target_pool_size,
+            persona=persona,
+        )
+    except Exception:
+        logger.exception("llm.generate.failed provider=%s requested=%d elapsed_ms=%d",
+                         provider_name, target_pool_size, int((time.monotonic()-started_at)*1000))
+        raise
+    logger.info("llm.generate.ok provider=%s requested=%d returned=%d elapsed_ms=%d",
+                provider_name, target_pool_size, len(candidates), int((time.monotonic()-started_at)*1000))
     if len(candidates) < minimum_count:
         raise LLMGenerationError(f"LLM 후보 수가 부족합니다 ({len(candidates)}/{minimum_count}).")
     return candidates
