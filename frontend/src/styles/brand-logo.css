@@ -1,10 +1,12 @@
-/* Restored first uploaded logo, using a clean cropped PNG */
+/* Verified PNG logo. Keep the full artwork within the available header space. */
 .brand.brand-button {
-  width: 100%;
-  min-height: 90px;
-  padding: 4px 2px 14px;
-  overflow: visible;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  width: 100%;
+  min-height: 110px;
+  padding: 10px 4px 14px;
+  overflow: visible;
 }
 
 .brand-uploaded-logo {
@@ -14,42 +16,58 @@
   height: auto;
   object-fit: contain;
   image-rendering: auto;
-  filter: none;
-  transform: none;
-  transition: transform 150ms var(--ease-out), opacity 150ms var(--ease-out);
+  transition: transform 150ms ease, opacity 150ms ease;
 }
 
 .brand-button:hover .brand-uploaded-logo {
   transform: translateY(-1px);
-  opacity: .97;
+  opacity: .96;
 }
 
 .about-brand {
-  width: 210px;
-  min-height: 72px;
-  padding: 0;
-  overflow: visible;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 220px;
+  min-height: 90px;
+  padding: 8px 0;
+  overflow: visible;
 }
 
 .about-uploaded-logo {
   display: block;
-  width: 204px;
+  width: 210px;
   max-width: 100%;
   height: auto;
   object-fit: contain;
   image-rendering: auto;
-  filter: none;
-  transform: none;
+}
+
+/* Always display a usable brand title if image fetching or decoding fails. */
+.brand-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -.035em;
+  white-space: nowrap;
+  color: #151820;
+}
+.brand-fallback em {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  color: #2474ec;
+  border: 1px solid #b9d8ff;
+  border-radius: 20px;
+  padding: 4px 6px;
 }
 
 @media (max-width: 760px) {
-  .about-brand {
-    width: 176px;
-    min-height: 64px;
-  }
-
-  .about-uploaded-logo {
-    width: 170px;
-  }
+  .brand.brand-button { min-height: 99px; }
+  .about-brand { width: 180px; min-height: 80px; }
+  .about-uploaded-logo { width: 172px; }
+  .brand-fallback { font-size: 13px; }
 }

@@ -1,15 +1,21 @@
 import { ArrowRight, ImagePlus, MessageCircleMore, Sparkles } from 'lucide-react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import brandLogo from '../assets/ai-comment-brand-v1.png';
+import brandLogo from '../assets/ai-comment-brand-verified.png';
 
 export function AboutPage() {
   const navigate = useNavigate();
+  const [logoFailed, setLogoFailed] = useState(false);
 
   return (
     <main className="about-page">
       <header className="about-topbar">
         <button type="button" className="about-brand" onClick={() => navigate('/about')}>
-          <img className="about-uploaded-logo" src={brandLogo} alt="맛있는 댓글 자동 댓글" />
+          {logoFailed ? (
+            <span className="brand-fallback">맛있는 댓글 <em>✦ 자동 댓글</em></span>
+          ) : (
+            <img className="about-uploaded-logo" src={brandLogo} alt="맛있는 댓글 자동 댓글" onError={() => setLogoFailed(true)} />
+          )}
         </button>
 
         <button type="button" className="about-enter" onClick={() => navigate('/')}>
