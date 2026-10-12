@@ -503,8 +503,13 @@ def creator_reply_publish(
 
 
 @app.post("/recommend/graph")
-def recommend_comment_graph(request: RecommendRequest):
-    """Run the real LangGraph adapter using the same generation/safety/ranker code."""
+def recommend_comment_graph(
+    request: RecommendRequest,
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
+    openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
+):
+    """Run LangGraph with request-scoped API credentials (never returned in output)."""
     if not request.youtube_url:
         raise HTTPException(status_code=422, detail="LangGraph 경로는 youtube_url이 필요합니다.")
     try:
@@ -514,7 +519,16 @@ def recommend_comment_graph(request: RecommendRequest):
             "additional_context": request.additional_context or "",
             "category_hint": request.category or "",
             "persona_id": request.persona_id,
+            "youtube_api_key": _normalize_youtube_api_key(youtube_api_key) or "",
+            "openai_api_key": _normalize_openai_api_key(openai_api_key) or "",
+            "openai_model": _normalize_openai_model(openai_model) or "",
         })
+    except InvalidYouTubeUrlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except YouTubeConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except (LLMNotReadyError, LLMGenerationError, ModelNotReadyError) as exc:
         raise _generation_http_error(exc) from exc
 

@@ -36,6 +36,10 @@ class InputState(TypedDict):
     top_k: NotRequired[int]
     additional_context: NotRequired[str]
     category_hint: NotRequired[str]
+    persona_id: NotRequired[str]
+    youtube_api_key: NotRequired[str]
+    openai_api_key: NotRequired[str]
+    openai_model: NotRequired[str]
 
 
 class OutputState(TypedDict):
@@ -79,6 +83,10 @@ class State(MessagesState):
     top_k: int
     additional_context: str
     category_hint: str
+    persona_id: str
+    youtube_api_key: str
+    openai_api_key: str
+    openai_model: str
 
     video_id: str
     post_text: str
