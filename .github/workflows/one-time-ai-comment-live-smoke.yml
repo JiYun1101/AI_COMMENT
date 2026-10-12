@@ -1,0 +1,63 @@
+name: One-time live deployment smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/one-time-ai-comment-live-smoke.yml']
+permissions: {}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify live web API protection and LangGraph
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          API="https://ai-comment-api-lite.onrender.com"
+          WEB="https://ai-comment-web.onrender.com"
+          def req(method,url,obj=None):
+            data=None if obj is None else json.dumps(obj,ensure_ascii=False).encode()
+            headers={"User-Agent":"AI_COMMENT-github-live-smoke/1"}
+            if data is not None: headers["Content-Type"]="application/json"
+            request=urllib.request.Request(url,data=data,headers=headers,method=method)
+            try:
+              with urllib.request.urlopen(request,timeout=110) as response:
+                return response.status,response.read(20000).decode("utf-8","replace")
+            except urllib.error.HTTPError as exc:
+              return exc.code,exc.read(10000).decode("utf-8","replace")
+          def check(label,method,url,expect,obj=None):
+            status,body=req(method,url,obj)
+            print(f"{label}: HTTP {status}",flush=True)
+            if status!=expect:
+              print(body[:3500],flush=True)
+              raise AssertionError(f"{label}: expected {expect}, got {status}")
+            return body
+          check("frontend root","GET",WEB+"/",200)
+          check("frontend my-comments route","GET",WEB+"/my-comments",200)
+          check("frontend creator-inbox route","GET",WEB+"/creator-inbox",200)
+          raw=check("backend health","GET",API+"/health",200)
+          health=json.loads(raw)
+          summary={"status":health.get("status"),"model_ready":health.get("model",{}).get("ready"),"llm_ready":health.get("llm",{}).get("ready"),"llm_provider":health.get("llm",{}).get("provider"),"youtube_configured":health.get("youtube",{}).get("configured"),"oauth_authorized":health.get("youtube",{}).get("oauth",{}).get("authorized"),"oauth_configured":health.get("youtube",{}).get("oauth",{}).get("configured"),"demo_posting_configured":health.get("youtube",{}).get("demo",{}).get("posting_configured"),"auth_mode":health.get("auth",{}).get("mode")}
+          print("READINESS: "+json.dumps(summary,ensure_ascii=False),flush=True)
+          demo=json.loads(check("demo status","GET",API+"/youtube/demo/status",200))
+          print("DEMO_READY: "+str(demo.get("ready")),flush=True)
+          status,body=req("GET",API+"/my-comments")
+          print(f"protected engagement: HTTP {status}",flush=True)
+          if status not in (401,403):
+            raise AssertionError("personal engagement can be read without auth; unsafe")
+          check("graph validation","POST",API+"/recommend/graph",422,{"post_text":"missing URL","top_k":1})
+          if summary["model_ready"] and summary["llm_ready"] and summary["youtube_configured"]:
+            print("FULL_GRAPH: testing valid public YouTube video (read + generate only)",flush=True)
+            status,body=req("POST",API+"/recommend/graph",{"youtube_url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","top_k":1})
+            print(f"FULL_GRAPH_HTTP: {status} RESULT: {body[:2800]}",flush=True)
+            if status==200:
+              result=json.loads(body)
+              assert result.get("recommendations"),"empty recommendations"
+              print("FULL_GRAPH_PASS: recommendations generated",flush=True)
+            else:
+              print("FULL_GRAPH_FAIL: see error response above",flush=True)
+          else:
+            print("FULL_GRAPH_SKIPPED: deployment lacks model/LLM/YouTube readiness",flush=True)
+          print("SMOKE_BASELINE_PASSED",flush=True)
+          PY
