@@ -8,7 +8,7 @@ export function AboutPage() {
     <main className="about-page">
       <header className="about-topbar">
         <button type="button" className="about-brand" onClick={() => navigate('/about')}>
-          <img className="about-uploaded-logo" src="/ai-comment-brand-v1.png" alt="맛있는 댓글 자동 댓글" />
+          <img className="about-uploaded-logo" src="/ai-comment-brand-v2.png" alt="맛있는 댓글 자동 댓글" />
         </button>
 
         <button type="button" className="about-enter" onClick={() => navigate('/')}>
