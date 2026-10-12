@@ -3,7 +3,8 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/one-time-ai-comment-live-smoke.yml']
-permissions: {}
+permissions:
+  contents: write
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -82,3 +83,25 @@ jobs:
             print("MANUAL_RECOMMEND_FAIL: provider not usable in production",flush=True)
           print("SMOKE_BASELINE_PASSED",flush=True)
           PY
+
+      - name: Remove only merged owner-authored temporary fix branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_merged=$(gh api "repos/$GITHUB_REPOSITORY/pulls/17" --jq '.merged')
+          if [ "$pr_merged" != "true" ]; then
+            echo "SKIP branch not merged"; exit 0
+          fi
+          expected=508015d587c2929d064800f44486a34474b017f8
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/fix/live-langgraph-api-keys-20261012" --jq '.object.sha' 2>/dev/null) || exit 0
+          if [ "$actual" != "$expected" ]; then
+            echo "SKIP head changed"; exit 0
+          fi
+          author=$(gh api "repos/$GITHUB_REPOSITORY/commits/$actual" --jq '.author.login')
+          if [ "$author" != "JiYun1101" ]; then
+            echo "PRESERVE non-owner branch"; exit 0
+          fi
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/fix/live-langgraph-api-keys-20261012"
+          echo "DELETED temporary fix branch"
