@@ -59,6 +59,20 @@ jobs:
               print("FULL_GRAPH_FAIL: see error response above",flush=True)
           else:
             print("FULL_GRAPH_SKIPPED: deployment lacks model/LLM/YouTube readiness",flush=True)
+          status,body=req("POST",API+"/recommend/graph",{"youtube_url":"https://youtu.be/dQw4w9WgXcQ","top_k":1})
+          print("GRAPH_WITHOUT_YOUTUBE_KEY_HTTP: "+str(status)+" BODY: "+body[:500],flush=True)
+          if status!=503:
+            raise AssertionError("Expected clear 503 for missing YouTube API key")
+          from urllib.request import Request
+          cors=Request(API+"/health",method="OPTIONS",headers={
+            "Origin": WEB,
+            "Access-Control-Request-Method":"GET",
+            "Access-Control-Request-Headers":"content-type,x-youtube-api-key,x-openai-api-key"
+          })
+          with urllib.request.urlopen(cors,timeout=30) as resp:
+            origin=resp.headers.get("Access-Control-Allow-Origin")
+            print("CORS_HTTP: "+str(resp.status)+" ALLOW_ORIGIN: "+str(origin),flush=True)
+            assert origin==WEB,"Web origin not allowed by Render API"
           print("MANUAL_RECOMMEND: testing real provider with plain-text input",flush=True)
           status,body=req("POST",API+"/recommend",{"post_text":"AI 도구와 프론트엔드 개발에 관한 짧은 영상","top_k":1})
           print("MANUAL_RECOMMEND_HTTP: "+str(status)+" RESULT: "+body[:1400],flush=True)
