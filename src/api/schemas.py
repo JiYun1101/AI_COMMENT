@@ -62,3 +62,19 @@ class YouTubeCommentPublishRequest(BaseModel):
     video_id: str = Field(..., min_length=11, max_length=11)
     channel_id: str = Field(..., min_length=1, max_length=100)
     comment: str = Field(..., min_length=1, max_length=10_000)
+    recommendation_id: str | None = Field(
+        default=None,
+        max_length=40,
+        description="추천 결과에서 게시한 경우 그 추천 ID. 예측 점수와 실제 반응을 연결해 성과를 추적합니다.",
+    )
+
+
+class ReplyDraftRequest(BaseModel):
+    comment: str = Field(..., min_length=1, max_length=2_000)
+    category: Literal["question", "complaint", "risk", "praise", "other"] = "other"
+    video_title: str | None = Field(default=None, max_length=300)
+
+
+class CreatorReplyRequest(BaseModel):
+    parent_id: str = Field(..., min_length=1, max_length=100)
+    text: str = Field(..., min_length=1, max_length=2_000)

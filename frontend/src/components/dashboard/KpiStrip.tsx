@@ -6,7 +6,7 @@ interface KpiProps {
   sub: string;
 }
 
-function Kpi({ label, value, sub }: KpiProps) {
+export function Kpi({ label, value, sub }: KpiProps) {
   return (
     <div className="kpi">
       <div className="kpi-k">{label}</div>

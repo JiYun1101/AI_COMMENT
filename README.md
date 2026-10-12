@@ -122,6 +122,13 @@ curl http://127.0.0.1:8000/health
 
 ## Frontend
 
+### 2026-10-11 — 내 댓글 성과 · 받은 댓글함
+
+- 시청자 도구에 **내 댓글 성과**(`/my-comments`), 작성자 도구에 **받은 댓글함**(`/creator-inbox`)을 추가했습니다.
+- 추천 결과에서 YouTube에 게시하면 `recommendation_id`를 함께 보내 예측 점수와 실제 반응을 연결합니다.
+- 두 화면 모두 `tokens.css` 토큰만 쓰는 `frontend/src/styles/engagement.css`로 스타일을 분리했습니다.
+- 자세한 동작은 [게시 후 도구](#게시-후-도구-내-댓글-성과--받은-댓글함)를 참고하세요.
+
 ### 2026-08-31 — 추천 생성 스피너 추가
 
 - 추천 요청 후 결과가 생성되는 동안 `LoaderCircle` 기반 스피너를 표시합니다.
@@ -151,6 +158,13 @@ LLM 원본 후보 → Safety → Ranker → 최종 선택
 ---
 
 ## Backend (Machine Learning)
+
+### 2026-10-11 — 게시 댓글 반응 추적 · 받은 댓글 분류
+
+- 앱에서 게시한 댓글을 `published_comments` 테이블에 기록하고, YouTube Data API로 실제 좋아요·답글을 다시 읽어 옵니다.
+- 예상 점수와 실제 좋아요의 스피어만 순위 상관을 계산합니다. 랭커가 실제 반응을 맞히는지 확인하는 첫 지표이자, 이후 재학습용 라벨이 됩니다.
+- 작성자 본인 영상의 댓글을 규칙 기반으로 질문·불만·확인 필요·칭찬·기타로 나누고 답할 순서를 정합니다. 욕설·스팸 판정은 기존 안전 필터를 재사용합니다.
+- 답글 초안은 OpenAI 키가 있으면 LLM으로, 없으면 분류별 기본 문구로 만듭니다. 답글 게시는 개인 계정 OAuth와 영상 소유 확인을 거칩니다.
 
 ### 2026-08-26 — 실제 ranker 재학습 및 runtime 검증
 
@@ -347,6 +361,60 @@ npm audit --omit=dev --audit-level=high
 
 ---
 
+# 게시 후 도구: 내 댓글 성과 · 받은 댓글함
+
+기존 도구는 모두 "이렇게 반응할 것"이라는 예측에서 끝났습니다. 두 도구는 게시 **이후**의 실제 반응을 다시 읽어 와서
+예측을 검증하고, 작성자가 받은 댓글에 답하도록 돕습니다.
+
+## 내 댓글 성과 (`/my-comments`, 시청자 도구)
+
+```text
+추천 결과에서 YouTube에 게시
+→ POST /youtube/comments (recommendation_id 포함)
+→ published_comments에 기록
+→ "실제 반응 새로 확인" → POST /my-comments/refresh
+→ commentThreads.list(id=...)로 좋아요·답글 조회 (API key, 50개씩)
+→ 예상 점수 vs 실제 좋아요 비교
+```
+
+- **추적 대상**: 앱에서 게시에 성공한 댓글. 데모 계정과 개인 계정 기록은 분리해 보여 줍니다.
+- **24시간 · 7일 값**: 해당 시점이 지난 뒤 *처음 확인한* 반응으로 한 번만 고정합니다. 백그라운드 스케줄러는 없어서, 화면에서 새로 확인을 눌러야 갱신됩니다.
+- **조회 간격**: 최근 10분 안에 확인한 댓글은 다시 조회하지 않아 YouTube API 할당량을 아낍니다.
+- **삭제·검토 대기**: 조회 결과에 없는 댓글은 `missing`으로 표시하고 집계에서 뺍니다.
+- **예측-실제 순위 상관**: 추천에서 게시해 예상 점수가 있는 댓글이 3개 이상일 때 스피어만 상관(−1~1)을 보여 줍니다. 표본이 적을 때는 참고용입니다.
+- **유형별 평균 좋아요**: 인사이트·공감·질문 등 댓글 유형별로 실제 반응을 비교합니다. 직접 쓴 댓글은 "직접 작성"으로 묶입니다.
+
+## 받은 댓글함 (`/creator-inbox`, 작성자 도구)
+
+```text
+내 영상 URL
+→ GET /creator/inbox?url=...&order=relevance|time
+→ commentThreads.list(part=snippet,replies)로 최상위 댓글 최대 100개
+→ 규칙 기반 분류 + 우선순위
+→ 답글 초안 POST /creator/inbox/reply-drafts
+→ 작성자가 고쳐서 승인 → POST /creator/inbox/replies
+```
+
+| 분류 | 기준 | 답 필요 |
+|---|---|---|
+| 질문 | 물음표, "궁금/어떻게/어디서/알려 주" 등 | 작성자 답글이 없으면 예 |
+| 불만·개선 요청 | "아쉽/불편/비싸/소리가 작/화질이 별로" 등 | 작성자 답글이 없으면 예 |
+| 확인 필요 | 안전 필터의 욕설·혐오·위협·스팸, "사기/뒷광고/환불/신고" 등 분쟁 소지 | 아니오(먼저 검토) |
+| 칭찬·응원 | "감사/최고/유익/응원/만족" 등 | 아니오 |
+| 기타 | 위에 해당하지 않음 | 아니오 |
+
+- **우선순위**: 분류 기본 점수(질문 > 확인 필요 > 불만 > 칭찬 > 기타) + 좋아요·답글 수. 이미 작성자가 답한 스레드는 크게 내립니다.
+- **작성자 답변 여부**: 스레드에 함께 내려오는 답글(최대 5개) 중 영상 소유 채널의 답글이 있으면 "답변함"입니다.
+- **본인 댓글 제외**: 영상 소유 채널이 단 최상위 댓글(고정 댓글 등)은 목록에서 뺍니다.
+- **답글 초안**: OpenAI 키(개인 키 또는 데모 키)가 있으면 LLM 초안 3개, 없거나 실패하면 분류별 기본 문구 3개를 돌려줍니다. LLM 초안도 안전 필터를 다시 통과해야 하며, 없는 사실·일정 약속·링크·구독 요청은 넣지 않도록 지시합니다.
+- **답글 게시 안전장치**
+  - 데모 계정은 게시할 수 없습니다(403). 초안 복사만 가능합니다.
+  - 개인 계정 OAuth가 필요하며, 서버가 `channels.list(mine=true)`와 부모 댓글의 영상 소유 채널을 대조해 **본인 영상의 댓글에만** 답글을 답니다.
+  - 안전 필터에 걸리는 답글은 게시하지 않습니다(422).
+  - 자동 게시나 일괄 게시는 없습니다. 답글마다 작성자가 직접 누릅니다.
+
+---
+
 # Backend (Machine Learning)
 
 FastAPI API, 데이터 preprocessing, embedding feature, reaction ranker, SQLite 저장을 담당합니다.
@@ -418,6 +486,12 @@ data/runtime/ai_comment.db
 
 다른 위치는 `AI_COMMENT_DB_PATH`로 지정합니다. 현재 generation trace는 저장하지 않습니다.
 
+`published_comments`에는 앱에서 게시한 댓글과 실제 반응을 보관합니다.
+
+- `recommendation_id` — 추천에서 게시한 경우 예상 점수·유형과 연결
+- `like_count`, `reply_count`, `last_checked_at`, `status` — 마지막으로 확인한 반응
+- `likes_24h`, `replies_24h`, `likes_7d`, `replies_7d` — 시점별 고정 값
+
 ## 주요 API
 
 - `GET /health`
@@ -429,6 +503,12 @@ data/runtime/ai_comment.db
 - `GET /comments?...`
 - `GET /dashboard/summary`
 - `POST /recommendations/{recommendation_id}/feedback`
+- `POST /youtube/comments` — 응답에 성과 추적 기록 여부(`tracked`) 포함
+- `GET /my-comments` — 계정 모드별 게시 댓글과 요약
+- `POST /my-comments/refresh` — 실제 좋아요·답글 다시 확인
+- `GET /creator/inbox?url=...&order=relevance|time&limit=...`
+- `POST /creator/inbox/reply-drafts`
+- `POST /creator/inbox/replies` — 개인 계정 OAuth 필요
 
 YouTube 추천 예시:
 
@@ -769,6 +849,8 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 
 - generation trace는 현재 생성 응답에서만 확인할 수 있고 과거 history에는 복원되지 않습니다.
 - spinner는 전체 추천 요청 상태를 표시하며 provider 내부 token progress를 stream하지는 않습니다.
+- 받은 댓글함의 분류는 한국어 키워드 규칙이라 영어 댓글은 대부분 물음표가 있을 때만 질문으로 잡히고 나머지는 "기타"가 됩니다.
+- 받은 댓글함은 영상 하나씩 불러오며, 채널 전체 영상의 댓글을 한 번에 모아 보지는 않습니다.
 
 ## Backend (Machine Learning)
 
@@ -776,6 +858,9 @@ GitHub Actions의 기본 CI는 push/PR에서 backend pytest와 frontend test/lin
 - 2026-08-26 실제 재학습 test F1은 **0.2819**로 predictive quality 개선이 필요합니다.
 - reaction model artifact는 source control에 없으므로 production artifact 배포 절차가 별도로 필요합니다.
 - SQLite는 local/single-instance MVP 저장소입니다.
+- 게시 댓글 반응은 화면에서 새로 확인할 때만 갱신됩니다. 24시간·7일 값은 정확한 시점 값이 아니라 그 시점 이후 첫 확인 값입니다.
+- 내 댓글 성과는 사용자 계정 구분 없이 데모/개인 계정 모드로만 나눕니다. 여러 사람이 같은 서버를 쓰면 기록이 섞입니다.
+- 답변 여부는 스레드당 최근 답글 5개만 보고 판단하므로, 답글이 많은 스레드는 답했어도 "답 필요"로 보일 수 있습니다.
 
 ## AI
 

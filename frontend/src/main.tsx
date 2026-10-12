@@ -13,6 +13,7 @@ import './styles/reaction-preview.css';
 import './styles/creator-seed.css';
 import './styles/about.css';
 import './styles/brand-logo.css';
+import './styles/engagement.css';
 import App from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(
