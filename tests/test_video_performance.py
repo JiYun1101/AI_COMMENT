@@ -91,6 +91,22 @@ def test_channel_isolation_snapshots_and_cooldown(tmp_path):
     assert recently_synced("UC_A", now=BASE + timedelta(minutes=1), path=path)
 
 
+def test_interval_without_new_hourly_snapshot_still_shows_previous_change(tmp_path):
+    path = tmp_path / "video-short-interval.db"
+    record = {"video_id": VIDEO1, "title": "Test", "published_at": BASE.isoformat(),
+              "privacy_status": "public", "views": 100, "likes": 1, "comments": 0}
+    save_video_metrics("UC_A", "A", [record], observed_at=BASE, path=path)
+    initial = list_video_metrics("UC_A", now=BASE, path=path)
+    assert initial["items"][0]["views_since_previous"] is None
+
+    # The second real API measurement is within the hourly snapshot spacing.
+    now = BASE + timedelta(minutes=10)
+    save_video_metrics("UC_A", "A", [{**record, "views": 114}], observed_at=now, path=path)
+    second = list_video_metrics("UC_A", now=now, path=path)
+    assert second["items"][0]["views_since_previous"] == 14
+    assert second["items"][0]["views_24h"] is None
+
+
 def test_refresh_authorization_and_does_not_resync_recent(monkeypatch, tmp_path):
     import src.api.main as api
     monkeypatch.setenv("API_AUTH_TOKEN", "test-secret")

@@ -152,8 +152,17 @@ def list_video_metrics(channel_id: str, *, now=None, limit=300, path=None) -> di
                 (channel_id, item["video_id"]),
             ).fetchall()
             if snapshots:
-                previous = snapshots[1] if len(snapshots) >= 2 else None
-                item["views_since_previous"] = _delta(item["views"], previous["views"] if previous else None)
+                # The newest saved snapshot can be this very measurement.
+                # Skip it; otherwise compare against the last genuinely prior
+                # measurement. If the hourly snapshot was skipped, the most
+                # recent snapshot is the valid baseline.
+                previous = next(
+                    (s for s in snapshots if s["observed_at"] < item["last_checked_at"]),
+                    None,
+                )
+                item["views_since_previous"] = _delta(
+                    item["views"], previous["views"] if previous else None,
+                )
                 for label, period, tolerance in (
                     ("24h", timedelta(hours=24), timedelta(hours=6)),
                     ("7d", timedelta(days=7), timedelta(days=1)),
