@@ -16,12 +16,16 @@ export function AboutPage() {
           ) : (
             <svg className="about-uploaded-logo" viewBox="0 0 720 281" role="img" aria-label="맛있는 댓글 자동 댓글" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <mask id="aboutLogoWithoutDd" maskUnits="userSpaceOnUse">
+              <mask id="aboutLogoExcludeOldText" maskUnits="userSpaceOnUse">
                 <rect x="0" y="0" width="720" height="281" fill="white" />
-                <rect x="396" y="118" width="84" height="74" fill="black" />
+                <rect x="139" y="126" width="342" height="72" fill="black" />
               </mask>
+              <clipPath id="aboutLogoCenteredTextClip" clipPathUnits="userSpaceOnUse">
+                <rect x="181" y="126" width="260" height="72" />
+              </clipPath>
             </defs>
-            <image href={brandLogo} x="0" y="0" width="720" height="281" mask="url(#aboutLogoWithoutDd)" onError={() => setLogoFailed(true)} />
+            <image href={brandLogo} x="0" y="0" width="720" height="281" mask="url(#aboutLogoExcludeOldText)" onError={() => setLogoFailed(true)} />
+            <image href={brandLogo} x="42" y="0" width="720" height="281" clipPath="url(#aboutLogoCenteredTextClip)" />
           </svg>
           )}
         </button>
