@@ -24,6 +24,8 @@ export function DashboardPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [draftFilters, setDraftFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<DashboardFilters>(EMPTY_FILTERS);
@@ -31,9 +33,10 @@ export function DashboardPage() {
 
   const loadSummary = useCallback(() => {
     setSummaryLoading(true);
+    setSummaryError(null);
     getDashboardSummary()
       .then(setSummary)
-      .catch((err) => setError(err instanceof Error ? err.message : '대시보드 요약을 불러오지 못했습니다.'))
+      .catch((err) => setSummaryError(err instanceof Error ? err.message : '대시보드 요약을 불러오지 못했습니다.'))
       .finally(() => setSummaryLoading(false));
   }, []);
 
@@ -61,7 +64,12 @@ export function DashboardPage() {
         setSelected(new Set());
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : '댓글 목록을 불러오지 못했습니다.');
+        if (cancelled) return;
+        // Do not display the previous filter's results as if they matched this query.
+        setRows([]);
+        setTotal(0);
+        setSelected(new Set());
+        setError(err instanceof Error ? err.message : '댓글 목록을 불러오지 못했습니다.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -69,7 +77,14 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [filters, page]);
+  }, [filters, page, retryToken]);
+
+  const retryLoads = () => {
+    setError(null);
+    setSummaryError(null);
+    loadSummary();
+    setRetryToken((value) => value + 1);
+  };
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -147,7 +162,12 @@ export function DashboardPage() {
         <div className="content">
           <KpiStrip summary={summary} loading={summaryLoading} />
           <FilterBar value={draftFilters} onChange={setDraftFilters} onApply={applyFilters} onReset={resetFilters} />
-          {error && <div className="dashboard-state error">{error}</div>}
+          {(error || summaryError) && (
+            <div className="dashboard-state error" role="alert">
+              <span>{error || summaryError}</span>
+              <button type="button" className="btn secondary sm" onClick={retryLoads}>다시 시도</button>
+            </div>
+          )}
           <DataTable
             rows={rows}
             total={total}
