@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from src.recommender.writing_style import clean_comment, detect_style, casual_target
+
 ALLOWED_TYPES = {"insight", "empathy", "question", "casual", "general"}
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -90,7 +92,7 @@ def validate_candidates(payload: Any, *, references: list[str] | None = None, mi
     for item in raw_candidates:
         if not isinstance(item, dict):
             continue
-        comment = str(item.get("comment") or "").strip()
+        comment = clean_comment(item.get("comment") or "")
         comment_type = str(item.get("type") or "general").strip().lower()
         if comment_type not in ALLOWED_TYPES:
             comment_type = "general"
@@ -102,7 +104,7 @@ def validate_candidates(payload: Any, *, references: list[str] | None = None, mi
         if any(SequenceMatcher(None, normalized, reference).ratio() >= 0.92 for reference in reference_norms):
             continue
         seen.add(normalized)
-        results.append({"type": comment_type, "comment": comment})
+        results.append({"type": comment_type, "comment": comment, "writing_style": detect_style(comment, item.get("writing_style"))})
 
     if len(results) < minimum_count:
         raise LLMGenerationError(
@@ -134,7 +136,7 @@ formality, emotional tone, expression-marker, and length rules. It changes only 
 not the factual content, comment type, safety policy, or claimed identity. Never invent age, occupation,
 MBTI, fandom duration, viewing history, or personal experience to satisfy a persona.
 Do not add numbered suffixes such as '(1)' or meta commentary. Return JSON only in this shape:
-{"candidates":[{"type":"insight|empathy|question|casual|general","comment":"..."}]}
+{"candidates":[{"type":"insight|empathy|question|casual|general","writing_style":"standard|casual_imperfect","comment":"..."}]}
 """
 
 
@@ -146,8 +148,19 @@ def build_generation_input(
 ) -> dict:
     historical = context.get("historical_comments") or {}
     preferred_length = historical.get("preferred_length") or [20, 80]
+    conversational_count = casual_target(candidate_count, persona)
     task = {
         "candidate_count": candidate_count,
+        "writing_style_counts": {
+            "casual_imperfect": conversational_count,
+            "standard": candidate_count - conversational_count,
+        },
+        "punctuation_policy": "Very few emojis, laugh marks, terminal dots or decorative punctuation. Natural readable spacing.",
+        "writing_style_examples": {
+            "standard": "구체적이고 자연스러운 일반 한국어 댓글",
+            "casual_imperfect": "갠적으로 이 장면 좋음 / 먼가 신기하네 / 이거 넘 괜찮은듯",
+        },
+        "writing_style_note": "Casual text can have a small everyday abbreviation or imperfect ending. About half the comments, not every word.",
         "preferred_comment_length": preferred_length,
         "laughter_marker_max_ratio": 0.3 if persona and persona.get("id") == "playful_casual" else 0.1,
         "preferred_comment_styles": ["specific_observation", "genuine_question", "useful_insight", "warm_reaction"],

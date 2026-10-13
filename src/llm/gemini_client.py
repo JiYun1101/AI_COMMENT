@@ -101,8 +101,9 @@ class GeminiInteractionsClient:
                                     "properties": {
                                         "type": {"type": "STRING"},
                                         "comment": {"type": "STRING"},
+                                        "writing_style": {"type": "STRING", "enum": ["standard", "casual_imperfect"]},
                                     },
-                                    "required": ["type", "comment"],
+                                    "required": ["type", "comment", "writing_style"],
                                 },
                             }
                         },

@@ -11,6 +11,7 @@ from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
 from src.recommender.candidate_generator import CandidateGenerationClient, generate_candidates
 from src.recommender.safety_filter import get_block_reason
+from src.recommender.writing_style import casual_target, detect_style
 
 logger = logging.getLogger(__name__)
 MAX_GENERATION_ATTEMPTS = 3
@@ -53,7 +54,10 @@ def _too_similar(left: str, right: str) -> bool:
     return SequenceMatcher(None, a, b).ratio() >= 0.87
 
 
-def _select_diverse_results(scored: list[dict], top_k: int, persona: dict | None) -> list[dict]:
+def _select_diverse_results(
+    scored: list[dict], top_k: int, persona: dict | None,
+    writing_styles: dict[str, str] | None = None,
+) -> list[dict]:
     """Preserve ranker ordering but constrain repetitive laughter and near-paraphrases.
 
     Normal/default voice: at most 20% laughter-marked comments when alternatives
@@ -65,14 +69,25 @@ def _select_diverse_results(scored: list[dict], top_k: int, persona: dict | None
     marker_limit = max(1, math.ceil(top_k * (0.4 if playful else 0.2)))
     chosen: list[dict] = []
     chosen_ids: set[str] = set()
+    styles = writing_styles or {}
 
-    def add(allow_extra_laughter: bool, allow_similar: bool) -> None:
+    def style_for(row: dict) -> str:
+        content = str(row["comment"])
+        return detect_style(content, styles.get(content))
+
+    def add(allow_extra_laughter: bool, allow_similar: bool,
+            style: str | None = None, limit: int | None = None) -> None:
         for item in scored:
             if len(chosen) >= top_k:
                 return
             comment = str(item["comment"])
             if comment in chosen_ids:
                 continue
+            if style is not None:
+                if style_for(item) != style:
+                    continue
+                if limit is not None and sum(style_for(row) == style for row in chosen) >= limit:
+                    return
             if not allow_extra_laughter and _has_laughter(comment) and sum(
                 _has_laughter(str(row["comment"])) for row in chosen
             ) >= marker_limit:
@@ -82,11 +97,18 @@ def _select_diverse_results(scored: list[dict], top_k: int, persona: dict | None
             chosen.append(item)
             chosen_ids.add(comment)
 
-    # First prioritize meaningful variation, then relax constraints if needed.
-    add(allow_extra_laughter=False, allow_similar=False)
-    add(allow_extra_laughter=False, allow_similar=True)
-    add(allow_extra_laughter=True, allow_similar=False)
-    add(allow_extra_laughter=True, allow_similar=True)
+    # Reserve half the slots for naturally abbreviated chat comments (2/5 or 5/10).
+    # Strict formal personas intentionally remain fully standard.
+    informal_slots = casual_target(top_k, persona)
+    if informal_slots:
+        add(False, False, style="casual_imperfect", limit=informal_slots)
+    add(False, False, style="standard", limit=top_k - informal_slots)
+    # Never turn a useful result into an error when the model lacked one voice.
+    add(False, False)
+    add(False, True)
+    add(True, False)
+    add(True, True)
+    chosen.sort(key=lambda row: row["score"], reverse=True)
     return chosen[:top_k]
 
 
@@ -131,6 +153,7 @@ def recommend_comments_with_meta(
                 "attempt": attempt,
                 "type": candidate.get("type", "general"),
                 "comment": comment,
+                "writing_style": detect_style(comment, candidate.get("writing_style")),
                 "safety": "blocked" if block_reason else "passed",
                 "safety_reason": block_reason,
                 "duplicate": False,
@@ -172,7 +195,11 @@ def recommend_comments_with_meta(
         item["comment"]: item.get("type", "general") for item in safe_candidates
     }
 
-    selected_results = _select_diverse_results(scored_results, top_k, persona)
+    writing_styles = {
+        candidate["comment"]: detect_style(candidate["comment"], candidate.get("writing_style"))
+        for candidate in safe_candidates
+    }
+    selected_results = _select_diverse_results(scored_results, top_k, persona, writing_styles)
     recommendations = []
     for index, item in enumerate(selected_results, start=1):
         recommendations.append(
