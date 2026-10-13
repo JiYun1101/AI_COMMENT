@@ -1,10 +1,15 @@
-"""Clean decorative noise and track Korean writing styles without forced text mutation."""
+"""All generated recommendations omit laughter markers, emoji and emoticons."""
 from __future__ import annotations
+
 import re
 
 FORMAL_PERSONAS = {"polite_viewer", "calm_analyst"}
 STYLES = {"standard", "casual_imperfect"}
-EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]")
+EMOJI = re.compile("[\U0001F1E6-\U0001FAFF\u2600-\u27BF\uFE0E\uFE0F\u200D\u20E3]")
+LAUGHTER = re.compile(r"ㅋ+|ㅎ{2,}|\b(?:lol|lmao|rofl|haha|hehe)\b", re.I)
+EMOTICON = re.compile(
+    r"\^[_-]?\^|>[_-]<|ㅠ{2,}|ㅜ{2,}|(?<!\w)[:;=8][-^]?[)(DPp](?!\w)|(?<!\w)<3(?!\w)"
+)
 CHAT = re.compile(
     r"(?:^|\s)(?:걍|갠적(?:으론|으로)?|먼가|왜케|왤케|넘|담엔|담에|ㄹㅇ|"
     r"ㄱㅊ|ㅇㅈ|ㅇㅇ|머임|머지|이거진짜)(?:\s|$)"
@@ -13,10 +18,12 @@ CHAT = re.compile(
 
 
 def clean_comment(text: str) -> str:
-    cleaned = EMOJI.sub("", str(text or ""))
+    """100% removal of expressive marks; retain readable spaces and questions."""
+    cleaned = str(text or "")
+    cleaned = EMOJI.sub("", cleaned)
+    cleaned = EMOTICON.sub("", cleaned)
+    cleaned = LAUGHTER.sub("", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"ㅋ{3,}", "ㅋㅋ", cleaned)
-    cleaned = re.sub(r"ㅎ{3,}", "ㅎㅎ", cleaned)
     return re.sub(r"[.!！。．…~]+$", "", cleaned).strip()
 
 
