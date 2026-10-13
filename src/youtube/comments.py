@@ -573,3 +573,28 @@ def fetch_owned_youtube_comment(
         "published_at": snippet.get("publishedAt"),
         "comment_url": f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}",
     }
+
+
+def authenticated_youtube_channel(
+    *, session=None, client_id: str | None = None,
+    client_secret: str | None = None, redirect_uri: str | None = None,
+) -> dict:
+    """Verified stable YouTube channel identity for the currently authorized OAuth token."""
+    http = session or requests.Session()
+    payload = _authorized_json(
+        http, YOUTUBE_CHANNELS_URL,
+        params={"part": "id,snippet", "mine": "true"},
+        failure="현재 연결된 YouTube 계정을 확인하지 못했습니다",
+        client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri,
+    )
+    channels = payload.get("items") or []
+    if not channels or not channels[0].get("id"):
+        raise YouTubeCommentPublishError(
+            "연결된 Google 계정에 확인 가능한 YouTube 채널이 없습니다.", status_code=403
+        )
+    item = channels[0]
+    return {
+        "channel_id": str(item["id"]),
+        "channel_title": str((item.get("snippet") or {}).get("title") or ""),
+    }
+
