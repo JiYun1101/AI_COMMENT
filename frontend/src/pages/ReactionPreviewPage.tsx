@@ -13,13 +13,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getHealth, recommend } from '../api/client';
+import { getAudienceObserved, getHealth, recommend, saveAudienceSnapshot } from '../api/client';
 import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
-import type { RecommendResponse, ServiceHealth } from '../types/comment';
-import { isValidYouTubeVideoUrl } from '../utils/youtube';
+import type { AudienceObservationReport, AudienceSnapshotSummary, RecommendResponse, ServiceHealth } from '../types/comment';
+import { extractYouTubeVideoId, isValidYouTubeVideoUrl } from '../utils/youtube';
 
-type IntentKey = 'question' | 'praise' | 'confusion' | 'complaint' | 'purchase' | 'risk';
+type IntentKey = 'question' | 'praise' | 'confusion' | 'complaint' | 'purchase' | 'risk' | 'other';
 
 interface IntentDefinition {
   key: IntentKey;
@@ -41,6 +41,7 @@ const INTENTS: IntentDefinition[] = [
   { key: 'complaint', label: '불만', description: '아쉬움·비판·불편을 드러내는 반응' },
   { key: 'purchase', label: '구매 의도', description: '가격·구매·출시 여부에 관심을 보이는 반응' },
   { key: 'risk', label: '리스크', description: '논란·신뢰·안전 이슈로 번질 수 있는 반응' },
+  { key: 'other', label: '기타', description: '분류 규칙에 해당하지 않는 반응' },
 ];
 
 function classifyIntent(comment: string, type: string): IntentKey {
@@ -50,7 +51,8 @@ function classifyIntent(comment: string, type: string): IntentKey {
   if (/(별로|아쉽|실망|불편|비싸|싫|최악|왜 이렇게|문제 있|개선|답답)/i.test(text) || type === 'negative') return 'complaint';
   if (/(무슨 뜻|이해가 안|이해 안|헷갈|모르겠|차이가 뭐|어떤 의미|설명이 부족|왜 그런)/i.test(text)) return 'confusion';
   if (comment.includes('?') || type === 'question' || /(궁금|어떻게|왜 |뭐가|언제|어디|누가|인가요)/i.test(text)) return 'question';
-  return 'praise';
+  if (type === 'empathy' || type === 'insight' || /(감사|고마|최고|좋아요|잘\s*봤|응원|유익|도움|재밌|재미있|대박|힐링)/.test(text)) return 'praise';
+  return 'other';
 }
 
 function buildReactionItems(response: RecommendResponse): ReactionItem[] {
@@ -94,6 +96,11 @@ export function ReactionPreviewPage() {
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<RecommendResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [observed, setObserved] = useState<AudienceObservationReport | null>(null);
+  const [observing, setObserving] = useState(false);
+  const [observationError, setObservationError] = useState<string | null>(null);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<AudienceSnapshotSummary | null>(null);
 
   const urlValid = useMemo(() => isValidYouTubeVideoUrl(url), [url]);
   const reactions = useMemo(() => (response ? buildReactionItems(response) : []), [response]);
@@ -124,6 +131,8 @@ export function ReactionPreviewPage() {
     setLoading(true);
     setError(null);
     setResponse(null);
+    setObserved(null);
+    setSavedSnapshot(null);
     try {
       const next = await recommend({
         youtube_url: url.trim(),
@@ -135,6 +144,40 @@ export function ReactionPreviewPage() {
       setError(err instanceof Error ? err.message : '영상 반응을 분석하지 못했습니다.');
     } finally {
       setLoading(false);
+    }
+  };
+
+
+  const loadObserved = async () => {
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId || observing) return;
+    setObserving(true);
+    setObservationError(null);
+    setObserved(null);
+    setSavedSnapshot(null);
+    try {
+      const id = response?.youtube_context?.video_id === videoId ? response.analysis_id : null;
+      setObserved(await getAudienceObserved(videoId, id));
+    } catch (err) {
+      setObservationError(err instanceof Error ? err.message : '실제 댓글을 불러오지 못했습니다.');
+    } finally {
+      setObserving(false);
+    }
+  };
+
+  const persistObserved = async () => {
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId || savingSnapshot) return;
+    setSavingSnapshot(true);
+    setObservationError(null);
+    try {
+      const result = await saveAudienceSnapshot(videoId, observed?.analysis_id);
+      setObserved(result.report);
+      setSavedSnapshot(result.snapshot);
+    } catch (err) {
+      setObservationError(err instanceof Error ? err.message : '실측 기록을 저장하지 못했습니다. 서버 연결을 확인해주세요.');
+    } finally {
+      setSavingSnapshot(false);
     }
   };
 
@@ -156,7 +199,7 @@ export function ReactionPreviewPage() {
             <div>
               <span className="reaction-kicker"><Eye size={14} /> AUDIENCE REACTION PREVIEW</span>
               <h2>이 영상을 본 시청자는<br />어떤 반응을 남길까?</h2>
-              <p>기존 댓글 생성 파이프라인의 Safety 통과 후보를 재사용해 질문·칭찬·혼란·불만·구매 의도·리스크 6개 반응으로 묶어 보여줍니다.</p>
+              <p>기존 댓글 생성 파이프라인의 Safety 통과 후보를 재사용해 질문·칭찬·혼란·불만·구매 의도·리스크·기타 7개 반응으로 묶어 보여줍니다.</p>
             </div>
             <div className="reaction-hero-badge">
               <Activity size={20} />
@@ -181,6 +224,9 @@ export function ReactionPreviewPage() {
                 onChange={(event) => {
                   setUrl(event.target.value);
                   setResponse(null);
+                  setObserved(null);
+                  setSavedSnapshot(null);
+                  setObservationError(null);
                   setError(null);
                 }}
                 onKeyDown={(event) => {
@@ -189,14 +235,14 @@ export function ReactionPreviewPage() {
               />
               <button type="button" className="btn primary reaction-run-button" onClick={() => void runPreview()} disabled={!urlValid || loading || missingSetup}>
                 {loading ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
-                {loading ? '분석 중...' : '반응 미리보기'}
+                {loading ? '분석 중...' : '예상 반응 생성'}
               </button>
             </div>
             {url.trim() && !urlValid && <div className="reaction-inline-error">올바른 YouTube 영상 URL을 입력해주세요.</div>}
             {missingSetup && (
               <div className="reaction-readiness">
                 <AlertCircle size={16} />
-                <span>YouTube 또는 LLM 연결이 필요합니다.</span>
+                <span>예상 반응 생성은 YouTube·LLM 연결이 필요하지만 실제 댓글 분석은 LLM 없이 할 수 있습니다.</span>
                 <button type="button" onClick={() => navigate('/account/connect')}><Settings size={13} /> 계정 설정</button>
               </div>
             )}
@@ -242,7 +288,7 @@ export function ReactionPreviewPage() {
                 </article>
                 <article className="reaction-summary-card">
                   <span className="reaction-card-kicker"><MessageCircleQuestion size={14} /> 반응 다양성</span>
-                  <strong>{distribution.filter((item) => item.count > 0).length}/6</strong>
+                  <strong>{distribution.filter((item) => item.count > 0).length}/7</strong>
                   <p>현재 영상에서 감지된 서로 다른 intent 유형입니다.</p>
                   <div className="reaction-mini-status">분류기는 다음 단계에서 모델화 예정</div>
                 </article>
@@ -284,7 +330,7 @@ export function ReactionPreviewPage() {
               </section>
 
               <section className="reaction-next-step">
-                <div><strong>다음 단계</strong><span>실제 채널 댓글을 수집하면 게시 후 실제 반응과 이 예상 분포를 비교해 calibration할 수 있습니다.</span></div>
+                <div><strong>다음 단계</strong><span>실제 댓글을 조회해 예상 후보와 비교할 수 있습니다. 저장한 표본은 후속 검증과 Audience Memory의 기반이 됩니다.</span></div>
                 <button type="button" className="btn secondary" onClick={() => navigate('/')}>댓글 추천으로 이동 <ArrowRight size={14} /></button>
               </section>
             </>
