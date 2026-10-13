@@ -63,7 +63,7 @@ def fetch_comment_metrics(comment_ids: list[str], *, api_key: str | None, sessio
     for start in range(0, len(ids), MAX_IDS_PER_REQUEST):
         batch = ids[start : start + MAX_IDS_PER_REQUEST]
         body = _json_or_error(
-            _get(http, {"part": "snippet", "id": ",".join(batch), "maxResults": len(batch)}, key),
+            _get(http, {"part": "snippet", "id": ",".join(batch)}, key),
             "댓글 반응을 조회하지 못했습니다",
         )
         for item in body.get("items") or []:
