@@ -598,3 +598,54 @@ def authenticated_youtube_channel(
         "channel_title": str((item.get("snippet") or {}).get("title") or ""),
     }
 
+
+
+def verify_owned_comment_batch(
+    entries: list[dict], *, session=None,
+    client_id: str | None = None, client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> tuple[list[dict], list[dict], dict]:
+    """Retrieve real comments in batches and bind to the verified OAuth channel.
+
+    Never write pasted text directly to the database. A successful OAuth token
+    alone is insufficient: each restored comment must belong to that channel.
+    """
+    if not entries or len(entries) > 30:
+        raise YouTubeCommentPublishError("한 번에 댓글 1~30개까지 등록할 수 있습니다.", status_code=422)
+    owner = authenticated_youtube_channel(
+        session=session, client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri,
+    )
+    http = session or requests.Session()
+    oauth = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+    unique = {}
+    for entry in entries:
+        vid, cid = str(entry.get("video_id") or ""), str(entry.get("comment_id") or "")
+        if not VIDEO_ID_RE.fullmatch(vid) or not cid or len(cid) > 100:
+            raise YouTubeCommentPublishError("댓글 주소에 올바른 영상·댓글 ID가 필요합니다.", status_code=422)
+        unique[cid] = vid
+    payload = _authorized_json(
+        http, YOUTUBE_COMMENTS_URL,
+        params={"part": "snippet", "id": ",".join(unique), "textFormat": "plainText", "maxResults": 50},
+        failure="YouTube 게시 댓글을 조회할 수 없습니다", **oauth,
+    )
+    verified = []
+    rejected = []
+    records = {str(item.get("id")): item for item in (payload.get("items") or [])}
+    for cid, vid in unique.items():
+        item = records.get(cid)
+        snippet = (item or {}).get("snippet") or {}
+        if not item:
+            rejected.append({"comment_id": cid, "reason": "YouTube에서 찾을 수 없는 댓글"})
+        elif (snippet.get("authorChannelId") or {}).get("value") != owner["channel_id"]:
+            rejected.append({"comment_id": cid, "reason": "현재 연결한 채널의 댓글이 아님"})
+        elif snippet.get("videoId") != vid:
+            rejected.append({"comment_id": cid, "reason": "댓글이 지정한 영상에 속하지 않음"})
+        else:
+            verified.append({
+                "video_id": vid,
+                "comment_id": cid,
+                "comment": str(snippet.get("textOriginal") or snippet.get("textDisplay") or ""),
+                "published_at": snippet.get("publishedAt"),
+                "comment_url": f"https://www.youtube.com/watch?v={vid}&lc={cid}",
+            })
+    return verified, rejected, owner
