@@ -61,6 +61,7 @@ from src.youtube.comments import (
     publish_youtube_comment,
     publish_youtube_reply,
     fetch_owned_youtube_comment,
+    verify_owned_comment_batch,
     authenticated_youtube_channel,
     youtube_oauth_status,
 )
@@ -450,6 +451,52 @@ def recover_published_comment(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return {"tracked": True, "id": stored_id, **original}
 
+
+
+
+class RecoverCommentBatchRequest(BaseModel):
+    comments: list[RecoverCommentRequest] = Field(min_length=1, max_length=30)
+
+
+@app.post("/my-comments/recover/batch", dependencies=[Depends(require_trusted_client)])
+def recover_published_batch(
+    payload: RecoverCommentBatchRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정을 연결해야 복구할 수 있습니다.")
+    try:
+        verified, rejected, owner = verify_owned_comment_batch(
+            [row.model_dump() for row in payload.comments],
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    saved = []
+    for row in verified:
+        try:
+            record_id = record_published_comment(
+                video_id=row["video_id"], comment_id=row["comment_id"], comment=row["comment"],
+                comment_url=row["comment_url"], published_at=row["published_at"],
+                account_mode="personal", owner_channel_id=owner["channel_id"],
+            )
+            saved.append({"id": record_id, **row})
+        except Exception:
+            logger.exception("batch comment recovery persistence failed")
+            rejected.append({"comment_id": row["comment_id"], "reason": "서버 기록 저장에 실패했습니다"})
+    return {
+        "owner_channel_id": owner["channel_id"],
+        "registered_count": len(saved), "failed_count": len(rejected),
+        "items": saved, "failures": rejected,
+        "storage_persistent": os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true",
+    }
 
 
 
