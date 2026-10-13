@@ -250,6 +250,7 @@ export interface PublishedComment {
   status: 'pending' | 'active' | 'missing';
   last_checked_at: string | null;
   local_only?: boolean;
+  public_metric_status?: 'active' | 'unavailable';
   predicted_score: number | null;
   comment_type: string | null;
   video_title: string | null;

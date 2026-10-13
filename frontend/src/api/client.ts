@@ -21,6 +21,7 @@ import type {
   YouTubeOAuthStatus,
   OwnedVideoPerformanceResponse,
 } from '../types/comment';
+import { applySavedPublicMetrics, type PublicMetricResponse } from '../utils/publicMetricsBackup';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
@@ -388,16 +389,16 @@ export async function listMyComments(): Promise<PublishedCommentsResponse> {
       '내가 단 댓글을 불러오지 못했습니다',
     );
     backUpServerComments(response.items);
-    return mergePostedBackup(response, mode);
+    return applySavedPublicMetrics(mergePostedBackup(response, mode), mode);
   } catch (error) {
     const backup = readPostedBackup(mode);
     if (!backup.length) throw error;
-    return mergePostedBackup({
+    return applySavedPublicMetrics(mergePostedBackup({
       summary: {
         tracked_count: 0, measured_count: 0, missing_count: 0, average_likes: null,
         replied_rate: null, prediction_pair_count: 0, prediction_spearman: null, by_type: [],
       }, items: [], backend_unavailable: true,
-    }, mode);
+    }, mode), mode);
   }
 }
 
@@ -408,7 +409,22 @@ export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
     '실제 반응을 새로 확인하지 못했습니다',
   );
   backUpServerComments(response.items);
-  return mergePostedBackup(response, getAccountMode());
+  return applySavedPublicMetrics(mergePostedBackup(response, getAccountMode()), getAccountMode());
+}
+
+/** Public read-only lookup for local comment receipts; no OAuth or re-posting. */
+export async function lookupPublicCommentMetrics(
+  comments: Array<{ video_id: string; comment_id: string }>,
+): Promise<PublicMetricResponse> {
+  return requestJson<PublicMetricResponse>(
+    API_BASE + '/my-comments/public-metrics',
+    {
+      method: 'POST',
+      headers: withRuntimeKeys({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ comments }),
+    },
+    '브라우저 백업 댓글의 공개 반응을 조회하지 못했습니다',
+  );
 }
 
 export async function recoverPublishedBatch(
