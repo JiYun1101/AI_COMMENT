@@ -10,12 +10,13 @@ import requests
 from src.youtube.context import VIDEO_ID_RE, YouTubeConfigurationError, YouTubeLookupError
 
 YOUTUBE_COMMENT_THREADS_URL = "https://www.googleapis.com/youtube/v3/commentThreads"
+YOUTUBE_COMMENTS_URL = "https://www.googleapis.com/youtube/v3/comments"
 MAX_IDS_PER_REQUEST = 50
 
 
-def _get(http, params: dict, api_key: str) -> requests.Response:
+def _get(http, params: dict, api_key: str, *, url: str = YOUTUBE_COMMENT_THREADS_URL) -> requests.Response:
     try:
-        return http.get(YOUTUBE_COMMENT_THREADS_URL, params={**params, "key": api_key}, timeout=10)
+        return http.get(url, params={**params, "key": api_key}, timeout=10)
     except requests.RequestException as exc:
         raise YouTubeLookupError("YouTube API에 연결할 수 없습니다.") from exc
 
@@ -52,9 +53,12 @@ def _require_key(api_key: str | None) -> str:
 
 
 def fetch_comment_metrics(comment_ids: list[str], *, api_key: str | None, session=None) -> dict[str, dict]:
-    """최상위 댓글 ID별 현재 좋아요 수와 답글 수를 돌려준다.
+    """Read exact comment IDs, not comment-thread IDs.
 
-    응답에 없는 ID는 삭제됐거나 검토 대기 중인 댓글이라 결과에서 빠진다.
+    comments.list returns the like count and author metadata of both top-level
+    comments and replies. For a top-level comment, comments.list(parentId=...)
+    provides reply totals. commentThreads.list(id=...) is not a reliable ID
+    lookup for modern YouTube comments.
     """
     key = _require_key(api_key)
     ids = [value for value in dict.fromkeys(comment_ids) if value]
@@ -63,15 +67,42 @@ def fetch_comment_metrics(comment_ids: list[str], *, api_key: str | None, sessio
     for start in range(0, len(ids), MAX_IDS_PER_REQUEST):
         batch = ids[start : start + MAX_IDS_PER_REQUEST]
         body = _json_or_error(
-            _get(http, {"part": "snippet", "id": ",".join(batch)}, key),
-            "댓글 반응을 조회하지 못했습니다",
+            _get(http, {"part": "snippet", "id": ",".join(batch)}, key,
+                 url=YOUTUBE_COMMENTS_URL),
+            "댓글 좋아요를 조회하지 못했습니다",
         )
         for item in body.get("items") or []:
+            cid = str(item.get("id") or "")
+            if cid not in batch:
+                continue
             snippet = item.get("snippet") or {}
-            top = (snippet.get("topLevelComment") or {}).get("snippet") or {}
-            metrics[str(item.get("id"))] = {
-                "like_count": int(top.get("likeCount") or 0),
-                "reply_count": int(snippet.get("totalReplyCount") or 0),
+            replies = 0
+            if not snippet.get("parentId"):
+                reply_body = _json_or_error(
+                    _get(http, {"part": "id", "parentId": cid, "maxResults": 100},
+                         key, url=YOUTUBE_COMMENTS_URL),
+                    "댓글 답글을 조회하지 못했습니다",
+                )
+                page_info = reply_body.get("pageInfo") or {}
+                count = page_info.get("totalResults")
+                if isinstance(count, int) and count >= 0:
+                    replies = count
+                else:
+                    replies = len(reply_body.get("items") or [])
+                    # No total available: count all pages rather than report an
+                    # incomplete number as an exact reply count.
+                    next_page = reply_body.get("nextPageToken")
+                    while next_page:
+                        reply_body = _json_or_error(
+                            _get(http, {"part": "id", "parentId": cid, "maxResults": 100,
+                                        "pageToken": next_page}, key, url=YOUTUBE_COMMENTS_URL),
+                            "댓글 답글을 조회하지 못했습니다",
+                        )
+                        replies += len(reply_body.get("items") or [])
+                        next_page = reply_body.get("nextPageToken")
+            metrics[cid] = {
+                "like_count": int(snippet.get("likeCount") or 0),
+                "reply_count": replies,
             }
     return metrics
 
