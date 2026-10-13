@@ -433,6 +433,14 @@ export async function recoverPublishedBatch(
   );
 }
 
+export async function claimLegacyPublishedHistory(): Promise<{ checked: number; restored: number; remaining: number }> {
+  return requestJson(
+    API_BASE + '/my-comments/claim-legacy',
+    { method: 'POST', headers: withYouTubeOAuth(withRuntimeKeys()) },
+    '이전 서버 댓글 기록 연결에 실패했습니다',
+  );
+}
+
 export async function recoverPublishedComment(
   videoId: string, commentId: string,
 ): Promise<{ tracked: true; id: string; video_id: string; comment_id: string }> {
