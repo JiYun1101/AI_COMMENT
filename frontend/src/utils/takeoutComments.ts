@@ -45,12 +45,16 @@ function normalizeVideoId(value: string): string {
 export function parseTakeoutCommentsCsv(text: string): TakeoutCommentIdentity[] {
   const rows = parseCsv(text.replace(/^\uFEFF/, ''));
   if (!rows.length) return [];
-  const headers = rows[0].map((v) => v.trim().toLowerCase().replace(/[^a-z0-9]/g, ''));
+  // YouTube / Google Takeout exports use localized headers. Preserve Hangul
+  // while removing separators (previous ASCII-only normalization erased them).
+  const headers = rows[0].map((v) => v.normalize('NFKC')
+    .toLocaleLowerCase().replace(/[\s_.()\-]+/g, '').trim());
   const index = (...keys: string[]) => headers.findIndex((h) => keys.includes(h));
-  const commentIndex = index('commentid', 'commentidentifier');
-  const videoIndex = index('videoid', 'videourl', 'videolink');
+  const commentIndex = index('commentid', 'commentidentifier', '댓글id', '댓글아이디', '댓글식별자');
+  const videoIndex = index('videoid', 'videourl', 'videolink',
+    '동영상id', '동영상아이디', '동영상url', '동영상링크', '영상id', '영상아이디');
   if (commentIndex < 0 || videoIndex < 0) {
-    throw new Error('Google Takeout 댓글 CSV에서 Comment ID 또는 Video ID 열을 찾지 못했습니다.');
+    throw new Error('댓글 ID·동영상 ID 열을 찾지 못했습니다. Google Takeout의 댓글 CSV 또는 Comment ID·Video ID 열이 있는 파일을 선택해 주세요.');
   }
   const ids = new Map<string, TakeoutCommentIdentity>();
   for (const row of rows.slice(1)) {
