@@ -46,6 +46,36 @@ function setStoredValue(key: string, value: string): void {
   else window.localStorage.removeItem(key);
 }
 
+
+export interface ServerPairingResult {
+  access_token: string;
+  expires_at: number;
+}
+
+export async function verifyServerConnection(token = getStoredApiAccessToken()): Promise<{ connected: boolean }> {
+  return requestJson<{ connected: boolean }>(
+    API_BASE + '/auth/session',
+    { headers: token ? { 'X-API-Key': token } : {} },
+    '서버 연결 상태를 확인하지 못했습니다',
+  );
+}
+
+export async function connectServerWithCode(code: string): Promise<ServerPairingResult> {
+  const result = await requestJson<ServerPairingResult>(
+    API_BASE + '/auth/connect',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairing_code: code.trim() }),
+    },
+    '서버 연결에 실패했습니다',
+  );
+  const verified = await verifyServerConnection(result.access_token);
+  if (!verified.connected) throw new Error('서버 연결을 확인하지 못했습니다.');
+  setStoredApiAccessToken(result.access_token);
+  return result;
+}
+
 export function getStoredApiAccessToken(): string {
   return getStoredValue(API_ACCESS_TOKEN_STORAGE_KEY);
 }

@@ -427,3 +427,30 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Private browser pairing: no server master key is shipped to the UI. */
+.server-connection-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--neutral-100);
+  color: var(--fg2);
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 16px;
+}
+.server-connection-status.connected { background: var(--success-50); color: var(--success-700); }
+.server-connection-status.disconnected { background: var(--warning-50); color: var(--warning-700); }
+.server-advanced {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.server-advanced summary {
+  cursor: pointer;
+  color: var(--fg3);
+  font-size: 12px;
+  margin-bottom: 14px;
+}

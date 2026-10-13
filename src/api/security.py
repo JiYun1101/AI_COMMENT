@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import ipaddress
 import logging
 import os
 import secrets
+import time
 
 from fastapi import HTTPException, Request
 
@@ -23,12 +27,69 @@ def _is_loopback(host: str | None) -> bool:
         return False
 
 
+
+PAIRED_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def pairing_available() -> bool:
+    """Only server-configured, time-limited invitations can create sessions."""
+    if not (os.getenv("API_AUTH_TOKEN") or "").strip():
+        return False
+    if not (os.getenv("API_PAIRING_TOKEN") or "").strip():
+        return False
+    try:
+        expires_at = int(os.getenv("API_PAIRING_EXPIRES_AT") or "0")
+    except ValueError:
+        return False
+    return expires_at > int(time.time())
+
+
+def create_paired_session(pairing_code: str) -> dict:
+    """Never return the server master secret; mint a 30-day signed session."""
+    if not pairing_available():
+        raise HTTPException(status_code=503, detail="서버 연결 초대가 준비되지 않았거나 만료되었습니다.")
+    expected = (os.getenv("API_PAIRING_TOKEN") or "").strip()
+    if not secrets.compare_digest(pairing_code.strip(), expected):
+        logger.warning("api.auth.pairing_rejected")
+        raise HTTPException(status_code=401, detail="서버 연결 코드가 유효하지 않습니다.")
+
+    expiry = int(time.time()) + PAIRED_SESSION_TTL_SECONDS
+    nonce = secrets.token_urlsafe(18)
+    payload = f"acs1.{expiry}.{nonce}"
+    key = (os.getenv("API_AUTH_TOKEN") or "").encode("utf-8")
+    signature = base64.urlsafe_b64encode(
+        hmac.new(key, payload.encode("utf-8"), hashlib.sha256).digest()
+    ).decode("ascii").rstrip("=")
+    return {"access_token": f"{payload}.{signature}", "expires_at": expiry}
+
+
+def _valid_paired_session(value: str, key: str) -> bool:
+    pieces = value.split(".")
+    if len(pieces) != 4 or pieces[0] != "acs1":
+        return False
+    try:
+        expiry = int(pieces[1])
+    except ValueError:
+        return False
+    now = int(time.time())
+    if not (now < expiry <= now + PAIRED_SESSION_TTL_SECONDS):
+        return False
+    if not (12 <= len(pieces[2]) <= 64 and 32 <= len(pieces[3]) <= 64):
+        return False
+    message = ".".join(pieces[:3])
+    expected = base64.urlsafe_b64encode(
+        hmac.new(key.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).digest()
+    ).decode("ascii").rstrip("=")
+    return secrets.compare_digest(pieces[3], expected)
+
+
 def auth_status() -> dict:
     """현재 보호 방식. readiness UI가 원격 노출 여부를 표시할 수 있게 노출한다."""
     configured = bool((os.getenv("API_AUTH_TOKEN") or "").strip())
     return {
         "mode": "api_key" if configured else "loopback_only",
         "header": API_KEY_HEADER,
+        "pairing_available": pairing_available(),
     }
 
 
@@ -47,7 +108,7 @@ def require_trusted_client(request: Request) -> None:
     token = (os.getenv("API_AUTH_TOKEN") or "").strip()
     if token:
         provided = request.headers.get(API_KEY_HEADER, "")
-        if not secrets.compare_digest(provided, token):
+        if not (secrets.compare_digest(provided, token) or _valid_paired_session(provided, token)):
             logger.warning("api.auth.rejected path=%s reason=invalid_key", request.url.path)
             raise HTTPException(
                 status_code=401,
