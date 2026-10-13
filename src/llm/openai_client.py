@@ -156,6 +156,11 @@ def build_generation_input(
             "standard": candidate_count - conversational_count,
         },
         "punctuation_policy": "Very few emojis, laugh marks, terminal dots or decorative punctuation. Natural readable spacing.",
+        "writing_style_examples": {
+            "standard": "구체적이고 자연스러운 일반 한국어 댓글",
+            "casual_imperfect": "갠적으로 이 장면 좋음 / 먼가 신기하네 / 이거 넘 괜찮은듯",
+        },
+        "writing_style_note": "Casual text can have a small everyday abbreviation or imperfect ending. About half the comments, not every word.",
         "preferred_comment_length": preferred_length,
         "laughter_marker_max_ratio": 0.3 if persona and persona.get("id") == "playful_casual" else 0.1,
         "preferred_comment_styles": ["specific_observation", "genuine_question", "useful_insight", "warm_reaction"],
