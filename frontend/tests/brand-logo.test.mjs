@@ -11,7 +11,7 @@ test('sidebar and about page use the same verified image and fallback', () => {
 
   for (const [name, source] of [['sidebar', sidebar], ['about page', about]]) {
     assert.match(source, /ai-comment-brand-verified\.png/, name + ' should import verified logo');
-    assert.match(source, /src=\{brandLogo\}/, name + ' should use bundled logo');
+    assert.match(source, /(?:src|href)=\{brandLogo\}/, name + ' should use bundled logo');
     assert.match(source, /onError=\{\(\) => setLogoFailed\(true\)\}/, name + ' needs an error fallback');
     assert.match(source, /className="brand-fallback"/, name + ' should have a fallback label');
   }
