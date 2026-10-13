@@ -98,3 +98,65 @@ def test_oauth_identity_cannot_be_chosen_by_client(monkeypatch):
     })
     identity = yt.authenticated_youtube_channel()
     assert identity == {"channel_id": "UC_signed", "channel_title": "my verified channel"}
+
+
+
+def test_batch_youtube_import_restores_only_comments_owned_by_oauth_channel(monkeypatch):
+    import src.youtube.comments as youtube
+    seen = []
+    def fake_authorized(http, url, *, params, **kwargs):
+        seen.append((url, params))
+        if "channels" in url:
+            return {"items": [{"id": "my-channel", "snippet": {"title": "내 채널"}}]}
+        return {"items": [
+            {"id": "owned", "snippet": {
+                "authorChannelId": {"value": "my-channel"}, "videoId": VIDEO,
+                "textOriginal": "이미 발행한 댓글", "publishedAt": "2026-10-11T01:02:03Z",
+            }},
+            {"id": "stranger", "snippet": {
+                "authorChannelId": {"value": "another-channel"}, "videoId": VIDEO,
+                "textOriginal": "남의 댓글",
+            }},
+        ]}
+    monkeypatch.setattr(youtube, "_authorized_json", fake_authorized)
+    verified, rejected, owner = youtube.verify_owned_comment_batch([
+        {"video_id": VIDEO, "comment_id": "owned"},
+        {"video_id": VIDEO, "comment_id": "stranger"},
+        {"video_id": VIDEO, "comment_id": "missing"},
+    ])
+    assert owner["channel_id"] == "my-channel"
+    assert [item["comment_id"] for item in verified] == ["owned"]
+    assert [item["comment_id"] for item in rejected] == ["stranger", "missing"]
+    assert len(seen) == 2
+
+
+def test_batch_recovery_registers_only_verified_and_requires_authenticated_personal_mode(monkeypatch, tmp_path):
+    import src.api.main as api
+    monkeypatch.setenv("API_AUTH_TOKEN", "batch-owner-token")
+    monkeypatch.setenv("AI_COMMENT_DB_PATH", str(tmp_path / "data.db"))
+    monkeypatch.setattr(api, "verify_owned_comment_batch", lambda rows, **kwargs: ([
+        {
+            "video_id": VIDEO, "comment_id": "verified-id", "comment": "내 댓글",
+            "published_at": "2026-10-10T00:00:00+00:00",
+            "comment_url": f"https://www.youtube.com/watch?v={VIDEO}&lc=verified-id",
+        }
+    ], [{"comment_id": "notmine", "reason": "현재 계정의 댓글이 아님"}], {
+        "channel_id": "my-channel", "channel_title": "채널",
+    }))
+    payload = {"comments": [
+        {"video_id": VIDEO, "comment_id": "verified-id"},
+        {"video_id": VIDEO, "comment_id": "notmine"},
+    ]}
+    assert client.post("/my-comments/recover/batch", json=payload).status_code == 401
+    assert client.post(
+        "/my-comments/recover/batch", json=payload,
+        headers={"X-API-Key": "batch-owner-token"},
+    ).status_code == 403
+    headers = {"X-API-Key": "batch-owner-token", "X-AI-Comment-Account-Mode": "personal"}
+    response = client.post("/my-comments/recover/batch", json=payload, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["registered_count"] == 1
+    assert response.json()["failed_count"] == 1
+    assert client.post("/my-comments/recover/batch", json=payload, headers=headers).json()["registered_count"] == 1
+    assert len(list_published_comments(owner_channel_id="my-channel")) == 1
+    assert list_published_comments(owner_channel_id="other-channel") == []
