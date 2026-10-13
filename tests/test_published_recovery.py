@@ -160,3 +160,22 @@ def test_batch_recovery_registers_only_verified_and_requires_authenticated_perso
     assert client.post("/my-comments/recover/batch", json=payload, headers=headers).json()["registered_count"] == 1
     assert len(list_published_comments(owner_channel_id="my-channel")) == 1
     assert list_published_comments(owner_channel_id="other-channel") == []
+
+
+def test_batch_lookup_does_not_combine_id_with_max_results(monkeypatch):
+    import src.youtube.comments as youtube
+    calls = []
+    def fake_json(http, url, *, params, **kwargs):
+        calls.append((url, params))
+        if url == youtube.YOUTUBE_CHANNELS_URL:
+            return {"items": [{"id": "mine", "snippet": {"title": "My channel"}}]}
+        return {"items": [{"id": "own", "snippet": {
+            "authorChannelId": {"value": "mine"}, "videoId": VIDEO,
+            "textOriginal": "hello"}}]}
+    monkeypatch.setattr(youtube, "_authorized_json", fake_json)
+    verified, rejected, _ = youtube.verify_owned_comment_batch([
+        {"video_id": VIDEO, "comment_id": "own"}])
+    assert len(verified) == 1 and not rejected
+    params = [p for url, p in calls if url == youtube.YOUTUBE_COMMENTS_URL][0]
+    assert params["id"] == "own"
+    assert "maxResults" not in params
