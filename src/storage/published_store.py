@@ -58,6 +58,7 @@ def record_published_comment(
     comment_url: str | None,
     account_mode: str,
     recommendation_id: str | None = None,
+    published_at: str | None = None,
     path: str | Path | None = None,
 ) -> str:
     init_published_db(path)
@@ -84,10 +85,15 @@ def record_published_comment(
                 comment_id,
                 comment,
                 comment_url,
-                _now().isoformat(),
+                published_at or _now().isoformat(),
             ),
         )
-    return published_id
+        row = connection.execute(
+            "SELECT id FROM published_comments WHERE comment_id = ?", (comment_id,)
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("게시 기록을 저장하지 못했습니다.")
+        return str(row["id"])
 
 
 _SELECT = """
