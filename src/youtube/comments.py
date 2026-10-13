@@ -531,3 +531,45 @@ def publish_youtube_reply(
             else None
         ),
     }
+
+
+
+def fetch_owned_youtube_comment(
+    *, comment_id: str, video_id: str, session=None,
+    client_id: str | None = None, client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> dict:
+    """Verify recovery of an existing comment against the OAuth channel.
+
+    Only records a real comment authored by the connected channel.
+    Never trusts a user-supplied text, author identity, or timestamp.
+    """
+    if not VIDEO_ID_RE.fullmatch(video_id) or not comment_id or len(comment_id) > 100:
+        raise YouTubeCommentPublishError("복구할 댓글 주소가 올바르지 않습니다.", status_code=422)
+    http = session or requests.Session()
+    oauth = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+    owned = _authorized_json(http, YOUTUBE_CHANNELS_URL,
+                             params={"part": "id", "mine": "true"},
+                             failure="연결된 채널을 확인할 수 없습니다", **oauth)
+    channel_ids = {item.get("id") for item in owned.get("items") or [] if item.get("id")}
+    if not channel_ids:
+        raise YouTubeCommentPublishError("연결된 YouTube 채널을 확인할 수 없습니다.", status_code=403)
+    payload = _authorized_json(http, YOUTUBE_COMMENTS_URL,
+                               params={"part": "snippet", "id": comment_id, "textFormat": "plainText"},
+                               failure="YouTube에서 댓글을 조회할 수 없습니다", **oauth)
+    items = payload.get("items") or []
+    if not items:
+        raise YouTubeCommentPublishError("이 댓글이 존재하지 않거나 접근할 수 없습니다.", status_code=404)
+    snippet = items[0].get("snippet") or {}
+    author = (snippet.get("authorChannelId") or {}).get("value")
+    if author not in channel_ids:
+        raise YouTubeCommentPublishError("연결된 계정이 작성한 댓글이 아닙니다.", status_code=403)
+    if snippet.get("videoId") != video_id:
+        raise YouTubeCommentPublishError("댓글이 해당 영상에 속하지 않습니다.", status_code=422)
+    return {
+        "video_id": video_id,
+        "comment_id": str(items[0]["id"]),
+        "comment": str(snippet.get("textOriginal") or snippet.get("textDisplay") or ""),
+        "published_at": snippet.get("publishedAt"),
+        "comment_url": f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}",
+    }
