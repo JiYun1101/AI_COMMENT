@@ -48,19 +48,25 @@ def test_restore_endpoint_authenticates_and_prevents_duplicates(tmp_path, monkey
     assert client.get("/my-comments", headers=headers).json()["summary"]["tracked_count"] == 1
 
 
-def test_youtube_recovery_rejects_other_authors_and_video_ids(monkeypatch):
+def test_youtube_recovery_rejects_other_authors_and_uses_authoritative_video_id(monkeypatch):
     import pytest
     import src.youtube.comments as youtube
     for channel, video in [("other", VIDEO), ("mine", "9bZkp7q19f0")]:
-        replies = iter([
+        responses = iter([
             {"items": [{"id": "mine"}]},
             {"items": [{"id": "myold", "snippet": {
-                "authorChannelId": {"value": channel}, "videoId": video, "textOriginal": "text"
+                "authorChannelId": {"value": channel}, "videoId": video,
+                "textOriginal": "text",
             }}]},
         ])
-        monkeypatch.setattr(youtube, "_authorized_json", lambda *a, **kw: next(replies))
-        with pytest.raises(youtube.YouTubeCommentPublishError):
-            youtube.fetch_owned_youtube_comment(comment_id="myold", video_id=VIDEO)
+        monkeypatch.setattr(youtube, "_authorized_json", lambda *a, **kw: next(responses))
+        if channel == "other":
+            with pytest.raises(youtube.YouTubeCommentPublishError):
+                youtube.fetch_owned_youtube_comment(comment_id="myold", video_id=VIDEO)
+        else:
+            record = youtube.fetch_owned_youtube_comment(comment_id="myold", video_id=VIDEO)
+            assert record["video_id"] == video
+            assert record["video_match_verified"] is True
 
 
 def test_published_but_untracked_returns_warning(monkeypatch):
@@ -132,7 +138,7 @@ def test_batch_youtube_import_restores_only_comments_owned_by_oauth_channel(monk
     assert owner["channel_id"] == "my-channel"
     assert [item["comment_id"] for item in verified] == ["owned"]
     assert [item["comment_id"] for item in rejected] == ["stranger", "missing"]
-    assert len(seen) == 3
+    assert len(seen) == 2
 
 
 def test_batch_recovery_registers_only_verified_and_requires_authenticated_personal_mode(monkeypatch, tmp_path):
@@ -185,23 +191,44 @@ def test_batch_lookup_does_not_combine_id_with_max_results(monkeypatch):
     assert params["id"] == "own"
     assert "maxResults" not in params
 
-def test_batch_restores_comment_when_comments_endpoint_omits_video_id(monkeypatch):
+def test_batch_restores_all_owned_comments_without_video_id(monkeypatch):
     import src.youtube.comments as youtube
     calls = []
     def fake_json(http, url, *, params, **kwargs):
-        calls.append(url)
-        if "channels" in url:
-            return {"items": [{"id": "mine", "snippet": {"title": "channel"}}]}
-        if "commentThreads" in url:
-            return {"items": [{"id": "top-comment", "snippet": {
-                "videoId": VIDEO, "topLevelComment": {"id": "top-comment"}}}]}
-        return {"items": [{"id": "top-comment", "snippet": {
-            "authorChannelId": {"value": "mine"}, "textOriginal": "hello"}}]}
+        calls.append((url, params))
+        if url == youtube.YOUTUBE_CHANNELS_URL:
+            return {"items": [{"id": "mine", "snippet": {"title": "My channel"}}]}
+        if url == youtube.YOUTUBE_COMMENTS_URL:
+            return {"items": [
+                {"id": f"owned-{n}", "snippet": {
+                    "authorChannelId": {"value": "mine"}, "textOriginal": f"comment {n}",
+                    "publishedAt": "2026-10-10T08:00:00Z",
+                }} for n in range(15)
+            ]}
+        raise AssertionError("Recovery must not require unsupported commentThreads id lookup")
+
     monkeypatch.setattr(youtube, "_authorized_json", fake_json)
+    source = [{"video_id": VIDEO, "comment_id": f"owned-{n}"} for n in range(15)]
+    verified, rejected, _ = youtube.verify_owned_comment_batch(source)
+    assert len(verified) == 15 and rejected == []
+    assert all(row["video_match_verified"] is False for row in verified)
+    assert all(row["video_id"] == VIDEO for row in verified)
+    assert len(calls) == 2
+
+
+def test_batch_prefers_actual_youtube_video_id_when_present(monkeypatch):
+    import src.youtube.comments as youtube
+    monkeypatch.setattr(youtube, "_authorized_json", lambda http, url, *, params, **kw: (
+        {"items": [{"id": "mine"}]} if url == youtube.YOUTUBE_CHANNELS_URL
+        else {"items": [{"id": "comment-1", "snippet": {
+            "authorChannelId": {"value": "mine"},
+            "videoId": "9bZkp7q19f0",
+            "textOriginal": "hello",
+        }}]}
+    ))
     verified, rejected, _ = youtube.verify_owned_comment_batch([
-        {"video_id": VIDEO, "comment_id": "top-comment"}])
-    assert len(verified) == 1 and rejected == []
-    assert any("commentThreads" in url for url in calls)
-    verified, rejected, _ = youtube.verify_owned_comment_batch([
-        {"video_id": "9bZkp7q19f0", "comment_id": "top-comment"}])
-    assert not verified and len(rejected) == 1
+        {"video_id": VIDEO, "comment_id": "comment-1"}
+    ])
+    assert not rejected and len(verified) == 1
+    assert verified[0]["video_id"] == "9bZkp7q19f0"
+    assert verified[0]["video_match_verified"] is True
