@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSelectedPersona } from '../../api/client';
 import { getPersonaLabel } from '../../data/personas';
@@ -11,6 +12,29 @@ interface HeaderProps {
 
 export function Header({ title, subtitle, onGenerate }: HeaderProps) {
   const navigate = useNavigate();
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Keep the sidebar brand divider on the exact same line as this app bar.
+  // Subtitle wrapping can change the header height, so a fixed pixel offset
+  // would only match some pages or viewport widths.
+  useLayoutEffect(() => {
+    const element = headerRef.current;
+    const shell = element?.closest<HTMLElement>('.app');
+    if (!element || !shell) return;
+
+    const syncHeight = () => {
+      shell.style.setProperty('--app-header-height', `${element.getBoundingClientRect().height}px`);
+    };
+    syncHeight();
+
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty('--app-header-height');
+    };
+  }, []);
   const selectedPersona = getSelectedPersona();
   const personaLabel = getPersonaLabel(selectedPersona);
   const personaBadge =
@@ -27,7 +51,7 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
               : '캐주얼';
 
   return (
-    <header className="app-header">
+    <header ref={headerRef} className="app-header">
       <div className="hd-left">
         <div className="crumbs">
           <span>MVP</span>
