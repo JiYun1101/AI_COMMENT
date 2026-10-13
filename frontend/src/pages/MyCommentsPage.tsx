@@ -1,8 +1,9 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { recoverFromPastedActivity, claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
+import { parsePastedMyActivity } from '../utils/myActivityPaste';
 import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
@@ -48,6 +49,10 @@ export function MyCommentsPage() {
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
   const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
+  const [pastedActivity, setPastedActivity] = useState('');
+  const [activityResult, setActivityResult] = useState<{
+    registered: number; failed: number; reasons: string[]; persistent: boolean;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -199,6 +204,40 @@ export function MyCommentsPage() {
     }
   };
 
+
+  const recoverPastedActivity = async () => {
+    setRecoveryBusy(true);
+    setError(null);
+    setNotice(null);
+    setActivityResult(null);
+    try {
+      if (accountMode !== 'personal') throw new Error('내 YouTube 계정을 연결한 뒤 복구할 수 있습니다.');
+      const records = parsePastedMyActivity(pastedActivity);
+      if (!records.length) throw new Error('활동 기록에서 댓글과 영상 제목을 찾지 못했습니다. Google 내 활동의 목록을 그대로 복사해 주세요.');
+      if (records.length > 20 || new Set(records.map((row) => row.video_title)).size > 10) {
+        throw new Error('한 번에 댓글 20개, 서로 다른 영상 10개까지 확인할 수 있습니다. 목록을 나누어 붙여넣어 주세요.');
+      }
+      setTakeoutProgress('내 YouTube 채널과 댓글을 대조하고 있습니다.');
+      const result = await recoverFromPastedActivity(records);
+      setActivityResult({
+        registered: result.registered_count,
+        failed: result.failed_count,
+        reasons: result.failures.slice(0, 8).map((item) => item.video_title
+          ? item.video_title + ': ' + item.reason : item.reason),
+        persistent: result.storage_persistent,
+      });
+      await load();
+      setNotice('기존 댓글 ' + result.registered_count +
+        '개를 실제 YouTube에서 확인하고 추적에 등록했습니다. ' +
+        '확인하지 못한 댓글 ' + result.failed_count + '개.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '내 활동 댓글 복구에 실패했습니다.');
+    } finally {
+      setTakeoutProgress(null);
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleNav = (key: SidebarKey) => {
     if (key === 'comments') navigate('/');
     if (key === 'dashboard') navigate('/dashboard');
@@ -284,6 +323,48 @@ export function MyCommentsPage() {
                 YouTube에서 내 댓글 기록 보기
               </a>
             </div>
+
+            {accountMode === 'personal' && (
+              <div className="eng-my-activity-import">
+                <strong>Google 내 활동에서 복사한 댓글 가져오기</strong>
+                <p className="eng-muted">
+                  YouTube 내 댓글 기록의 텍스트를 그대로 붙여넣으면 영상 제목과 댓글을 찾아볼게요.
+                  현재 연결된 YouTube 채널의 실제 댓글로 확인된 항목만 추적에 등록합니다.
+                </p>
+                <textarea
+                  value={pastedActivity}
+                  onChange={(event) => setPastedActivity(event.target.value)}
+                  placeholder={'YouTube 로고\nYouTube\n영상에서 궁금했던 부분...\n어떤 영상 제목 에 남긴 댓글\n오후 5:40 • 세부정보'}
+                  rows={5}
+                  maxLength={160000}
+                  aria-label="Google 내 활동에서 복사한 YouTube 댓글 목록"
+                  disabled={recoveryBusy}
+                />
+                <div className="eng-my-activity-actions">
+                  <span className="eng-muted">
+                    인식한 댓글 {pastedActivity ? parsePastedMyActivity(pastedActivity).length : 0}개
+                  </span>
+                  <button type="button" className="btn primary" disabled={!pastedActivity.trim() || recoveryBusy}
+                    onClick={() => void recoverPastedActivity()}>
+                    {recoveryBusy ? '작성자 확인 중...' : '이전 댓글 찾아서 추적'}
+                  </button>
+                </div>
+                {activityResult && (
+                  <div role="status" className="eng-my-activity-result">
+                    <strong>복구 완료 {activityResult.registered}개 · 미확인 {activityResult.failed}개</strong>
+                    {activityResult.reasons.map((reason, index) => <p key={index}>{reason}</p>)}
+                    {!activityResult.persistent && (
+                      <p>주의: 서버 영구 DB가 없어 재시작 후 추적 기록이 사라질 수 있습니다. JSON 백업을 보관해 주세요.</p>
+                    )}
+                  </div>
+                )}
+                <p className="eng-muted">
+                  영상 제목 검색에 YouTube API 할당량이 사용됩니다. 이름이 비슷한 다른 영상이나
+                  확인되지 않은 댓글은 기록하지 않습니다. 최대 20개 댓글·10개 영상씩 복구할 수 있습니다.
+                </p>
+              </div>
+            )}
+
             {accountMode === 'personal' && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 <input className="account-text-input" style={{ flex: '1 1 300px', minWidth: 0 }}
