@@ -24,6 +24,7 @@ def init_published_db(path: str | Path | None = None) -> None:
                 id TEXT PRIMARY KEY,
                 recommendation_id TEXT REFERENCES recommendations(id) ON DELETE SET NULL,
                 account_mode TEXT NOT NULL,
+                owner_channel_id TEXT,
                 video_id TEXT NOT NULL,
                 comment_id TEXT NOT NULL UNIQUE,
                 comment TEXT NOT NULL,
@@ -45,6 +46,15 @@ def init_published_db(path: str | Path | None = None) -> None:
             """
         )
 
+    # Legacy rows are unscoped until the original author is re-verified.
+    with _connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(published_comments)")}
+        if "owner_channel_id" not in columns:
+            connection.execute("ALTER TABLE published_comments ADD COLUMN owner_channel_id TEXT")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_published_owner ON published_comments(owner_channel_id, published_at DESC)"
+        )
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -58,6 +68,7 @@ def record_published_comment(
     comment_url: str | None,
     account_mode: str,
     recommendation_id: str | None = None,
+    owner_channel_id: str | None = None,
     published_at: str | None = None,
     path: str | Path | None = None,
 ) -> str:
@@ -73,14 +84,15 @@ def record_published_comment(
         connection.execute(
             """
             INSERT OR IGNORE INTO published_comments (
-                id, recommendation_id, account_mode, video_id, comment_id,
+                id, recommendation_id, account_mode, owner_channel_id, video_id, comment_id,
                 comment, comment_url, published_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 published_id,
                 recommendation_id,
                 account_mode,
+                owner_channel_id,
                 video_id,
                 comment_id,
                 comment,
@@ -88,6 +100,12 @@ def record_published_comment(
                 published_at or _now().isoformat(),
             ),
         )
+        if owner_channel_id:
+            connection.execute(
+                """UPDATE published_comments SET owner_channel_id = ?
+                   WHERE comment_id = ? AND owner_channel_id IS NULL""",
+                (owner_channel_id, comment_id),
+            )
         row = connection.execute(
             "SELECT id FROM published_comments WHERE comment_id = ?", (comment_id,)
         ).fetchone()
@@ -113,11 +131,19 @@ def _with_age(row: dict, now: datetime) -> dict:
 def list_published_comments(
     *,
     account_mode: str | None = None,
+    owner_channel_id: str | None = None,
     limit: int = 100,
     path: str | Path | None = None,
 ) -> list[dict]:
     init_published_db(path)
-    where, params = ("WHERE p.account_mode = ?", [account_mode]) if account_mode else ("", [])
+    conditions, params = [], []
+    if account_mode:
+        conditions.append("p.account_mode = ?")
+        params.append(account_mode)
+    if owner_channel_id:
+        conditions.append("p.owner_channel_id = ?")
+        params.append(owner_channel_id)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     with _connect(path) as connection:
         rows = connection.execute(
             f"{_SELECT} {where} ORDER BY p.published_at DESC LIMIT ?",
@@ -130,6 +156,7 @@ def list_published_comments(
 def comment_ids_to_refresh(
     *,
     account_mode: str | None = None,
+    owner_channel_id: str | None = None,
     min_interval_minutes: int = 10,
     path: str | Path | None = None,
 ) -> list[str]:
@@ -141,6 +168,9 @@ def comment_ids_to_refresh(
     if account_mode:
         where.append("account_mode = ?")
         params.append(account_mode)
+    if owner_channel_id:
+        where.append("owner_channel_id = ?")
+        params.append(owner_channel_id)
     with _connect(path) as connection:
         rows = connection.execute(
             f"SELECT comment_id FROM published_comments WHERE {' AND '.join(where)}",
