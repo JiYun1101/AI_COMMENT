@@ -103,15 +103,13 @@ def test_invalid_response_is_generation_error():
         client.generate({}, candidate_count=5)
 
 
-def test_prompt_balances_laughter_instead_of_mirroring_historical_slang():
+def test_all_prompt_personas_prohibit_laughter_and_emoticons():
     from src.llm.openai_client import SYSTEM_INSTRUCTIONS, build_generation_input
 
-    assert "no more than 10%" in SYSTEM_INSTRUCTIONS
-    assert "at most 30%" in SYSTEM_INSTRUCTIONS
-    assert "Historical casual_ratio is descriptive" in SYSTEM_INSTRUCTIONS
-    context = {"historical_comments": {"casual_ratio": 0.95, "reference_examples": ["너무 좋네요 ㅋㅋ"]}}
-    default = build_generation_input(context, candidate_count=20)
-    playful = build_generation_input(context, candidate_count=20, persona={"id": "playful_casual"})
-    assert default["task"]["laughter_marker_max_ratio"] == 0.1
-    assert playful["task"]["laughter_marker_max_ratio"] == 0.3
-    assert "Do not optimize or repeat ㅋㅋ/ㅎㅎ" in " ".join(default["task"]["rules"])
+    assert "zero-marker rule" in SYSTEM_INSTRUCTIONS
+    context = {"historical_comments": {"casual_ratio": 0.95, "reference_examples": ["좋네요 ㅋㅋ"]}}
+    for persona in (None, {"id": "playful_casual"}, {"id": "polite_viewer"}):
+        task = build_generation_input(context, candidate_count=20, persona=persona)["task"]
+        assert task["laughter_marker_max_ratio"] == 0
+        assert task["emoticon_max_ratio"] == 0
+        assert "Never emit ㅋㅋ/ㅎㅎ" in " ".join(task["rules"])

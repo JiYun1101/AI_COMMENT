@@ -11,7 +11,7 @@ from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
 from src.recommender.candidate_generator import CandidateGenerationClient, generate_candidates
 from src.recommender.safety_filter import get_block_reason
-from src.recommender.writing_style import casual_target, detect_style
+from src.recommender.writing_style import casual_target, clean_comment, detect_style
 
 logger = logging.getLogger(__name__)
 MAX_GENERATION_ATTEMPTS = 3
@@ -145,9 +145,15 @@ def recommend_comments_with_meta(
         candidate_count += len(candidates)
 
         for candidate in candidates:
-            comment = str(candidate.get("comment") or "")
+            original = str(candidate.get("comment") or "")
+            comment = clean_comment(original)
             normalized = _normalized_comment(comment)
-            block_reason = get_block_reason(comment)
+            # Validate the original and cleaned text: removing a symbol must not
+            # allow unsafe candidates to bypass moderation.
+            block_reason = (
+                get_block_reason(original) or get_block_reason(comment)
+                or ("empty_after_cleanup" if not comment else None)
+            )
             trace_item = {
                 "sequence": len(trace_candidates) + 1,
                 "attempt": attempt,
@@ -174,7 +180,7 @@ def recommend_comments_with_meta(
                 continue
 
             seen_safe.add(normalized)
-            safe_candidates.append(candidate)
+            safe_candidates.append({**candidate, "comment": comment})
             trace_candidates.append(trace_item)
             trace_by_normalized[normalized] = trace_item
 
