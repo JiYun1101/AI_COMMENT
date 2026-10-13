@@ -18,9 +18,9 @@ test('Korean Google Takeout columns with embedded JSON and padded video ID', () 
 });
 
 test('previous English columns still work', () => {
-  const csv = 'Comment ID,Video ID\nUgy000003,abcdefghijkl\n';
+  const csv = 'Comment ID,Video ID\nUgy000003,abcdefghijk\n';
   assert.deepEqual(parseTakeoutCommentsCsv(csv), [
-    { commentId: 'Ugy000003', videoId: 'abcdefghijkl' },
+    { commentId: 'Ugy000003', videoId: 'abcdefghijk' },
   ]);
 });
 
