@@ -30,3 +30,15 @@ test('publish UI warns if persistence failed even when YouTube succeeded', () =>
   assert.match(page, /posted\.tracked/);
   assert.match(page, /posted\.browser_backup_saved/);
 });
+
+
+test('Takeout importer registers comments in authenticated batches against verified channel', () => {
+  const page = read('src/pages/MyCommentsPage.tsx');
+  const api = read('src/api/client.ts');
+  const backend = read('../src/api/main.py');
+  assert.match(page, /recoverPublishedBatch\(/);
+  assert.match(page, /i \+= 30/);
+  assert.match(api, /my-comments\/recover\/batch/);
+  assert.match(backend, /def recover_published_batch/);
+  assert.match(backend, /verify_owned_comment_batch/);
+});

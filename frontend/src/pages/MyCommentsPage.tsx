@@ -1,7 +1,7 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
@@ -160,19 +160,21 @@ export function MyCommentsPage() {
       if (!records.length) throw new Error('복구 가능한 YouTube 댓글 ID를 찾지 못했습니다.');
       let recovered = 0;
       let failed = 0;
-      // Deliberate quota cap: users can repeat after export to recover the rest.
-      for (const item of records.slice(0, 100)) {
-        try {
-          await recoverPublishedComment(item.videoId, item.commentId);
-          recovered++;
-        } catch {
-          failed++;
-        }
-        setTakeoutProgress('댓글 본인 확인 ' + (recovered + failed) + '/' + Math.min(records.length, 100));
+      const bounded = records.slice(0, 150);
+      // Batch calls avoid one YouTube API round-trip for each historical comment.
+      for (let i = 0; i < bounded.length; i += 30) {
+        const subset = bounded.slice(i, i + 30);
+        const result = await recoverPublishedBatch(
+          subset.map((item) => ({ video_id: item.videoId, comment_id: item.commentId })),
+        );
+        recovered += result.registered_count;
+        failed += result.failed_count;
+        setTakeoutProgress('댓글 본인 확인 ' + Math.min(i + 30, bounded.length) + '/' + bounded.length);
       }
       await load();
-      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개를 추적에 복구했습니다. 실패 ' + failed + '개.' +
-        (records.length > 100 ? ' 처음 100개만 처리했습니다. 나머지는 추후 가져오기 기능이 필요합니다.' : ''));
+      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록, 실패 ' + failed + '개.' +
+        (records.length > bounded.length ? ' 150개를 초과한 나머지는 파일을 나누어 등록해주세요.' : '') +
+        ' 영구 DB 미연결 시 서버 재시작으로 다시 사라질 수 있습니다.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Takeout 기록 복구에 실패했습니다.');
     } finally {

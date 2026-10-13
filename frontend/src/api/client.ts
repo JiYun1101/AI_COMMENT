@@ -410,6 +410,29 @@ export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
   return mergePostedBackup(response, getAccountMode());
 }
 
+export async function recoverPublishedBatch(
+  comments: Array<{ video_id: string; comment_id: string }>,
+): Promise<{
+  owner_channel_id: string;
+  registered_count: number;
+  failed_count: number;
+  failures: Array<{ comment_id: string; reason: string }>;
+  storage_persistent: boolean;
+}> {
+  return requestJson(
+    API_BASE + '/my-comments/recover/batch',
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': 'personal',
+      }),
+      body: JSON.stringify({ comments }),
+    },
+    '기존 YouTube 댓글 일괄 등록에 실패했습니다',
+  );
+}
+
 export async function recoverPublishedComment(
   videoId: string, commentId: string,
 ): Promise<{ tracked: true; id: string; video_id: string; comment_id: string }> {
