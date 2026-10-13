@@ -11,6 +11,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from src.api.security import auth_status, create_paired_session, require_trusted_client
+from src.audience.reactions import build_observation_report
+from src.storage.audience_store import (
+    save_audience_observation, list_audience_observations, read_audience_observation,
+)
 from casts.comment_writer.graph import comment_writer_graph
 from src.logging_config import configure_logging
 from src.api.schemas import (
@@ -67,6 +71,7 @@ from src.youtube.demo import (
     publish_demo_youtube_comment,
 )
 from src.youtube.context import (
+    VIDEO_ID_RE,
     InvalidYouTubeUrlError,
     YouTubeConfigurationError,
     YouTubeLookupError,
@@ -424,6 +429,81 @@ def refresh_my_published_comments(
         updated = apply_comment_metrics(comment_ids, metrics)
     items = list_published_comments(account_mode=mode)
     return {"checked_count": updated, "summary": published_summary(items), "items": items}
+
+
+def _observed_report(
+    video_id: str, analysis_id: str | None,
+    youtube_api_key: str | None, account_mode: str,
+) -> dict:
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        raise HTTPException(status_code=422, detail="유효한 YouTube 영상 ID가 아닙니다.")
+
+    analysis = None
+    if analysis_id:
+        analysis = get_analysis(analysis_id)
+        if analysis is None:
+            raise HTTPException(status_code=404, detail="예상 반응 분석을 찾을 수 없습니다.")
+        if analysis.get("video_id") != video_id:
+            raise HTTPException(status_code=422, detail="예상 반응 분석과 실제 영상이 일치하지 않습니다.")
+
+    key = _resolve_youtube_api_key(youtube_api_key, _normalize_account_mode(account_mode))
+    try:
+        # One bounded live sample, not full channel history or a random audience.
+        threads = fetch_video_comment_threads(
+            video_id, api_key=key, order="relevance", limit=100,
+        )
+    except YouTubeConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    report = build_observation_report(
+        video_id, threads,
+        recommendations=analysis["recommendations"] if analysis is not None else None,
+    )
+    report["analysis_id"] = analysis_id
+    return report
+
+
+@app.get("/audience/observed")
+def audience_observed(
+    video_id: str = Query(..., min_length=11, max_length=11),
+    analysis_id: str | None = Query(default=None, max_length=40),
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    """Read-only observed reaction analysis works even when LLM isn't configured."""
+    return _observed_report(video_id, analysis_id, youtube_api_key, account_mode)
+
+
+@app.post("/audience/observations", dependencies=[Depends(require_trusted_client)])
+def store_audience_observation(
+    video_id: str = Query(..., min_length=11, max_length=11),
+    analysis_id: str | None = Query(default=None, max_length=40),
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    """Fetch directly from YouTube before persisting; clients cannot forge memory."""
+    report = _observed_report(video_id, analysis_id, youtube_api_key, account_mode)
+    snapshot = save_audience_observation(report, analysis_id=analysis_id)
+    return {"snapshot": snapshot, "report": report}
+
+
+@app.get("/audience/observations/{video_id}", dependencies=[Depends(require_trusted_client)])
+def audience_observation_history(video_id: str):
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        raise HTTPException(status_code=422, detail="유효한 YouTube 영상 ID가 아닙니다.")
+    return {"items": list_audience_observations(video_id)}
+
+
+@app.get("/audience/observations/snapshot/{snapshot_id}", dependencies=[Depends(require_trusted_client)])
+def audience_observation_snapshot(snapshot_id: str):
+    if not snapshot_id.startswith("obs_") or len(snapshot_id) > 36:
+        raise HTTPException(status_code=422, detail="유효한 스냅샷 ID가 아닙니다.")
+    result = read_audience_observation(snapshot_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="저장된 스냅샷이 없습니다.")
+    return result
 
 
 @app.get("/creator/inbox")
