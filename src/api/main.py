@@ -7,9 +7,10 @@ import time
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
-from src.api.security import auth_status, require_trusted_client
+from src.api.security import auth_status, create_paired_session, require_trusted_client
 from casts.comment_writer.graph import comment_writer_graph
 from src.logging_config import configure_logging
 from src.api.schemas import (
@@ -104,6 +105,22 @@ init_db()
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/docs")
+
+
+class PairingRequest(BaseModel):
+    pairing_code: str = Field(min_length=32, max_length=256)
+
+
+@app.post("/auth/connect")
+def connect_browser_to_server(payload: PairingRequest):
+    """Exchange a private owner invitation for a time-limited browser credential."""
+    result = create_paired_session(payload.pairing_code)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/auth/session", dependencies=[Depends(require_trusted_client)])
+def check_server_session():
+    return {"connected": True}
 
 
 @app.get("/health")
