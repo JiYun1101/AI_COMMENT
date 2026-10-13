@@ -8,6 +8,7 @@ import { ReactionPreviewPage } from './pages/ReactionPreviewPage';
 import { CreatorSeedPage } from './pages/CreatorSeedPage';
 import { AboutPage } from './pages/AboutPage';
 import { MyCommentsPage } from './pages/MyCommentsPage';
+import { MyVideosPage } from './pages/MyVideosPage';
 import { CreatorInboxPage } from './pages/CreatorInboxPage';
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/creator-comment" element={<CreatorSeedPage />} />
       <Route path="/creator-inbox" element={<CreatorInboxPage />} />
       <Route path="/my-comments" element={<MyCommentsPage />} />
+      <Route path="/my-videos" element={<MyVideosPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/account" element={<AccountHomePage />} />
       <Route path="/account/connect" element={<AccountPage />} />

@@ -468,3 +468,30 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Owned videos reuse the My Comments KPI/table language. */
+.video-performance-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 280px;
+  max-width: 400px;
+}
+.video-performance-thumb {
+  display: block;
+  flex: 0 0 104px;
+  width: 104px;
+  height: 59px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--neutral-150);
+}
+.video-performance-title {
+  display: block;
+  margin: 5px 0;
+  color: var(--fg1);
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-normal);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}

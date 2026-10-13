@@ -8,6 +8,7 @@ import {
   Settings2,
   Sparkles,
   TrendingUp,
+  Video,
   UserRound,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -21,6 +22,7 @@ export type SidebarKey =
   | 'dashboard'
   | 'comments'
   | 'mycomments'
+  | 'myvideos'
   | 'reaction'
   | 'seed'
   | 'inbox'
@@ -118,6 +120,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <SidebarItem icon={Activity} label="영상 반응 미리보기" active={current === 'reaction'} onClick={() => navigate('/reaction-preview')} />
         <SidebarItem icon={Sparkles} label="맛있는 댓글 미리 달기" active={current === 'seed'} onClick={() => navigate('/creator-comment')} />
         <SidebarItem icon={Inbox} label="받은 댓글함" active={current === 'inbox'} onClick={() => navigate('/creator-inbox')} />
+        <SidebarItem icon={Video} label="내 영상 성과" active={current === 'myvideos'} onClick={() => navigate('/my-videos')} />
       </div>
 
       <div className="side-footer" ref={menuRef}>
