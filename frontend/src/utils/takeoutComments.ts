@@ -48,7 +48,7 @@ export function parseTakeoutCommentsCsv(text: string): TakeoutCommentIdentity[] 
   // YouTube / Google Takeout exports use localized headers. Preserve Hangul
   // while removing separators (previous ASCII-only normalization erased them).
   const headers = rows[0].map((v) => v.normalize('NFKC')
-    .toLocaleLowerCase().replace(/[\\s_\\-().]+/g, '').trim());
+    .toLocaleLowerCase().replace(/[\s_.()\-]+/g, '').trim());
   const index = (...keys: string[]) => headers.findIndex((h) => keys.includes(h));
   const commentIndex = index('commentid', 'commentidentifier', '댓글id', '댓글아이디', '댓글식별자');
   const videoIndex = index('videoid', 'videourl', 'videolink',
