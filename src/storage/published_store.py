@@ -290,3 +290,29 @@ def published_summary(items: list[dict]) -> dict:
             for key, values in sorted(by_type.items(), key=lambda pair: -len(pair[1]))
         ],
     }
+
+
+def list_legacy_unbound_comments(*, limit: int = 30, path: str | Path | None = None) -> list[dict]:
+    """Legacy personal rows have no author ID. Never show them to a new channel."""
+    init_published_db(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """SELECT comment_id, video_id FROM published_comments
+               WHERE account_mode = 'personal' AND owner_channel_id IS NULL
+               ORDER BY published_at DESC LIMIT ?""", (max(1, min(limit, 100)),)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def attach_verified_legacy_comment(
+    comment_id: str, channel_id: str, *, path: str | Path | None = None,
+) -> bool:
+    """Only called after verified YouTube API proves the channel authored comment_id."""
+    init_published_db(path)
+    with _connect(path) as conn:
+        cursor = conn.execute(
+            """UPDATE published_comments SET owner_channel_id = ?
+               WHERE comment_id = ? AND account_mode = 'personal'
+                 AND owner_channel_id IS NULL""", (channel_id, comment_id),
+        )
+        return cursor.rowcount == 1
