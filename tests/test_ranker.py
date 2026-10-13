@@ -93,3 +93,77 @@ def test_ranker_fails_instead_of_returning_partial_or_empty_result(monkeypatch):
         recommend_comments_with_meta("reference", generation_context={}, top_k=5)
 
     assert len(calls) == 3
+
+
+def test_default_recommendations_limit_repetitive_laughter_without_changing_scores(monkeypatch):
+    marked = [
+        "인트로 음악 선택 정말 묘하네요 ㅋㅋ",
+        "이번 영상에서 설명한 방법은 실용적이네요 ㅎㅎ",
+        "영상 속 그림 구성이 흥미로운 것 같아요 ㅋㅋ",
+        "중간에 등장한 장면이 인상적이네요 ㅋㅋ",
+        "마지막 정리가 꽤 깔끔하다고 느꼈어요 ㅎㅎ",
+    ]
+    plain = [
+        "주제를 구체적인 사례로 설명해서 좋습니다.",
+        "영상 후반부의 결론에서 생각할 지점이 많네요.",
+        "이 내용은 실생활에서 어떻게 응용하나요?",
+        "다음 영상에서는 반대 사례도 다뤄주실 수 있나요?",
+        "비슷한 상황에서 쓰는 팁이 궁금해집니다.",
+    ]
+    candidates = [{"type": "general", "comment": text} for text in marked + plain]
+    monkeypatch.setattr("src.recommender.ranker.generate_candidates", lambda *a, **kw: candidates)
+    monkeypatch.setattr(
+        "src.recommender.ranker.score_comments",
+        lambda post_text, comments: [
+            {"comment": comment, "score": 100 - index * 3}
+            for index, comment in enumerate(comments)
+        ],
+    )
+    output = recommend_comments_with_meta("영상", generation_context={}, top_k=5)
+    selected = output["recommendations"]
+    assert len(selected) == 5
+    assert sum("ㅋㅋ" in r["comment"] or "ㅎㅎ" in r["comment"] for r in selected) <= 1
+    assert selected[0]["comment"] == marked[0]
+    # Selected results retain raw ranker scores, not fabricated adjusted probabilities.
+    assert selected[0]["predicted_score"] == 100
+    assert sum(item["selected"] for item in output["trace"]["candidates"]) == 5
+    assert [item["final_rank"] for item in output["trace"]["candidates"] if item["selected"]] != []
+
+
+def test_playful_persona_keeps_some_laughter_without_flooding_results(monkeypatch):
+    from src.recommender.ranker import _select_diverse_results
+    comments = [
+        "도입부에서 나온 장면 너무 귀엽네 ㅋㅋ",
+        "후반부 영상의 연출이 꽤 재밌다 ㅎㅎ",
+        "이 장면의 색깔 조합이 특이하다 ㅋㅋ",
+        "배경 음악이 몽환적인 느낌이다 ㅎㅎ",
+        "대사의 의미가 흥미롭다고 느꼈어 ㅋㅋ",
+        "여기서 등장한 반전이 정말 신선하네",
+        "이 영상에서 중요한 주제는 뭘까?",
+        "비슷한 사례를 더 보고 싶다",
+    ]
+    scored = [{"comment": text, "score": 100 - i} for i, text in enumerate(comments)]
+    result = _select_diverse_results(scored, 5, {"id": "playful_casual"})
+    assert len(result) == 5
+    assert sum("ㅋㅋ" in row["comment"] or "ㅎㅎ" in row["comment"] for row in result) == 2
+
+
+def test_identical_substance_with_or_without_laughter_is_near_duplicate():
+    from src.recommender.ranker import _too_similar
+    assert _too_similar(
+        "자막 설명이 자세해서 이해하기 쉬워요 ㅋㅋ",
+        "자막 설명이 자세해서 이해하기 쉬워요",
+    )
+    assert not _too_similar(
+        "영상 초반에는 주제를 짧게 소개하고 있어요",
+        "다음 영상에서 실험 결과도 볼 수 있을까요",
+    )
+
+
+def test_diversity_falls_back_when_provider_returns_only_laughter(monkeypatch):
+    from src.recommender.ranker import _select_diverse_results
+    rows = [
+        {"comment": "주제 정리 정말 깔끔했네요 ㅋㅋ" + str(i), "score": 100 - i}
+        for i in range(5)
+    ]
+    assert len(_select_diverse_results(rows, 5, None)) == 5
