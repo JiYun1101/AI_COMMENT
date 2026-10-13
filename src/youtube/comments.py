@@ -625,7 +625,7 @@ def verify_owned_comment_batch(
         unique[cid] = vid
     payload = _authorized_json(
         http, YOUTUBE_COMMENTS_URL,
-        params={"part": "snippet", "id": ",".join(unique), "textFormat": "plainText", "maxResults": 50},
+        params={"part": "snippet", "id": ",".join(unique), "textFormat": "plainText"},
         failure="YouTube 게시 댓글을 조회할 수 없습니다", **oauth,
     )
     verified = []
