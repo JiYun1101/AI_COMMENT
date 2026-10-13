@@ -1,0 +1,253 @@
+/*
+ * AI_COMMENT · Material 3-inspired desktop-first refinement
+ * Reference: https://www.figma.com/community/file/1035203688168086460/
+ * material-3-design-kit
+ *
+ * Semantic M3 roles adapted to an existing React/CSS app (not copied
+ * components). Keep visual overrides here; behavior belongs to React.
+ */
+:root {
+  --md-surface: #fff;
+  --md-surface-dim: #faf9fc;
+  --md-surface-container: #f3f0f7;
+  --md-surface-container-high: #ece6f2;
+  --md-primary-container: #e9dff3;
+  --md-on-primary-container: #463061;
+  --md-outline-variant: #e2dbe8;
+  --md-state-hover: rgba(99, 69, 140, .055);
+  --md-shape-card: 18px;
+  --md-shape-control: 12px;
+}
+
+/* Quiet app canvas + tonal navigation shell */
+.app { grid-template-columns: 252px minmax(0, 1fr); background: var(--md-surface-dim); }
+.main { min-width: 0; }
+.sidebar {
+  background: var(--md-surface-container);
+  border-right: 1px solid var(--md-outline-variant);
+  padding: 18px 14px 14px;
+}
+.sidebar .brand.brand-button {
+  border-bottom-color: var(--md-outline-variant);
+  margin-bottom: 18px;
+}
+.side-h { color: var(--neutral-500); font-size: 11px; letter-spacing: .045em; padding-left: 16px; }
+.side-item {
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: var(--radius-pill);
+  font-weight: 550;
+  font-size: 13px;
+  line-height: 1.25;
+  gap: 12px;
+}
+.side-item:hover { background: rgba(255, 255, 255, .7); color: var(--fg1); }
+.side-item.active {
+  color: var(--md-on-primary-container);
+  background: var(--md-primary-container);
+  font-weight: 650;
+}
+.side-item.active .side-ic { color: var(--brand-700); }
+.side-ic { width: 18px; height: 18px; }
+.side-divider { background: var(--md-outline-variant); margin-block: 18px 14px; }
+.sidebar-note { background: transparent; border: 0; padding: 0 12px 6px; }
+.sidebar-note span { display: none; }
+.side-account {
+  border-radius: 15px;
+  padding: 11px 12px;
+  min-height: 56px;
+  border-color: var(--md-outline-variant);
+}
+.side-account:hover, .side-account.open { background: #fff; }
+.account-hub { border-radius: var(--md-shape-card); box-shadow: var(--shadow-lg); }
+
+/* App bar keeps hierarchy without competing with content */
+.app-header {
+  align-items: center;
+  padding: 24px 36px 20px;
+  background: rgba(250, 249, 252, .94);
+  border-bottom: 1px solid var(--md-outline-variant);
+  backdrop-filter: blur(12px);
+}
+.crumbs { font-size: 11px; margin-bottom: 8px; }
+.hd-title { font-size: 24px; font-weight: 680; letter-spacing: -.035em; }
+.hd-sub { margin-top: 7px; line-height: 1.55; color: var(--fg3); }
+.avatar { background: var(--brand-600); }
+.avatar-persona-badge { background: var(--neutral-600); }
+.avatar-persona-badge.active { background: var(--brand-600); }
+
+/* Material-shaped filled, tonal, outlined and icon actions */
+.btn {
+  min-height: 40px;
+  height: auto;
+  padding: 9px 18px;
+  border-radius: var(--radius-pill);
+  justify-content: center;
+  font-weight: 600;
+  transition: background 160ms var(--ease-out), box-shadow 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+.btn.sm { min-height: 34px; border-radius: var(--radius-pill); padding: 6px 13px; }
+.btn.primary { background: var(--brand-600); color: #fff; }
+.btn.primary:hover { background: var(--brand-700); box-shadow: var(--shadow-sm); }
+.btn.secondary { border-color: var(--border-strong); background: var(--md-surface); color: var(--brand-700); }
+.btn.secondary:hover { background: var(--brand-50); border-color: var(--brand-300); }
+.btn.ghost:hover { background: var(--md-primary-container); color: var(--brand-800); }
+.icon-btn { width: 40px; height: 40px; border-radius: var(--radius-pill); }
+
+/* Unify surfaces; use outline + low elevation instead of unrelated hard shadows */
+.content { padding: 30px 36px 64px; gap: 18px; }
+.kpi, .filterbar, .table-wrap, .composer, .persona-intro,
+.persona-card, .account-intro, .credential-card, .eng-panel,
+.eng-input-card, .inbox-item, .creator-seed-composer,
+.creator-seed-results, .result-card, .hist-card {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-card);
+  background: var(--md-surface);
+  box-shadow: var(--shadow-xs);
+}
+.kpi { padding: 20px 22px; }
+.kpi-v { font-size: 28px; font-weight: 700; letter-spacing: -.04em; }
+.kpi-k { letter-spacing: .025em; text-transform: none; font-weight: 600; }
+.filterbar { padding: 20px; }
+.table-wrap { overflow: hidden; }
+.table thead { background: var(--md-surface-container); }
+.table tbody tr:hover { background: var(--md-state-hover); }
+
+/* Recommendation flow: neutral focus field, soft segmented modes */
+.recommend { width: 100%; max-width: 980px; padding: 44px 36px 72px; gap: 26px; }
+.hero { padding-top: 0; }
+.hero-eyebrow { padding: 7px 14px; border-radius: var(--radius-pill); font-weight: 650; }
+.hero-title { font-size: clamp(27px, 3.1vw, 36px); letter-spacing: -.04em; }
+.hero-sub { max-width: 610px; margin: 14px auto 0; line-height: 1.7; }
+.composer { overflow: hidden; box-shadow: var(--shadow-sm); }
+.tabs { gap: 4px; padding: 8px; background: var(--md-surface-container); }
+.tab { height: 42px; border-radius: var(--radius-pill); font-weight: 600; }
+.tab.active { background: var(--md-primary-container); color: var(--brand-800); box-shadow: none; }
+.tab:hover:not(.active) { background: rgba(255, 255, 255, .55); }
+.tab-body { padding: 28px 28px 22px; }
+.url-row, .manual-area, .ff-input, .account-text-input, .secret-input {
+  border-radius: var(--md-shape-control);
+  background: var(--md-surface);
+}
+.url-row { height: 56px; }
+.url-row .paste-btn { border-radius: var(--radius-pill); background: var(--md-surface-container); }
+.options { border-top-color: var(--md-outline-variant); }
+.opt-chip, .chip, .example-tag { border-radius: var(--radius-pill); }
+.opt-chip.on, .chip.active { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.composer-ft { background: var(--md-surface-dim); }
+.cta { border-radius: var(--radius-pill); background: var(--brand-600); font-weight: 650; }
+.cta:hover:not(:disabled) { background: var(--brand-700); }
+.example-item { border-radius: var(--md-shape-control); }
+.example-item:hover { border-color: var(--brand-300); background: var(--md-surface-dim); }
+.result-rank.top { background: var(--md-primary-container); color: var(--brand-700); }
+.result-action { border-radius: var(--radius-pill); }
+
+/* Persona presets read as selectable, outlined Material cards */
+.persona-page, .account-page { width: min(1020px, calc(100% - 72px)); }
+.persona-intro { padding: 26px; gap: 24px; }
+.persona-current { background: var(--md-primary-container); border-color: transparent; border-radius: 15px; }
+.persona-card { padding: 22px; min-height: 265px; gap: 18px; box-shadow: none; }
+.persona-card:hover { border-color: var(--brand-300); box-shadow: var(--shadow-sm); }
+.persona-card.active {
+  border-color: var(--brand-600);
+  background: var(--brand-50);
+  box-shadow: inset 0 0 0 1px var(--brand-600);
+}
+.persona-icon { width: 42px; height: 42px; border-radius: 14px; }
+.persona-card.active .persona-icon, .persona-selected {
+  background: var(--md-primary-container); color: var(--brand-800);
+}
+.persona-none-button { border-radius: var(--radius-pill); }
+.persona-example { border-top-color: var(--md-outline-variant); }
+.persona-coming { border-radius: var(--md-shape-card); background: var(--md-surface-container); }
+.credential-card, .account-intro { padding: 24px; }
+.eng-input-row input, .eng-input-row select, .inbox-reply textarea {
+  border-radius: var(--md-shape-control);
+}
+.inbox-item { padding: 20px; }
+
+/* Explicit accessible focus and restrained interactions */
+:where(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 3px;
+}
+:where(.btn, .cta, .tab, .side-item, .persona-card):disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-item, .btn, .tab, .persona-card, .cta,
+  .brand-uploaded-logo { transition: none; }
+  .persona-card:hover { transform: none; }
+}
+
+/* On narrow screens the full navigation stays scrollable and functional. */
+@media (max-width: 1020px) and (min-width: 761px) {
+  .app { grid-template-columns: 218px minmax(0, 1fr); }
+  .sidebar { padding-inline: 10px; }
+  .content { padding-inline: 24px; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: relative;
+    height: auto;
+    min-height: 0;
+    padding: 10px 14px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--md-outline-variant);
+    z-index: 35;
+  }
+  .sidebar .brand.brand-button {
+    justify-content: flex-start;
+    width: calc(100% - 62px);
+    min-height: 64px;
+    height: 64px;
+    margin: 0;
+    padding: 0 8px;
+    border: 0;
+  }
+  .brand-uploaded-logo { width: 160px; }
+  .side-section {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding: 5px 0 6px;
+    margin: 0;
+  }
+  .side-item { flex: 0 0 auto; width: auto; min-height: 38px; padding: 8px 13px; }
+  .side-h, .side-divider { display: none; }
+  .side-footer { position: absolute; right: 18px; top: 18px; margin: 0; z-index: 36; }
+  .sidebar-note, .side-account-copy, .side-account-chevron { display: none; }
+  .side-account {
+    display: flex;
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
+    padding: 4px;
+    margin: 0;
+    background: var(--md-surface);
+  }
+  .account-hub { top: calc(100% + 8px); bottom: auto; right: 0; left: auto; width: min(320px, calc(100vw - 28px)); }
+  .account-hub::after { display: none; }
+  .app-header { padding: 22px 18px 18px; align-items: flex-start; }
+  .hd-title { font-size: 22px; }
+  .hd-sub { max-width: 480px; }
+  .content { padding: 22px 18px 50px; }
+  .recommend { padding: 30px 18px 54px; gap: 22px; }
+  .hero-title { font-size: clamp(25px, 5.8vw, 33px); }
+  .tab-body { padding: 20px 18px; }
+  .persona-page, .account-page { width: calc(100% - 36px); }
+  .persona-intro { padding: 20px; }
+  .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .kpi-strip { grid-template-columns: 1fr; }
+  .hd-right .btn { min-height: 36px; font-size: 11px; padding: 7px 10px; }
+  .hero-sub { font-size: 13px; }
+  .persona-card { min-height: 0; }
+  .content { padding-inline: 14px; }
+  .recommend { padding-inline: 14px; }
+}
