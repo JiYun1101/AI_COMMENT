@@ -108,6 +108,8 @@ export interface YouTubeCommentPublishResponse {
   comment_url: string;
   account_mode?: AccountMode;
   tracked?: boolean;
+  tracking_warning?: string;
+  browser_backup_saved?: boolean;
 }
 
 export interface ServiceHealth {
@@ -247,6 +249,7 @@ export interface PublishedComment {
   replies_7d: number | null;
   status: 'pending' | 'active' | 'missing';
   last_checked_at: string | null;
+  local_only?: boolean;
   predicted_score: number | null;
   comment_type: string | null;
   video_title: string | null;
@@ -268,6 +271,7 @@ export interface PublishedCommentsResponse {
   summary: PublishedSummary;
   items: PublishedComment[];
   checked_count?: number;
+  backend_unavailable?: boolean;
 }
 
 export type InboxCategory = 'question' | 'complaint' | 'risk' | 'praise' | 'other';
