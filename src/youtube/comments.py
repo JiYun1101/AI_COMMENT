@@ -649,3 +649,130 @@ def verify_owned_comment_batch(
                 "comment_url": f"https://www.youtube.com/watch?v={vid}&lc={cid}",
             })
     return verified, rejected, owner
+
+
+
+def find_owned_comments_from_activity(
+    entries: list[dict], *, session=None,
+    client_id: str | None = None, client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> tuple[list[dict], list[dict], dict]:
+    """Resolve pasted My Activity *titles and text* against public YouTube data.
+
+    No database write and no guessed record. Strict OAuth channel, exact video
+    title and text matching. Search is expensive (100 units/video), hence limits.
+    """
+    import re
+    import unicodedata
+    from difflib import SequenceMatcher
+
+    if not 1 <= len(entries) <= 20:
+        raise YouTubeCommentPublishError("한 번에 1~20개 댓글만 조회할 수 있습니다.", status_code=422)
+    titles = list(dict.fromkeys(str(x.get("video_title") or "").strip() for x in entries))
+    if len(titles) > 10 or any(not 2 <= len(t) <= 240 for t in titles):
+        raise YouTubeCommentPublishError("최대 10개 영상 제목을 한 번에 확인할 수 있습니다.", status_code=422)
+
+    def normalized(text: str) -> str:
+        value = unicodedata.normalize("NFKC", text or "").casefold()
+        return re.sub(r"[\W_]+", "", value, flags=re.UNICODE)
+
+    owner = authenticated_youtube_channel(
+        session=session, client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri,
+    )
+    http = session or requests.Session()
+    oauth = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+    searched: dict[str, tuple[str | None, str]] = {}
+    for title in titles:
+        requested = normalized(title)
+        try:
+            found = _authorized_json(
+                http, "https://www.googleapis.com/youtube/v3/search",
+                params={"part": "snippet", "type": "video", "q": title, "maxResults": 10},
+                failure="영상 제목 검색에 실패했습니다", **oauth,
+            )
+        except YouTubeCommentPublishError:
+            searched[title] = (None, "YouTube 영상 검색 실패 또는 검색 할당량 초과")
+            continue
+
+        matches = []
+        for item in found.get("items") or []:
+            candidate = str((item.get("snippet") or {}).get("title") or "")
+            video_id = str((item.get("id") or {}).get("videoId") or "")
+            if not VIDEO_ID_RE.fullmatch(video_id):
+                continue
+            actual = normalized(candidate)
+            if not actual or not requested:
+                continue
+            score = SequenceMatcher(None, requested, actual).ratio()
+            if requested == actual or (score >= 0.95 and len(requested) >= 8):
+                matches.append((video_id, score))
+        distinct = {video_id: score for video_id, score in matches}
+        if len(distinct) == 1:
+            searched[title] = (next(iter(distinct)), "")
+        elif not distinct:
+            searched[title] = (None, "정확히 일치하는 공개 영상을 찾지 못했습니다")
+        else:
+            searched[title] = (None, "제목이 같은 영상이 여러 개여서 자동 복구를 중단했습니다")
+
+    verified, failures = [], []
+    for entry in entries:
+        title = str(entry.get("video_title") or "").strip()
+        text = str(entry.get("comment_text") or "").strip()
+        video_id, failure = searched.get(title, (None, "영상 제목 확인 실패"))
+        if not video_id:
+            failures.append({"video_title": title, "reason": failure})
+            continue
+        query = text[:65].strip()
+        target = normalized(text)
+        found_comment = None
+        # First use YouTube searchTerms; fall back to bounded recent pages.
+        for search_term in [query, None]:
+            if found_comment:
+                break
+            next_page = None
+            for _ in range(5 if search_term is None else 2):
+                params = {"part": "snippet", "videoId": video_id, "textFormat": "plainText",
+                          "maxResults": 100, "order": "time"}
+                if search_term:
+                    params["searchTerms"] = search_term
+                if next_page:
+                    params["pageToken"] = next_page
+                try:
+                    response = _authorized_json(
+                        http, YOUTUBE_COMMENT_THREADS_URL,
+                        params=params, failure="영상의 공개 댓글을 확인하지 못했습니다", **oauth,
+                    )
+                except YouTubeCommentPublishError:
+                    break
+                for thread in response.get("items") or []:
+                    top = ((thread.get("snippet") or {}).get("topLevelComment") or {})
+                    snippet = top.get("snippet") or {}
+                    if (snippet.get("authorChannelId") or {}).get("value") != owner["channel_id"]:
+                        continue
+                    actual_text = str(snippet.get("textOriginal") or snippet.get("textDisplay") or "")
+                    if normalized(actual_text) != target:
+                        continue
+                    comment_id = top.get("id")
+                    if not comment_id:
+                        continue
+                    found_comment = {
+                        "video_id": video_id,
+                        "comment_id": str(comment_id),
+                        "comment": actual_text,
+                        "published_at": snippet.get("publishedAt"),
+                        "comment_url": f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}",
+                    }
+                    break
+                if found_comment:
+                    break
+                next_page = response.get("nextPageToken")
+                if not next_page:
+                    break
+        if found_comment:
+            verified.append(found_comment)
+        else:
+            failures.append({
+                "video_title": title,
+                "reason": "연결한 채널의 일치하는 공개 댓글을 찾지 못했습니다. 댓글 직접 링크로 다시 복구할 수 있습니다.",
+            })
+    return verified, failures, owner

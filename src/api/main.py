@@ -64,6 +64,7 @@ from src.youtube.comments import (
     publish_youtube_reply,
     fetch_owned_youtube_comment,
     verify_owned_comment_batch,
+    find_owned_comments_from_activity,
     authenticated_youtube_channel,
     youtube_oauth_status,
 )
@@ -458,6 +459,65 @@ def recover_published_comment(
 
 class RecoverCommentBatchRequest(BaseModel):
     comments: list[RecoverCommentRequest] = Field(min_length=1, max_length=30)
+
+
+
+class ActivityCommentLookup(BaseModel):
+    video_title: str = Field(min_length=2, max_length=240)
+    comment_text: str = Field(min_length=2, max_length=1000)
+
+
+class ActivityRecoveryRequest(BaseModel):
+    comments: list[ActivityCommentLookup] = Field(min_length=1, max_length=20)
+
+
+@app.post("/my-comments/recover/activity", dependencies=[Depends(require_trusted_client)])
+def recover_my_activity_comments(
+    payload: ActivityRecoveryRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    """Verify pasted Google My Activity text; do not create unverified history."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정을 연결해야 이전 활동을 복구할 수 있습니다.")
+    try:
+        verified, failures, owner = find_owned_comments_from_activity(
+            [row.model_dump() for row in payload.comments],
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    saved = []
+    for row in verified:
+        try:
+            identifier = record_published_comment(
+                video_id=row["video_id"], comment_id=row["comment_id"],
+                comment=row["comment"], comment_url=row["comment_url"],
+                account_mode="personal", owner_channel_id=owner["channel_id"],
+                published_at=row["published_at"],
+            )
+            saved.append({"id": identifier, **row})
+        except Exception:
+            logger.exception("activity comment recovery persistence failed")
+            failures.append({
+                "comment_id": row["comment_id"],
+                "reason": "YouTube에서 확인됐지만 서버 기록 저장에 실패했습니다",
+            })
+    return {
+        "owner_channel_id": owner["channel_id"],
+        "registered_count": len(saved),
+        "failed_count": len(failures),
+        "items": saved,
+        "failures": failures,
+        "storage_persistent": os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true",
+    }
 
 
 @app.post("/my-comments/recover/batch", dependencies=[Depends(require_trusted_client)])
