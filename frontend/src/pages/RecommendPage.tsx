@@ -351,6 +351,14 @@ export function RecommendPage() {
         recommendation_id: recommendation.id,
       });
       setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
+      if (!posted.tracked || !posted.browser_backup_saved) {
+        setError(
+          '댓글은 YouTube에 게시됐지만 추적 기록이 완전히 저장되지는 않았습니다. ' +
+          (posted.browser_backup_saved
+            ? '이 브라우저의 게시 영수증은 남아 있습니다. 내 댓글 성과에서 복구할 수 있습니다.'
+            : '브라우저 백업도 실패했습니다. 게시된 댓글 주소를 별도로 보관해주세요.'),
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'YouTube 댓글 게시에 실패했습니다.');
     } finally {
