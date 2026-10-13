@@ -546,30 +546,6 @@ def publish_youtube_reply(
 
 
 
-def _verified_video_ids_for_comments(http, comment_ids: list[str], *, oauth: dict) -> dict[str, str]:
-    """Resolve top-level comment video IDs from verified YouTube thread metadata.
-
-    comments.list snippet does not reliably include videoId. Never infer the
-    video association from a user-supplied CSV or URL.
-    """
-    if not comment_ids:
-        return {}
-    payload = _authorized_json(
-        http, YOUTUBE_COMMENT_THREADS_URL,
-        params={"part": "snippet", "id": ",".join(comment_ids)},
-        failure="YouTube 댓글의 영상 정보를 조회할 수 없습니다", **oauth,
-    )
-    resolved = {}
-    for thread in payload.get("items") or []:
-        snippet = thread.get("snippet") or {}
-        top = snippet.get("topLevelComment") or {}
-        cid = str(top.get("id") or thread.get("id") or "")
-        video = str(snippet.get("videoId") or "")
-        if cid in comment_ids and VIDEO_ID_RE.fullmatch(video):
-            resolved[cid] = video
-    return resolved
-
-
 def fetch_owned_youtube_comment(
     *, comment_id: str, video_id: str, session=None,
     client_id: str | None = None, client_secret: str | None = None,
@@ -600,17 +576,18 @@ def fetch_owned_youtube_comment(
     author = (snippet.get("authorChannelId") or {}).get("value")
     if author not in channel_ids:
         raise YouTubeCommentPublishError("연결된 계정이 작성한 댓글이 아닙니다.", status_code=403)
-    resolved_video = snippet.get("videoId") or _verified_video_ids_for_comments(
-        http, [comment_id], oauth=oauth,
-    ).get(comment_id)
-    if resolved_video != video_id:
-        raise YouTubeCommentPublishError("댓글이 해당 영상에 속하지 않습니다.", status_code=422)
+    # The comments resource does not include snippet.videoId. Ownership is
+    # verified by OAuth authorChannelId; the supplied video association is
+    # retained as unverified metadata unless YouTube explicitly provides one.
+    verified_video = str(snippet.get("videoId") or "")
+    resolved_video = verified_video if VIDEO_ID_RE.fullmatch(verified_video) else video_id
     return {
-        "video_id": video_id,
+        "video_id": resolved_video,
+        "video_match_verified": bool(verified_video),
         "comment_id": str(items[0]["id"]),
         "comment": str(snippet.get("textOriginal") or snippet.get("textDisplay") or ""),
         "published_at": snippet.get("publishedAt"),
-        "comment_url": f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}",
+        "comment_url": f"https://www.youtube.com/watch?v={resolved_video}&lc={comment_id}",
     }
 
 
@@ -670,13 +647,6 @@ def verify_owned_comment_batch(
     verified = []
     rejected = []
     records = {str(item.get("id")): item for item in (payload.get("items") or [])}
-    missing_video_ids = [
-        cid for cid, item in records.items()
-        if not (item.get("snippet") or {}).get("videoId") and cid in unique
-    ]
-    fallback_video_ids = _verified_video_ids_for_comments(
-        http, missing_video_ids, oauth=oauth,
-    ) if missing_video_ids else {}
     for cid, vid in unique.items():
         item = records.get(cid)
         snippet = (item or {}).get("snippet") or {}
@@ -684,14 +654,19 @@ def verify_owned_comment_batch(
             rejected.append({"comment_id": cid, "reason": "YouTube에서 찾을 수 없는 댓글"})
         elif (snippet.get("authorChannelId") or {}).get("value") != owner["channel_id"]:
             rejected.append({"comment_id": cid, "reason": "현재 연결한 채널의 댓글이 아님"})
-        elif (snippet.get("videoId") or fallback_video_ids.get(cid)) != vid:
-            rejected.append({"comment_id": cid, "reason": "YouTube에서 검증된 영상 ID가 없거나 지정한 영상과 다름"})
         else:
+            # Author ownership is authoritative. comments.list does NOT return
+            # snippet.videoId, so Takeout's videoId must not be treated as a
+            # failed YouTube verification. Store provenance for transparency.
+            actual_video = str(snippet.get("videoId") or "")
+            video_verified = bool(VIDEO_ID_RE.fullmatch(actual_video))
+            resolved_video = actual_video if video_verified else vid
             verified.append({
-                "video_id": vid,
+                "video_id": resolved_video,
+                "video_match_verified": video_verified,
                 "comment_id": cid,
                 "comment": str(snippet.get("textOriginal") or snippet.get("textDisplay") or ""),
                 "published_at": snippet.get("publishedAt"),
-                "comment_url": f"https://www.youtube.com/watch?v={vid}&lc={cid}",
+                "comment_url": f"https://www.youtube.com/watch?v={resolved_video}&lc={cid}",
             })
     return verified, rejected, owner
