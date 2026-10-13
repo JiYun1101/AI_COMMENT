@@ -32,7 +32,9 @@ def youtube_fake(calls):
             return {"items": [{"contentDetails": {"videoId": VIDEO1}},
                               {"contentDetails": {"videoId": VIDEO2}}]}
         if url.endswith("/videos"):
-            return {"items": [item(VIDEO1), item(VIDEO2, owner="UC_OTHER")]}
+            video_ids = params["id"].split(",")
+            records = {VIDEO1: item(VIDEO1), VIDEO2: item(VIDEO2, owner="UC_OTHER")}
+            return {"items": [records[vid] for vid in video_ids if vid in records]}
         raise AssertionError("Unexpected YouTube URL " + url)
     return fake
 
