@@ -378,6 +378,12 @@ export function RecommendPage() {
       <div className="main">
         <Header title="댓글 추천" />
         <div className="recommend">
+          {serviceHealth?.storage.persistent === false && (
+            <div className="inline-status error" role="alert">
+              현재 서버 저장소가 영구 보존되지 않습니다. 댓글 게시 후 기록을 브라우저에 백업하고,
+              추적을 지속하려면 영구 DB 연결이 필요합니다.
+            </div>
+          )}
           <div className="hero">
             <span className="hero-eyebrow"><span className="dot" /> AI 댓글 추천 · v0.5</span>
             <h1 className="hero-title">영상 맥락을 분석해<br />자연스러운 댓글을 생성합니다</h1>

@@ -118,7 +118,7 @@ export interface ServiceHealth {
   model: ReadinessComponent;
   llm: ReadinessComponent;
   youtube: { configured: boolean; oauth?: YouTubeOAuthStatus; demo?: YouTubeDemoStatus };
-  storage: { ready: boolean };
+  storage: { ready: boolean; persistent?: boolean; warning?: string | null };
 }
 
 export interface GenerationContextSummary {
