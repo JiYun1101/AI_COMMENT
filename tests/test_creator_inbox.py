@@ -132,21 +132,17 @@ def test_llm_drafts_drop_unsafe_lines_and_fall_back_when_empty():
 def test_fetch_comment_metrics_batches_and_omits_missing_ids():
     session = FakeSession(
         [
-            FakeResponse(
-                {
-                    "items": [
-                        {
-                            "id": "c1",
-                            "snippet": {"totalReplyCount": 2, "topLevelComment": {"snippet": {"likeCount": 7}}},
-                        }
-                    ]
-                }
-            )
+            FakeResponse({"items": [{"id": "c1", "snippet": {"likeCount": 7}}]}),
+            FakeResponse({"items": [{"id": "reply-a"}, {"id": "reply-b"}],
+                          "pageInfo": {"totalResults": 2}}),
         ]
     )
     metrics = fetch_comment_metrics(["c1", "c2"], api_key="key", session=session)
     assert metrics == {"c1": {"like_count": 7, "reply_count": 2}}
+    assert session.calls[0][1].endswith("/comments")
     assert session.calls[0][2]["params"]["id"] == "c1,c2"
+    assert "maxResults" not in session.calls[0][2]["params"]
+    assert session.calls[1][2]["params"]["parentId"] == "c1"
 
 
 def test_fetch_video_comment_threads_follows_pages_and_reports_disabled_comments():
