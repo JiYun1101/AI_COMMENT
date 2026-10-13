@@ -1,7 +1,8 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccountMode, listMyComments, refreshMyComments } from '../api/client';
+import { getAccountMode, listMyComments, recoverPublishedComment, refreshMyComments } from '../api/client';
+import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
 import { Header } from '../components/layout/Header';
@@ -42,6 +43,8 @@ export function MyCommentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recoveryUrl, setRecoveryUrl] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +78,64 @@ export function MyCommentsPage() {
       setError(err instanceof Error ? err.message : '실제 반응을 확인하지 못했습니다.');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+
+  const restoreFromYouTube = async () => {
+    setRecoveryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const link = new URL(recoveryUrl);
+      if (!['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(link.hostname) ||
+          link.protocol !== 'https:') throw new Error('YouTube 댓글 주소를 붙여넣어 주세요.');
+      const video = link.searchParams.get('v') || '';
+      const comment = link.searchParams.get('lc') || '';
+      if (!/^[\w-]{11}$/.test(video) || !comment) throw new Error('주소에 영상 ID와 댓글 ID(lc)가 필요합니다.');
+      await recoverPublishedComment(video, comment);
+      setRecoveryUrl('');
+      await load();
+      setNotice('YouTube 작성자 인증을 확인하고 댓글 추적을 다시 등록했습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '댓글 복구에 실패했습니다.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const importBackupFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      if (file.size > 2 * 1024 * 1024) throw new Error('2MB 이하의 백업 파일만 지원합니다.');
+      const count = importPostedBackup(JSON.parse(await file.text()));
+      await load();
+      setNotice('이 브라우저에 댓글 영수증 ' + count + '개를 불러왔습니다. 실측 추적에는 YouTube 재인증과 영구 DB가 필요합니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '백업 파일을 확인할 수 없습니다.');
+    }
+  };
+
+  const restoreLocalComments = async () => {
+    const pending = (data?.items || []).filter((item) => item.local_only && item.account_mode === 'personal');
+    if (!pending.length) return;
+    setRecoveryBusy(true);
+    setError(null);
+    let restored = 0;
+    try {
+      for (const item of pending.slice(0, 50)) {
+        try {
+          await recoverPublishedComment(item.video_id, item.comment_id);
+          restored++;
+        } catch (e) {
+          setError(e instanceof Error ? e.message : '일부 댓글을 복구하지 못했습니다.');
+        }
+      }
+      await load();
+      setNotice('본인 확인된 댓글 ' + restored + '개를 서버 추적 목록에 복구했습니다.');
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
@@ -112,6 +173,52 @@ export function MyCommentsPage() {
               {refreshing ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
               {refreshing ? '확인 중...' : '실제 반응 새로 확인'}
             </button>
+          </section>
+
+
+          <section className="eng-panel" style={{ padding: '18px 22px', display: 'grid', gap: 12 }}>
+            <div className="eng-panel-head">
+              <h3>게시 댓글 복구 및 백업</h3>
+              <small>현재 무료 서버의 DB는 영구 저장되지 않습니다. 서버 기록과 브라우저 보조 백업을 구분해 표시합니다.</small>
+            </div>
+            {data?.backend_unavailable && (
+              <div role="alert" className="inline-status error">서버에 연결되지 않아 이 브라우저의 게시 기록만 표시하고 있습니다. 실시간 좋아요·답글은 조회되지 않습니다.</div>
+            )}
+            {items.some((item) => item.local_only) && (
+              <div role="status" className="inline-status">
+                서버에 없는 브라우저 백업 {items.filter((item) => item.local_only).length}개
+                {accountMode === 'personal' && (
+                  <button type="button" className="btn secondary" disabled={recoveryBusy}
+                    onClick={() => void restoreLocalComments()}>YouTube 본인 확인 후 다시 추적</button>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              <label className="btn secondary" style={{ cursor: 'pointer' }}>
+                백업 파일 가져오기
+                <input type="file" accept="application/json,.json" style={{ display: 'none' }}
+                  onChange={(event) => { void importBackupFile(event.target.files?.[0]); event.target.value = ''; }} />
+              </label>
+              <a href="https://www.youtube.com/feed/history/comment_history" target="_blank" rel="noreferrer">
+                YouTube에서 내 댓글 기록 보기
+              </a>
+            </div>
+            {accountMode === 'personal' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <input className="account-text-input" style={{ flex: '1 1 300px', minWidth: 0 }}
+                  aria-label="복구할 YouTube 댓글 링크" placeholder="YouTube 댓글 주소 (v=영상ID&lc=댓글ID)"
+                  value={recoveryUrl} onChange={(event) => setRecoveryUrl(event.target.value)} />
+                <button type="button" className="btn primary" disabled={!recoveryUrl.trim() || recoveryBusy}
+                  onClick={() => void restoreFromYouTube()}>
+                  {recoveryBusy ? '복구 중...' : '기존 댓글 다시 추적'}
+                </button>
+              </div>
+            )}
+            <p className="eng-muted" style={{ fontSize: 12 }}>
+              YouTube에 게시된 댓글은 다시 조회할 수 있어도 삭제된 AI 추천 점수나 분석 기록까지 자동 복구되지는 않습니다.
+              기기 간 영구 보존은 별도의 영구 DB가 필요합니다.
+            </p>
           </section>
 
           {error && <div className="inline-status error">{error}</div>}
@@ -174,6 +281,7 @@ export function MyCommentsPage() {
                               {item.comment_type && <TypeTag type={item.comment_type} />}
                               <span className="eng-muted">{formatAge(item.hours_since_publish)}</span>
                               {item.status === 'missing' && <span className="eng-flag">삭제·검토 대기</span>}
+                              {item.local_only && <span className="eng-flag">브라우저 백업 · 추적 재등록 필요</span>}
                             </div>
                             <p>{item.comment}</p>
                             <div className="eng-comment-meta">
