@@ -34,6 +34,7 @@ def test_restore_endpoint_authenticates_and_prevents_duplicates(tmp_path, monkey
                 "published_at": datetime.now(timezone.utc).isoformat()}
 
     monkeypatch.setattr("src.api.main.fetch_owned_youtube_comment", verify)
+    monkeypatch.setattr("src.api.main._verified_account_channel", lambda mode, *args: {"channel_id": "my-channel"} if mode == "personal" else None)
     data = {"video_id": VIDEO, "comment_id": "oldcomment"}
     assert client.post("/my-comments/recover", json=data).status_code == 401
     assert client.post("/my-comments/recover", json=data,
