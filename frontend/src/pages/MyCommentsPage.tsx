@@ -1,7 +1,7 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
@@ -183,6 +183,22 @@ export function MyCommentsPage() {
     }
   };
 
+
+  const reconnectExistingRecords = async () => {
+    setRecoveryBusy(true);
+    setError(null);
+    try {
+      const result = await claimLegacyPublishedHistory();
+      await load();
+      setNotice('기존 서버 기록 중 본인 소유 댓글 ' + result.restored +
+        '개를 다시 연결했습니다. 확인한 댓글 ' + result.checked + '개.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '이전 기록 연결에 실패했습니다.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleNav = (key: SidebarKey) => {
     if (key === 'comments') navigate('/');
     if (key === 'dashboard') navigate('/dashboard');
@@ -245,6 +261,12 @@ export function MyCommentsPage() {
               </div>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              {accountMode === 'personal' && (
+                <button type="button" className="btn secondary" disabled={recoveryBusy}
+                  onClick={() => void reconnectExistingRecords()}>
+                  이전 서버 댓글 기록 다시 연결
+                </button>
+              )}
               <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
               {accountMode === 'personal' && (
                 <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
