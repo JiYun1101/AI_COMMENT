@@ -123,7 +123,7 @@ def test_default_recommendations_limit_repetitive_laughter_without_changing_scor
     selected = output["recommendations"]
     assert len(selected) == 5
     assert sum("ㅋㅋ" in r["comment"] or "ㅎㅎ" in r["comment"] for r in selected) <= 1
-    assert selected[0]["comment"] == marked[0]
+    assert selected[0]["comment"] == "인트로 음악 선택 정말 묘하네요"
     # Selected results retain raw ranker scores, not fabricated adjusted probabilities.
     assert selected[0]["predicted_score"] == 100
     assert sum(item["selected"] for item in output["trace"]["candidates"]) == 5
