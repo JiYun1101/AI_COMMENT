@@ -433,6 +433,28 @@ export async function recoverPublishedBatch(
   );
 }
 
+export interface ActivityRecoveryResult {
+  registered_count: number;
+  failed_count: number;
+  storage_persistent: boolean;
+  items: Array<{ comment_id: string; comment: string; video_id: string; comment_url: string; published_at: string }>;
+  failures: Array<{ video_title?: string; comment_id?: string; reason: string }>;
+}
+
+export async function recoverFromPastedActivity(
+  comments: Array<{ video_title: string; comment_text: string }>,
+): Promise<ActivityRecoveryResult> {
+  return requestJson<ActivityRecoveryResult>(
+    API_BASE + '/my-comments/recover/activity',
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth(withRuntimeKeys({ 'Content-Type': 'application/json' })),
+      body: JSON.stringify({ comments }),
+    },
+    'Google 내 활동에서 이전 댓글을 확인하지 못했습니다',
+  );
+}
+
 export async function claimLegacyPublishedHistory(): Promise<{ checked: number; restored: number; remaining: number }> {
   return requestJson(
     API_BASE + '/my-comments/claim-legacy',
