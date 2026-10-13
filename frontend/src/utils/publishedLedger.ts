@@ -118,3 +118,22 @@ export function mergePostedBackup(data: PublishedCommentsResponse, mode: Account
     summary: { ...data.summary, tracked_count: data.items.length + offline.length },
   };
 }
+
+/** Shadow-copy successful server reads without changing any original records. */
+export function backUpServerComments(items: PublishedComment[]): boolean {
+  try {
+    const existing = new Map(readPostedBackup().map((x) => [x.comment_id, x]));
+    for (const row of items) {
+      if (!isValidRecord(row)) continue;
+      existing.set(row.comment_id, {
+        video_id: row.video_id, comment_id: row.comment_id, comment: row.comment,
+        comment_url: row.comment_url, published_at: row.published_at,
+        account_mode: row.account_mode, recommendation_id: row.recommendation_id,
+      });
+    }
+    persist([...existing.values()].sort((a, b) => b.published_at.localeCompare(a.published_at)));
+    return true;
+  } catch {
+    return false;
+  }
+}
