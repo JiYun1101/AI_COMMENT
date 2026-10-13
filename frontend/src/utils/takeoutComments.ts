@@ -6,6 +6,10 @@
 export interface TakeoutCommentIdentity { commentId: string; videoId: string }
 
 function parseCsv(text: string): string[][] {
+  // Google Takeout and spreadsheet exports can use comma, semicolon or tab.
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  const delimiter = ['\t', ';', ','].sort((a, b) =>
+    firstLine.split(b).length - firstLine.split(a).length)[0];
   if (text.length > 8 * 1024 * 1024) throw new Error('CSV 파일은 8MB 이하만 지원합니다.');
   const rows: string[][] = [];
   let row: string[] = [];
@@ -16,7 +20,7 @@ function parseCsv(text: string): string[][] {
     if (ch === '"') {
       if (quoted && text[i + 1] === '"') { cell += '"'; i++; }
       else quoted = !quoted;
-    } else if (ch === ',' && !quoted) {
+    } else if (ch === delimiter && !quoted) {
       row.push(cell); cell = '';
     } else if ((ch === '\n' || ch === '\r') && !quoted) {
       if (ch === '\r' && text[i + 1] === '\n') i++;
@@ -48,13 +52,13 @@ export function parseTakeoutCommentsCsv(text: string): TakeoutCommentIdentity[] 
   // YouTube / Google Takeout exports use localized headers. Preserve Hangul
   // while removing separators (previous ASCII-only normalization erased them).
   const headers = rows[0].map((v) => v.normalize('NFKC')
-    .toLocaleLowerCase().replace(/[\s_.()\-]+/g, '').trim());
+    .toLocaleLowerCase().replace(/[\s_.()\-\u200b-\u200d\ufeff]+/g, '').trim());
   const index = (...keys: string[]) => headers.findIndex((h) => keys.includes(h));
-  const commentIndex = index('commentid', 'commentidentifier', '댓글id', '댓글아이디', '댓글식별자');
+  const commentIndex = index('commentid', 'commentidentifier', '댓글id', '댓글아이디', '댓글식별자', '댓글고유id', 'commenturl', '댓글url');
   const videoIndex = index('videoid', 'videourl', 'videolink',
-    '동영상id', '동영상아이디', '동영상url', '동영상링크', '영상id', '영상아이디');
+    '동영상id', '동영상아이디', '동영상url', '동영상링크', '영상id', '영상아이디', '영상url', '영상링크', 'youtubevideoid');
   if (commentIndex < 0 || videoIndex < 0) {
-    throw new Error('댓글 ID·동영상 ID 열을 찾지 못했습니다. Google Takeout의 댓글 CSV 또는 Comment ID·Video ID 열이 있는 파일을 선택해 주세요.');
+    throw new Error('댓글 ID·동영상 ID 열을 찾지 못했습니다. 감지된 열: ' + rows[0].slice(0, 8).join(', ') + '. ID가 없는 Takeout 내보내기 형식은 자동 추적할 수 없습니다.');
   }
   const ids = new Map<string, TakeoutCommentIdentity>();
   for (const row of rows.slice(1)) {
