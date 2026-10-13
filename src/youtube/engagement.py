@@ -52,9 +52,10 @@ def _require_key(api_key: str | None) -> str:
 
 
 def fetch_comment_metrics(comment_ids: list[str], *, api_key: str | None, session=None) -> dict[str, dict]:
-    """최상위 댓글 ID별 현재 좋아요 수와 답글 수를 돌려준다.
+    """Return current likes/replies by actual comment ID (read-only Data API).
 
-    응답에 없는 ID는 삭제됐거나 검토 대기 중인 댓글이라 결과에서 빠진다.
+    Unlike commentThreads, comments.list(id=...) can also retrieve replies.
+    For a top-level comment, comments.list(parentId=...) returns reply count.
     """
     key = _require_key(api_key)
     ids = [value for value in dict.fromkeys(comment_ids) if value]
@@ -63,18 +64,38 @@ def fetch_comment_metrics(comment_ids: list[str], *, api_key: str | None, sessio
     for start in range(0, len(ids), MAX_IDS_PER_REQUEST):
         batch = ids[start : start + MAX_IDS_PER_REQUEST]
         body = _json_or_error(
-            _get(http, {"part": "snippet", "id": ",".join(batch)}, key),
+            http.get(
+                "https://www.googleapis.com/youtube/v3/comments",
+                params={"part": "snippet", "id": ",".join(batch), "key": key},
+                timeout=10,
+            ),
             "댓글 반응을 조회하지 못했습니다",
         )
         for item in body.get("items") or []:
+            cid = str(item.get("id") or "")
+            if cid not in batch:
+                continue
             snippet = item.get("snippet") or {}
-            top = (snippet.get("topLevelComment") or {}).get("snippet") or {}
-            metrics[str(item.get("id"))] = {
-                "like_count": int(top.get("likeCount") or 0),
-                "reply_count": int(snippet.get("totalReplyCount") or 0),
+            replies = 0
+            if not snippet.get("parentId"):
+                reply_data = _json_or_error(
+                    http.get(
+                        "https://www.googleapis.com/youtube/v3/comments",
+                        params={"part": "snippet", "parentId": cid,
+                                "maxResults": 100, "key": key},
+                        timeout=10,
+                    ),
+                    "댓글 답글 수를 조회하지 못했습니다",
+                )
+                page_info = reply_data.get("pageInfo") or {}
+                replies = int(page_info.get("totalResults")
+                              if page_info.get("totalResults") is not None
+                              else len(reply_data.get("items") or []))
+            metrics[cid] = {
+                "like_count": int(snippet.get("likeCount") or 0),
+                "reply_count": replies,
             }
     return metrics
-
 
 
 def fetch_public_comment_receipts(
