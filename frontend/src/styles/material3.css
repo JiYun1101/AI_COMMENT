@@ -251,3 +251,38 @@
   .content { padding-inline: 14px; }
   .recommend { padding-inline: 14px; }
 }
+
+/* Navigation refinement: the logo is raised to align visually with the main header.
+   Keep the sidebar brand container and menu spacing unchanged. */
+.sidebar .brand-uploaded-logo,
+.sidebar .brand-fallback {
+  position: relative;
+  top: -14px;
+}
+
+/* Top-right About link sits immediately to the left of the account avatar. */
+.hd-about-link {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+}
+.hd-about-link:hover {
+  color: var(--brand-700);
+  background: var(--brand-50);
+}
+@media (max-width: 480px) {
+  .hd-about-link { min-height: 36px; padding-inline: 11px; font-size: 12px; }
+}

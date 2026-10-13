@@ -45,6 +45,14 @@ export function Header({ title, subtitle, onGenerate }: HeaderProps) {
             <Plus size={14} /> 새 댓글 추천
           </button>
         )}
+        <button
+          type="button"
+          className="hd-about-link"
+          onClick={() => navigate('/about')}
+          aria-label="About 페이지로 이동"
+        >
+          About
+        </button>
         <div className="avatar-persona-wrap">
           <button
             type="button"
