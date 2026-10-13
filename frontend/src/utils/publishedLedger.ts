@@ -42,6 +42,7 @@ function persist(rows: BackedUpComment[]) {
 export function backUpPostedComment(
   posted: YouTubeCommentPublishResponse,
   recommendationId?: string | null,
+  accountMode: AccountMode = 'demo',
 ): boolean {
   if (!posted.posted || !posted.comment_id || !posted.video_id) return false;
   try {
@@ -51,7 +52,7 @@ export function backUpPostedComment(
       comment: posted.comment,
       comment_url: posted.comment_url || null,
       published_at: new Date().toISOString(),
-      account_mode: posted.account_mode === 'personal' ? 'personal' : 'demo',
+      account_mode: accountMode,
       recommendation_id: recommendationId ?? null,
     };
     persist([row, ...readPostedBackup().filter((item) => item.comment_id !== row.comment_id)]);
