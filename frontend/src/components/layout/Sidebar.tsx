@@ -85,7 +85,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
 
   return (
     <aside className="sidebar">
-      <button type="button" className="brand brand-button" onClick={() => navigate('/about')} aria-label="AI_COMMENT 소개 페이지로 이동">
+      <button type="button" className="brand brand-button" onClick={() => navigate('/')} aria-label="AI_COMMENT 메인 페이지로 이동">
         {logoFailed ? (
           <span className="brand-fallback">맛있는 댓글 <em>✦ 자동 댓글</em></span>
         ) : (

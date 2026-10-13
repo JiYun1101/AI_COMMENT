@@ -10,7 +10,7 @@ export function AboutPage() {
   return (
     <main className="about-page">
       <header className="about-topbar">
-        <button type="button" className="about-brand" onClick={() => navigate('/about')}>
+        <button type="button" className="about-brand" onClick={() => navigate('/')} aria-label="AI_COMMENT 메인 페이지로 이동">
           {logoFailed ? (
             <span className="brand-fallback">맛있는 댓글 <em>✦ 자동 댓글</em></span>
           ) : (
