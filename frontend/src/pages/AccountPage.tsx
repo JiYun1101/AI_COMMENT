@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   DEFAULT_OPENAI_MODEL,
+  connectServerWithCode,
+  verifyServerConnection,
   YOUTUBE_OAUTH_REDIRECT_URI,
   disconnectYouTubeOAuth,
   getStoredApiAccessToken,
@@ -28,6 +30,10 @@ import type { YouTubeOAuthStatus } from '../types/comment';
 export function AccountPage() {
   const navigate = useNavigate();
   const [serverToken, setServerToken] = useState(() => getStoredApiAccessToken());
+  const [pairingCode, setPairingCode] = useState('');
+  const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverBusy, setServerBusy] = useState(false);
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
   const [openaiKey, setOpenaiKey] = useState(() => getStoredOpenAIApiKey());
   const [openaiModel, setOpenaiModel] = useState(() => getStoredOpenAIModel());
@@ -43,10 +49,55 @@ export function AccountPage() {
   const [redirectCopied, setRedirectCopied] = useState(false);
 
   useEffect(() => {
+    // The invitation lives in the fragment (never transmitted over HTTP).
+    // Remove it from the address bar immediately after reading.
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const invite = fragment.get('pair');
+    if (invite) {
+      setPairingCode(invite);
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+    }
+    verifyServerConnection()
+      .then((result) => setServerStatus(result.connected ? 'connected' : 'disconnected'))
+      .catch(() => setServerStatus('disconnected'));
     getYouTubeOAuthStatus()
       .then(setOauthStatus)
       .catch(() => setOauthStatus(null));
   }, []);
+
+  const pairServer = async () => {
+    setServerBusy(true);
+    setServerError(null);
+    try {
+      const response = await connectServerWithCode(pairingCode);
+      setServerToken(response.access_token);
+      setPairingCode('');
+      setServerStatus('connected');
+      void getYouTubeOAuthStatus().then(setOauthStatus).catch(() => setOauthStatus(null));
+    } catch (error) {
+      setServerStatus('disconnected');
+      setServerError(error instanceof Error ? error.message : '서버 연결에 실패했습니다.');
+    } finally {
+      setServerBusy(false);
+    }
+  };
+
+  const saveServerToken = async () => {
+    setServerBusy(true);
+    setServerError(null);
+    try {
+      await verifyServerConnection(serverToken);
+      setStoredApiAccessToken(serverToken);
+      setServerStatus('connected');
+      markSaved('server');
+      void getYouTubeOAuthStatus().then(setOauthStatus).catch(() => setOauthStatus(null));
+    } catch (error) {
+      setServerStatus('disconnected');
+      setServerError(error instanceof Error ? error.message : '서버 인증에 실패했습니다.');
+    } finally {
+      setServerBusy(false);
+    }
+  };
 
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
@@ -197,29 +248,56 @@ export function AccountPage() {
              <section className="credential-card">
               <div className="credential-head">
                 <div>
-                  <span className="credential-kicker">SERVER ACCESS</span>
-                  <h3>서버 인증 토큰</h3>
-                  <p>계정 연결, 게시한 댓글 성과, 작성자 답글을 사용할 때 필요한 개인 서버 토큰입니다.
-                     서버의 API_AUTH_TOKEN과 동일한 값을 입력하세요. 코드나 공개 빌드 환경 변수에 넣지 마세요.</p>
+                  <span className="credential-kicker">SERVER CONNECTION</span>
+                  <h3>서버 연결</h3>
+                  <p>초대 링크를 열면 연결 코드가 자동으로 준비돼요. 연결 버튼을 누르면 서버 인증이 완료됩니다.
+                    관리자 비밀키를 입력하거나 Render 설정을 직접 변경할 필요가 없습니다.</p>
                 </div>
                 <ShieldCheck size={20} />
               </div>
-              <label className="account-label" htmlFor="api-access-token">Access Token</label>
+              <div className={'server-connection-status ' + serverStatus} role="status">
+                {serverStatus === 'connected' ? '서버 연결됨' : serverStatus === 'checking' ? '서버 확인 중' : '서버 미연결'}
+              </div>
+              <label className="account-label" htmlFor="server-pairing-code">서버 연결 코드</label>
               <div className="secret-input">
-                <input id="api-access-token" type="password" autoComplete="off"
-                  placeholder="서버가 발급한 토큰" value={serverToken}
-                  onChange={(event) => setServerToken(event.target.value)} />
+                <input id="server-pairing-code" type="password" autoComplete="off"
+                  placeholder="초대 링크에서 자동 입력되거나 연결 코드 입력" value={pairingCode}
+                  onChange={(event) => setPairingCode(event.target.value)} />
               </div>
               <div className="credential-actions">
-                <button type="button" className="btn primary" onClick={() => {
-                  setStoredApiAccessToken(serverToken);
-                  markSaved('server');
-                  void getYouTubeOAuthStatus().then(setOauthStatus).catch(() => setOauthStatus(null));
-                }}>{saved === 'server' ? '저장됨' : '저장'}</button>
-                <button type="button" className="btn ghost danger" onClick={() => {
-                  setServerToken(''); setStoredApiAccessToken('');
-                }}>삭제</button>
+                <button type="button" className="btn primary"
+                  disabled={serverBusy || pairingCode.trim().length < 32}
+                  onClick={() => void pairServer()}>
+                  {serverBusy ? <LoaderCircle size={15} className="spin" /> : <Link2 size={15} />}
+                  서버 연결하기
+                </button>
+                {serverStatus === 'connected' && (
+                  <button type="button" className="btn ghost danger" onClick={() => {
+                    setStoredApiAccessToken('');
+                    setServerToken('');
+                    setPairingCode('');
+                    setServerStatus('disconnected');
+                    setServerError(null);
+                  }}>이 브라우저 연결 해제</button>
+                )}
               </div>
+              {serverError && <div className="oauth-error" role="alert">{serverError}</div>}
+              <details className="server-advanced">
+                <summary>기존 서버 토큰으로 연결</summary>
+                <label className="account-label" htmlFor="api-access-token">Access Token</label>
+                <div className="secret-input">
+                  <input id="api-access-token" type="password" autoComplete="off"
+                    placeholder="이미 발급된 서버 토큰" value={serverToken}
+                    onChange={(event) => setServerToken(event.target.value)} />
+                </div>
+                <div className="credential-actions">
+                  <button type="button" className="btn secondary"
+                    disabled={serverBusy || !serverToken.trim()}
+                    onClick={() => void saveServerToken()}>
+                    {saved === 'server' ? '인증 확인됨' : '인증 확인 후 저장'}
+                  </button>
+                </div>
+              </details>
             </section>
            <section className="credential-card">
               <div className="credential-head">
