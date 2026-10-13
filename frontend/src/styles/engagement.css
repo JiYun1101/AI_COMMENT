@@ -468,3 +468,38 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+
+/* My Activity comment restoration stays within AI_COMMENT's original blue palette. */
+.eng-my-activity-import {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--brand-200);
+  background: var(--brand-50);
+}
+.eng-my-activity-import > strong { color: var(--fg1); font-size: 14px; }
+.eng-my-activity-import > p { margin: 0; line-height: 1.65; }
+.eng-my-activity-import > textarea {
+  width: 100%;
+  resize: vertical;
+  box-sizing: border-box;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--fg1);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.eng-my-activity-import > textarea:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.eng-my-activity-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.eng-my-activity-result { border-top: 1px solid var(--brand-200); padding-top: 12px; }
+.eng-my-activity-result > strong { color: var(--brand-700); }
+.eng-my-activity-result > p { font-size: 12px; color: var(--fg2); overflow-wrap: anywhere; }
