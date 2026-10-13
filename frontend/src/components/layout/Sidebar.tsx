@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getSelectedPersona } from '../../api/client';
+import brandLogo from '../../assets/ai-comment-brand-verified.png';
 import { getPersonaLabel } from '../../data/personas';
 
 export type SidebarKey =
@@ -51,6 +52,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
   const navigate = useNavigate();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const accountMode = getAccountMode();
   const selectedPersona = getSelectedPersona();
   const personaLabel = getPersonaLabel(selectedPersona);
@@ -84,7 +86,11 @@ export function Sidebar({ current, onNav }: SidebarProps) {
   return (
     <aside className="sidebar">
       <button type="button" className="brand brand-button" onClick={() => navigate('/about')} aria-label="AI_COMMENT 소개 페이지로 이동">
-        <img className="brand-uploaded-logo" src="/ai-comment-brand.webp" alt="맛있는 댓글 자동 댓글" />
+        {logoFailed ? (
+          <span className="brand-fallback">맛있는 댓글 <em>✦ 자동 댓글</em></span>
+        ) : (
+          <img className="brand-uploaded-logo" src={brandLogo} alt="맛있는 댓글 자동 댓글" onError={() => setLogoFailed(true)} />
+        )}
       </button>
 
       <div className="side-section">
