@@ -68,6 +68,10 @@ from src.youtube.comments import (
     youtube_oauth_status,
 )
 from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads
+from src.youtube.video_performance import fetch_my_videos, fetch_owned_video
+from src.storage.video_store import (
+    list_video_metrics, recently_synced, save_video_metrics,
+)
 from src.youtube.demo import (
     DemoYouTubeNotConfiguredError,
     DemoYouTubeRateLimitError,
@@ -520,6 +524,96 @@ def _verified_account_channel(
         raise HTTPException(status_code=401, detail="같은 YouTube 계정을 다시 연결해주세요. " + str(exc)) from exc
     except YouTubeCommentPublishError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+# Video performance is always tied to the authenticated YouTube channel.
+# Unlike public /videos/preview, none of these endpoints accepts a channel ID
+# supplied by the browser or accesses another creator's private inventory.
+def _my_videos_identity(account_mode, oauth_client_id, oauth_client_secret):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="내 영상 성과는 개인 YouTube 계정 연결 후 이용할 수 있습니다.")
+    return _verified_account_channel("personal", oauth_client_id, oauth_client_secret)
+
+
+def _my_videos_payload(channel_id):
+    result = list_video_metrics(channel_id)
+    persistent = os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() in {"1", "true", "yes"}
+    result["storage_persistent"] = persistent
+    result["storage_warning"] = None if persistent else (
+        "서버가 영구 저장소를 사용하지 않아 재시작 시 추적 기록이 사라질 수 있습니다. "
+        "JSON 백업도 보관해주세요."
+    )
+    return result
+
+
+class TrackOwnedVideoRequest(BaseModel):
+    video_id: str = Field(min_length=11, max_length=11, pattern=r"^[A-Za-z0-9_-]{11}$")
+
+
+@app.get("/my-videos", dependencies=[Depends(require_trusted_client)])
+def my_video_performance(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    identity = _my_videos_identity(account_mode, oauth_client_id, oauth_client_secret)
+    return _my_videos_payload(identity["channel_id"])
+
+
+@app.post("/my-videos/refresh", dependencies=[Depends(require_trusted_client)])
+def refresh_my_video_performance(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    identity = _my_videos_identity(account_mode, oauth_client_id, oauth_client_secret)
+    channel_id = identity["channel_id"]
+    if recently_synced(channel_id):
+        return {**_my_videos_payload(channel_id), "checked_count": 0, "cached": True}
+    try:
+        report = fetch_my_videos(
+            limit=100,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+        )
+    except (YouTubeOAuthNotAuthorizedError, YouTubeOAuthNotConfiguredError) as exc:
+        raise HTTPException(status_code=401, detail="YouTube 계정을 다시 연결해주세요.") from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except YouTubeOAuthError as exc:
+        raise HTTPException(status_code=502, detail="YouTube 인증 서버에 연결할 수 없습니다.") from exc
+    if report["channel_id"] != channel_id:
+        raise HTTPException(status_code=403, detail="현재 연결된 채널의 영상만 추적할 수 있습니다.")
+    count = save_video_metrics(channel_id, report["channel_title"], report["videos"])
+    return {**_my_videos_payload(channel_id), "checked_count": count,
+            "cached": False, "limit_reached": report["limit_reached"]}
+
+
+@app.post("/my-videos/track", dependencies=[Depends(require_trusted_client)])
+def track_owned_video(
+    payload: TrackOwnedVideoRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    identity = _my_videos_identity(account_mode, oauth_client_id, oauth_client_secret)
+    try:
+        report = fetch_owned_video(
+            payload.video_id,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+        )
+    except (YouTubeOAuthNotAuthorizedError, YouTubeOAuthNotConfiguredError) as exc:
+        raise HTTPException(status_code=401, detail="YouTube 계정을 다시 연결해주세요.") from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except YouTubeOAuthError as exc:
+        raise HTTPException(status_code=502, detail="YouTube 인증 서버에 연결할 수 없습니다.") from exc
+    if report["channel_id"] != identity["channel_id"]:
+        raise HTTPException(status_code=403, detail="다른 채널의 영상은 추적할 수 없습니다.")
+    save_video_metrics(identity["channel_id"], report["channel_title"],
+                       report["videos"], mark_sync=False)
+    return {**_my_videos_payload(identity["channel_id"]), "added_video_id": payload.video_id}
 
 
 @app.get("/account/youtube-identity", dependencies=[Depends(require_trusted_client)])

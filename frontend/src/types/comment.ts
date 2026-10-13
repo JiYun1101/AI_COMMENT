@@ -374,3 +374,41 @@ export interface AudienceSnapshotSummary {
   sample_count: number;
 }
 
+
+/** Cumulative video counters, fetched from YouTube Data API v3. */
+export interface OwnedVideoMetric {
+  owner_channel_id: string;
+  video_id: string;
+  title: string;
+  thumbnail_url: string | null;
+  published_at: string | null;
+  privacy_status: string;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  last_checked_at: string;
+  views_since_previous: number | null;
+  views_24h: number | null;
+  views_7d: number | null;
+  local_only?: boolean;
+}
+export interface OwnedVideoPerformanceResponse {
+  channel_id: string;
+  channel_title: string;
+  last_sync_at: string | null;
+  storage_persistent: boolean;
+  storage_warning?: string | null;
+  summary: {
+    tracked_count: number;
+    measured_count: number;
+    total_views: number;
+    total_likes: number;
+    total_comments: number;
+    average_views: number | null;
+  };
+  items: OwnedVideoMetric[];
+  checked_count?: number;
+  cached?: boolean;
+  limit_reached?: boolean;
+  added_video_id?: string;
+}

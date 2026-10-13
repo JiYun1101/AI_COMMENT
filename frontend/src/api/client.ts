@@ -19,6 +19,7 @@ import type {
   YouTubeCommentPublishResponse,
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
+  OwnedVideoPerformanceResponse,
 } from '../types/comment';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
@@ -528,5 +529,39 @@ export async function postCreatorReply(request: { parent_id: string; text: strin
       body: JSON.stringify(request),
     },
     'YouTube 답글 게시에 실패했습니다',
+  );
+}
+
+/** OAuth-verified owned video inventory; never fetched for another channel. */
+export async function getMyVideos(): Promise<OwnedVideoPerformanceResponse> {
+  return requestJson<OwnedVideoPerformanceResponse>(
+    API_BASE + '/my-videos',
+    { headers: withYouTubeOAuth({ 'X-AI-Comment-Account-Mode': getAccountMode() }) },
+    '내 영상 성과를 불러오지 못했습니다',
+  );
+}
+
+/** Read-only Google API sync; POST protects rate limits and records snapshots. */
+export async function refreshMyVideos(): Promise<OwnedVideoPerformanceResponse> {
+  return requestJson<OwnedVideoPerformanceResponse>(
+    API_BASE + '/my-videos/refresh',
+    { method: 'POST', headers: withYouTubeOAuth({ 'X-AI-Comment-Account-Mode': getAccountMode() }) },
+    '영상 성과를 새로 확인하지 못했습니다',
+  );
+}
+
+/** Older video must be owned by the connected OAuth channel. */
+export async function trackMyVideo(videoId: string): Promise<OwnedVideoPerformanceResponse> {
+  return requestJson<OwnedVideoPerformanceResponse>(
+    API_BASE + '/my-videos/track',
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': getAccountMode(),
+      }),
+      body: JSON.stringify({ video_id: videoId }),
+    },
+    '영상을 추적 목록에 추가하지 못했습니다',
   );
 }
