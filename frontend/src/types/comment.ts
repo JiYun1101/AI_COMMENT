@@ -322,3 +322,51 @@ export interface CreatorReplyResponse {
   text: string;
   comment_url: string | null;
 }
+
+
+/** Observed YouTube comment sample, not a probability estimate. */
+export interface AudienceIntentDistribution {
+  key: string;
+  label: string;
+  count: number;
+  percentage: number;
+}
+
+export interface AudienceObservationReport {
+  video_id: string;
+  analysis_id: string | null;
+  order: 'relevance';
+  observed: { total: number; distribution: AudienceIntentDistribution[] };
+  expected: { total: number; distribution: AudienceIntentDistribution[] } | null;
+  comparison: {
+    method: string;
+    warning: string;
+    sample_difference_points: number;
+    distribution: Array<{
+      key: string;
+      label: string;
+      expected_percentage: number;
+      observed_percentage: number;
+      delta_percentage_points: number;
+    }>;
+  } | null;
+  caveat: string;
+  examples: Array<{
+    id: string;
+    text: string;
+    intent: string;
+    like_count: number;
+    reply_count: number;
+    published_at: string | null;
+  }>;
+  comments: Array<{ id: string; text: string; intent: string; like_count: number; reply_count: number; published_at: string | null }>;
+}
+
+export interface AudienceSnapshotSummary {
+  id: string;
+  video_id: string;
+  analysis_id: string | null;
+  observed_at: string;
+  sample_count: number;
+}
+
