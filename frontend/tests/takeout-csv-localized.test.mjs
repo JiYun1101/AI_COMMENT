@@ -38,3 +38,13 @@ test('localized video URL headers and invalid entries are handled', () => {
 test('does not invent IDs for non-Takeout CSV', () => {
   assert.throws(() => parseTakeoutCommentsCsv('댓글 텍스트,날짜\n가을 좋다,2026-10-07'), /댓글 ID·동영상 ID/);
 });
+
+
+test('tab and semicolon delimited comment identifiers are accepted', () => {
+  assert.deepEqual(parseTakeoutCommentsCsv('댓글 ID\t동영상 ID\nUgyTab001\tdQw4w9WgXcQ'), [
+    { commentId: 'UgyTab001', videoId: 'dQw4w9WgXcQ' },
+  ]);
+  assert.deepEqual(parseTakeoutCommentsCsv('Comment ID;Video ID\nUgySemi001;abcdefghijk'), [
+    { commentId: 'UgySemi001', videoId: 'abcdefghijk' },
+  ]);
+});
