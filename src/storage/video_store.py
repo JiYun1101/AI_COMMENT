@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 from src.storage.analysis_store import _session, init_db
 
 REFRESH_COOLDOWN = timedelta(minutes=5)
-SNAPSHOT_SPACING = timedelta(minutes=10)
+SNAPSHOT_SPACING = timedelta(hours=1)
+SNAPSHOT_RETENTION = timedelta(days=45)
 
 
 def _now():
@@ -104,6 +105,12 @@ def save_video_metrics(channel_id: str, channel_title: str, videos: list[dict], 
                      video.get("comments")),
                 )
             written += 1
+        # Limit the size of the video metrics table on long-running servers.
+        # Keep enough hourly samples for 7-day comparisons with margin.
+        db.execute(
+            "DELETE FROM owned_video_snapshots WHERE owner_channel_id = ? AND observed_at < ?",
+            (channel_id, (now - SNAPSHOT_RETENTION).isoformat()),
+        )
         if mark_sync:
             db.execute(
                 """INSERT INTO owned_video_sync(owner_channel_id, channel_title, last_sync_at)
