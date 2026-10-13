@@ -97,7 +97,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <div className="side-h">시청자 도구</div>
         <SidebarItem icon={MessageSquare} label="댓글 추천" active={current === 'comments'} onClick={() => onNav('comments')} />
         <SidebarItem icon={LayoutGrid} label="대시보드" active={current === 'dashboard'} onClick={() => onNav('dashboard')} />
-        <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => onNav('persona')} />
+        <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => go('/persona')} />
         <SidebarItem icon={TrendingUp} label="내 댓글 성과" active={current === 'mycomments'} onClick={() => navigate('/my-comments')} />
 
         <div className="side-divider" aria-hidden="true" />
