@@ -286,3 +286,30 @@
 @media (max-width: 480px) {
   .hd-about-link { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 }
+
+/* Align the sidebar separator with the header's actual bottom border.
+   The header publishes its measured height because subtitles may wrap. */
+@media (min-width: 761px) {
+  .sidebar { --sidebar-inline-padding: 14px; }
+  .sidebar .brand.brand-button {
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    height: calc(var(--app-header-height, 128px) - 18px);
+    min-height: 0;
+    border-bottom: 0;
+  }
+  .sidebar .brand.brand-button::after {
+    content: "";
+    position: absolute;
+    left: calc(-1 * var(--sidebar-inline-padding));
+    right: calc(-1 * var(--sidebar-inline-padding));
+    bottom: 0;
+    height: 1px;
+    background: var(--md-outline-variant);
+    pointer-events: none;
+  }
+}
+@media (min-width: 761px) and (max-width: 1020px) {
+  .sidebar { --sidebar-inline-padding: 10px; }
+}
