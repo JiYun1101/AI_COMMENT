@@ -1,5 +1,6 @@
 import { ChevronRight, LoaderCircle, MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { listAnalyses } from '../../api/client';
 import { formatCategoryLabel } from '../../utils/category';
 import type { AnalysisSummary } from '../../types/comment';
@@ -26,6 +27,7 @@ export function HistoryStrip({ refreshKey, onSelect }: HistoryStripProps) {
   const [items, setItems] = useState<AnalysisSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +48,7 @@ export function HistoryStrip({ refreshKey, onSelect }: HistoryStripProps) {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, reloadToken]);
 
   return (
     <section>
@@ -55,11 +57,11 @@ export function HistoryStrip({ refreshKey, onSelect }: HistoryStripProps) {
           <h2>최근 분석</h2>
           <div className="sub" style={{ marginTop: 3 }}>실제 저장된 최근 3건</div>
         </div>
-        <a href="/dashboard">대시보드에서 보기 <ChevronRight size={12} strokeWidth={2} /></a>
+        <Link to="/dashboard">대시보드에서 보기 <ChevronRight size={12} strokeWidth={2} /></Link>
       </div>
 
       {loading && <div className="history-empty"><LoaderCircle size={16} className="spin" /> 최근 기록을 불러오는 중…</div>}
-      {!loading && error && <div className="history-empty error">{error}</div>}
+      {!loading && error && <div className="history-empty error" role="alert">{error} <button type="button" className="btn secondary sm" onClick={() => setReloadToken((value) => value + 1)}>다시 시도</button></div>}
       {!loading && !error && items.length === 0 && (
         <div className="history-empty">아직 저장된 분석이 없습니다. 첫 추천을 생성하면 여기에 자동으로 기록됩니다.</div>
       )}

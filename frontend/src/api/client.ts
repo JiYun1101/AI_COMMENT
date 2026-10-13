@@ -20,6 +20,7 @@ import type {
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
 } from '../types/comment';
+import { apiErrorMessage, networkErrorMessage } from '../utils/apiErrors';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
@@ -56,11 +57,13 @@ export interface ServerPairingResult {
 }
 
 export async function verifyServerConnection(token = getStoredApiAccessToken()): Promise<{ connected: boolean }> {
-  return requestJson<{ connected: boolean }>(
+  const result = await requestJson<{ connected: boolean }>(
     API_BASE + '/auth/session',
     { headers: token ? { 'X-API-Key': token } : {} },
     '서버 연결 상태를 확인하지 못했습니다',
   );
+  if (!result.connected) throw new Error('서버 인증을 확인하지 못했습니다. 연결 설정을 확인해주세요.');
+  return result;
 }
 
 export async function connectServerWithCode(code: string): Promise<ServerPairingResult> {
@@ -188,19 +191,37 @@ function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, 
 }
 
 async function getErrorMessage(res: Response, fallback: string): Promise<string> {
+  let detail: unknown;
   try {
-    const body = (await res.json()) as { detail?: string };
-    if (body.detail) return body.detail;
+    const body: unknown = await res.json();
+    if (body && typeof body === 'object' && 'detail' in body) {
+      detail = (body as { detail: unknown }).detail;
+    }
   } catch {
-    // Ignore invalid/non-JSON bodies and use the fallback.
+    // An HTML error page from the proxy should not appear raw in the UI.
   }
-  return `${fallback} (${res.status})`;
+  return apiErrorMessage(res.status, detail, fallback);
 }
 
 async function requestJson<T>(url: string, init: RequestInit | undefined, fallback: string): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(await getErrorMessage(res, fallback));
-  return res.json() as Promise<T>;
+  // Only read-only requests have an automatic deadline. Never auto-retry or
+  // time out a comment publishing POST: it may have succeeded remotely.
+  const isRead = !init?.method || init.method.toUpperCase() === 'GET';
+  const controller = isRead ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 60_000) : null;
+  try {
+    const response = await fetch(url, controller ? { ...init, signal: controller.signal } : init);
+    if (!response.ok) throw new Error(await getErrorMessage(response, fallback));
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw new Error('서버 응답 형식이 올바르지 않습니다. 잠시 후 다시 시도해주세요.');
+    }
+  } catch (error) {
+    throw new Error(networkErrorMessage(error, fallback));
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function getHealth(): Promise<ServiceHealth> {

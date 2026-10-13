@@ -11,6 +11,7 @@
   "include": [
     "src/utils/youtube.ts",
     "src/utils/readiness.ts",
-    "src/utils/recommendationInput.ts"
+    "src/utils/recommendationInput.ts",
+    "src/utils/apiErrors.ts"
   ]
 }
