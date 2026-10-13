@@ -1,7 +1,8 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccountMode, listMyComments, recoverPublishedComment, refreshMyComments } from '../api/client';
+import { getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
@@ -45,6 +46,8 @@ export function MyCommentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [recoveryUrl, setRecoveryUrl] = useState('');
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
+  const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,7 +63,10 @@ export function MyCommentsPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    if (accountMode === 'personal') {
+      void getAuthenticatedYouTubeIdentity().then(setIdentity).catch(() => setIdentity(null));
+    }
+  }, [load, accountMode]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -139,6 +145,42 @@ export function MyCommentsPage() {
     }
   };
 
+
+  const recoverFromTakeout = async (file: File | undefined) => {
+    if (!file) return;
+    setRecoveryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (accountMode !== 'personal') throw new Error('내 YouTube 계정을 연결해야 복구할 수 있습니다.');
+      const verified = await getAuthenticatedYouTubeIdentity();
+      setIdentity(verified);
+      if (file.size > 8 * 1024 * 1024) throw new Error('CSV 파일은 8MB 이하만 지원합니다.');
+      const records = parseTakeoutCommentsCsv(await file.text());
+      if (!records.length) throw new Error('복구 가능한 YouTube 댓글 ID를 찾지 못했습니다.');
+      let recovered = 0;
+      let failed = 0;
+      // Deliberate quota cap: users can repeat after export to recover the rest.
+      for (const item of records.slice(0, 100)) {
+        try {
+          await recoverPublishedComment(item.videoId, item.commentId);
+          recovered++;
+        } catch {
+          failed++;
+        }
+        setTakeoutProgress('댓글 본인 확인 ' + (recovered + failed) + '/' + Math.min(records.length, 100));
+      }
+      await load();
+      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개를 추적에 복구했습니다. 실패 ' + failed + '개.' +
+        (records.length > 100 ? ' 처음 100개만 처리했습니다. 나머지는 추후 가져오기 기능이 필요합니다.' : ''));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Takeout 기록 복구에 실패했습니다.');
+    } finally {
+      setTakeoutProgress(null);
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleNav = (key: SidebarKey) => {
     if (key === 'comments') navigate('/');
     if (key === 'dashboard') navigate('/dashboard');
@@ -178,9 +220,16 @@ export function MyCommentsPage() {
 
           <section className="eng-panel" style={{ padding: '18px 22px', display: 'grid', gap: 12 }}>
             <div className="eng-panel-head">
-              <h3>게시 댓글 복구 및 백업</h3>
+              <h3>같은 계정의 이전 댓글 복구 및 백업</h3>
               <small>현재 무료 서버의 DB는 영구 저장되지 않습니다. 서버 기록과 브라우저 보조 백업을 구분해 표시합니다.</small>
             </div>
+            {accountMode === 'personal' && (
+              <p className="eng-muted" style={{ fontSize: 13 }}>
+                {identity ? '연결된 YouTube 채널: ' + (identity.channel_title || identity.channel_id)
+                  : '연결 계정 확인이 필요합니다. 계정 설정에서 YouTube를 다시 연결해 주세요.'}
+              </p>
+            )}
+            {takeoutProgress && <p role="status" className="eng-muted">{takeoutProgress}</p>}
             {data?.backend_unavailable && (
               <div role="alert" className="inline-status error">서버에 연결되지 않아 이 브라우저의 게시 기록만 표시하고 있습니다. 실시간 좋아요·답글은 조회되지 않습니다.</div>
             )}
@@ -195,6 +244,13 @@ export function MyCommentsPage() {
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
               <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              {accountMode === 'personal' && (
+                <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
+                  Google Takeout 댓글 CSV 가져오기
+                  <input type="file" accept=".csv,text/csv" disabled={recoveryBusy} style={{ display: 'none' }}
+                    onChange={(event) => { void recoverFromTakeout(event.target.files?.[0]); event.target.value = ''; }} />
+                </label>
+              )}
               <label className="btn secondary" style={{ cursor: 'pointer' }}>
                 백업 파일 가져오기
                 <input type="file" accept="application/json,.json" style={{ display: 'none' }}
