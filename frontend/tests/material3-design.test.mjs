@@ -15,7 +15,7 @@ test('Material 3 styling is loaded after all existing feature styles', () => {
 test('Material tonal colors and component states use shared CSS tokens', () => {
   const tokens = read('src/styles/tokens.css');
   const theme = read('src/styles/material3.css');
-  assert.match(tokens, /--brand-500:\\s*#2c6ef2;/);
+  assert.match(tokens, /--brand-500:\s*#2c6ef2;/);
   assert.match(theme, /--md-primary-container:/);
   assert.match(theme, /\.side-item\.active\s*\{/);
   assert.match(theme, /\.persona-card\.active\s*\{/);
