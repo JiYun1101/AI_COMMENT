@@ -1,6 +1,6 @@
 /* AI_COMMENT Design System — Foundations
-   Colors + Type tokens for a minimal, professional B2B CRM.
-   Source: GenSpark design handoff (design_handoff_comment_recommend).
+   Material 3-inspired tonal colors and type tokens for AI_COMMENT.
+   Adapted from the existing product design; not a Figma library export.
    ------------------------------------------------------------ */
 
 @font-face {
@@ -12,31 +12,31 @@
 }
 
 :root {
-  /* ---------- Neutrals (cool-gray) ---------- */
+  /* Material 3-inspired tonal neutrals: warm violet-tinted instead of cold gray. */
   --neutral-0: #ffffff;
-  --neutral-50: #f7f8fa;
-  --neutral-100: #f1f3f5;
-  --neutral-150: #e8ebef;
-  --neutral-200: #dde1e6;
-  --neutral-300: #c1c7cf;
-  --neutral-400: #9aa3ad;
-  --neutral-500: #6b7481;
-  --neutral-600: #4a5361;
-  --neutral-700: #333b47;
-  --neutral-800: #1f2530;
-  --neutral-900: #0f141c;
+  --neutral-50: #faf9fc;
+  --neutral-100: #f2f0f6;
+  --neutral-150: #ece8f1;
+  --neutral-200: #e4e0ea;
+  --neutral-300: #cbc5d2;
+  --neutral-400: #aaa2b0;
+  --neutral-500: #6e6777;
+  --neutral-600: #524c59;
+  --neutral-700: #39343f;
+  --neutral-800: #29252f;
+  --neutral-900: #1e1b23;
 
-  /* ---------- Brand blue (trustworthy point color) ---------- */
-  --brand-50: #eef4ff;
-  --brand-100: #dbe6ff;
-  --brand-200: #b7ceff;
-  --brand-300: #8aafff;
-  --brand-400: #5a8bfa;
-  --brand-500: #2c6ef2;
-  --brand-600: #1f57cf;
-  --brand-700: #1846a6;
-  --brand-800: #143a85;
-  --brand-900: #0f2b64;
+  /* Grape-lavender brand tonal palette; each role remains semantic. */
+  --brand-50: #f6f1fb;
+  --brand-100: #eee5f6;
+  --brand-200: #dfcfed;
+  --brand-300: #cbb3e3;
+  --brand-400: #a883ce;
+  --brand-500: #76559f;
+  --brand-600: #63458c;
+  --brand-700: #4d3472;
+  --brand-800: #3d2959;
+  --brand-900: #2c1d42;
 
   /* ---------- Semantic ---------- */
   --success-50: #e8f6ee;
@@ -59,7 +59,7 @@
   /* ---------- Comment type accents (from ML labels) ---------- */
   --tag-empathy: #ec4899;
   --tag-insight: #7c3aed;
-  --tag-question: #2c6ef2;
+  --tag-question: #76559f;
   --tag-casual: #14b8a6;
   --tag-negative: #d93b3b;
   --tag-general: #6b7481;
@@ -128,18 +128,18 @@
 
   /* ---------- Radii ---------- */
   --radius-xs: 3px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
   --radius-pill: 999px;
 
   /* ---------- Shadows / elevation ---------- */
-  --shadow-xs: 0 1px 2px rgba(15, 20, 28, 0.04);
-  --shadow-sm: 0 2px 6px rgba(15, 20, 28, 0.06), 0 1px 2px rgba(15, 20, 28, 0.04);
-  --shadow-md: 0 6px 16px rgba(15, 20, 28, 0.08), 0 2px 4px rgba(15, 20, 28, 0.04);
-  --shadow-lg: 0 16px 32px rgba(15, 20, 28, 0.1), 0 4px 8px rgba(15, 20, 28, 0.06);
-  --shadow-focus: 0 0 0 3px rgba(44, 110, 242, 0.18);
+  --shadow-xs: 0 1px 3px rgba(48, 35, 64, 0.045);
+  --shadow-sm: 0 3px 12px rgba(48, 35, 64, 0.055), 0 1px 3px rgba(48, 35, 64, 0.035);
+  --shadow-md: 0 8px 24px rgba(48, 35, 64, 0.09), 0 2px 6px rgba(48, 35, 64, 0.04);
+  --shadow-lg: 0 16px 40px rgba(48, 35, 64, 0.14), 0 4px 12px rgba(48, 35, 64, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(118, 85, 159, 0.18);
 
   /* ---------- Motion ---------- */
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
