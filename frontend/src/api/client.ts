@@ -20,6 +20,7 @@ import type {
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
 } from '../types/comment';
+import { backUpPostedComment, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
@@ -347,7 +348,7 @@ export async function publishYouTubeComment(request: {
           'X-AI-Comment-Account-Mode': mode,
         };
 
-  return requestJson<YouTubeCommentPublishResponse>(
+  const posted = await requestJson<YouTubeCommentPublishResponse>(
     `${API_BASE}/youtube/comments`,
     {
       method: 'POST',
@@ -356,21 +357,52 @@ export async function publishYouTubeComment(request: {
     },
     'YouTube 댓글 게시에 실패했습니다',
   );
+  // Save a second receipt outside the server's temporary SQLite database.
+  // This is device-local recovery, not an account-wide durable database.
+  const saved = backUpPostedComment(posted, request.recommendation_id, mode);
+  return { ...posted, browser_backup_saved: saved };
 }
 
 export async function listMyComments(): Promise<PublishedCommentsResponse> {
-  return requestJson<PublishedCommentsResponse>(
-    `${API_BASE}/my-comments`,
-    { headers: withRuntimeKeys() },
-    '내가 단 댓글을 불러오지 못했습니다',
-  );
+  const mode = getAccountMode();
+  try {
+    const response = await requestJson<PublishedCommentsResponse>(
+      `${API_BASE}/my-comments`,
+      { headers: withRuntimeKeys() },
+      '내가 단 댓글을 불러오지 못했습니다',
+    );
+    return mergePostedBackup(response, mode);
+  } catch (error) {
+    const backup = readPostedBackup(mode);
+    if (!backup.length) throw error;
+    return mergePostedBackup({
+      summary: {
+        tracked_count: 0, measured_count: 0, missing_count: 0, average_likes: null,
+        replied_rate: null, prediction_pair_count: 0, prediction_spearman: null, by_type: [],
+      }, items: [], backend_unavailable: true,
+    }, mode);
+  }
 }
 
 export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
-  return requestJson<PublishedCommentsResponse>(
+  return mergePostedBackup(await requestJson<PublishedCommentsResponse>(
     `${API_BASE}/my-comments/refresh`,
     { method: 'POST', headers: withRuntimeKeys() },
     '실제 반응을 새로 확인하지 못했습니다',
+  ), getAccountMode());
+}
+
+export async function recoverPublishedComment(
+  videoId: string, commentId: string,
+): Promise<{ tracked: true; id: string; video_id: string; comment_id: string }> {
+  return requestJson(
+    `${API_BASE}/my-comments/recover`,
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({ 'Content-Type': 'application/json', 'X-AI-Comment-Account-Mode': 'personal' }),
+      body: JSON.stringify({ video_id: videoId, comment_id: commentId }),
+    },
+    'YouTube 댓글을 추적 대상으로 복구하지 못했습니다',
   );
 }
 
