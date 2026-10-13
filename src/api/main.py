@@ -40,6 +40,8 @@ from src.storage.published_store import (
     list_published_comments,
     published_summary,
     record_published_comment,
+    list_legacy_unbound_comments,
+    attach_verified_legacy_comment,
 )
 from src.storage.analysis_store import (
     dashboard_summary,
@@ -530,6 +532,36 @@ def verified_account_identity(
         "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri,
     )
     return {"connected": True, **result}
+
+@app.post("/my-comments/claim-legacy", dependencies=[Depends(require_trusted_client)])
+def claim_legacy_published_history(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    """Attach old unscoped SQLite records only after checking exact YouTube authorship."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정 연결이 필요합니다.")
+    identity = _verified_account_channel(
+        account_mode, oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    seen, restored = 0, 0
+    for item in list_legacy_unbound_comments(limit=20):
+        seen += 1
+        try:
+            fetch_owned_youtube_comment(
+                comment_id=item["comment_id"], video_id=item["video_id"],
+                client_id=_normalize_oauth_client_id(oauth_client_id),
+                client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+                redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+            )
+        except (YouTubeCommentPublishError, YouTubeOAuthError):
+            continue
+        if attach_verified_legacy_comment(item["comment_id"], identity["channel_id"]):
+            restored += 1
+    return {"checked": seen, "restored": restored, "remaining": len(list_legacy_unbound_comments(limit=100))}
+
 
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
 def my_published_comments(
