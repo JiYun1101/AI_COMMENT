@@ -155,7 +155,14 @@ def health_check():
             "oauth": youtube_oauth_status(),
             "demo": demo,
         },
-        "storage": {"ready": True},
+        "storage": {
+            "ready": True,
+            "persistent": os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true",
+            "warning": (
+                None if os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true"
+                else "SQLite 저장소의 영구 보존이 확인되지 않았습니다. 재배포 시 기록이 유실될 수 있습니다."
+            ),
+        },
         "auth": auth_status(),
     }
 
