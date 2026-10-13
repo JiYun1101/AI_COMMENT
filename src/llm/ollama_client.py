@@ -27,8 +27,9 @@ CANDIDATE_SCHEMA = {
                 "properties": {
                     "type": {"type": "string"},
                     "comment": {"type": "string"},
+                    "writing_style": {"type": "string", "enum": ["standard", "casual_imperfect"]},
                 },
-                "required": ["type", "comment"],
+                "required": ["type", "comment", "writing_style"],
             },
         }
     },
