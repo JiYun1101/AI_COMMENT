@@ -61,6 +61,7 @@ from src.youtube.comments import (
     publish_youtube_comment,
     publish_youtube_reply,
     fetch_owned_youtube_comment,
+    authenticated_youtube_channel,
     youtube_oauth_status,
 )
 from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads
@@ -387,6 +388,9 @@ def _track_published_comment(result: dict, payload: YouTubeCommentPublishRequest
             comment=result.get("comment") or payload.comment,
             comment_url=result.get("comment_url"),
             account_mode=mode,
+            owner_channel_id=(
+                authenticated_youtube_channel()["channel_id"] if mode == "personal" else None
+            ),
             recommendation_id=payload.recommendation_id,
         )
     except Exception:  # noqa: BLE001
@@ -431,10 +435,14 @@ def recover_published_comment(
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
             redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
         )
+        identity = _verified_account_channel(
+            "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri
+        )
         stored_id = record_published_comment(
             video_id=original["video_id"], comment_id=original["comment_id"],
             comment=original["comment"], comment_url=original["comment_url"],
-            account_mode="personal", published_at=original["published_at"],
+            account_mode="personal", owner_channel_id=identity["channel_id"],
+            published_at=original["published_at"],
         )
     except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
@@ -443,13 +451,49 @@ def recover_published_comment(
     return {"tracked": True, "id": stored_id, **original}
 
 
+
+
+def _verified_account_channel(
+    account_mode: str,
+    oauth_client_id: str | None = None,
+    oauth_client_secret: str | None = None,
+    oauth_redirect_uri: str | None = None,
+) -> dict | None:
+    if _normalize_account_mode(account_mode) != "personal":
+        return None
+    try:
+        return authenticated_youtube_channel(
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotAuthorizedError, YouTubeOAuthNotConfiguredError) as exc:
+        raise HTTPException(status_code=401, detail="같은 YouTube 계정을 다시 연결해주세요. " + str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.get("/account/youtube-identity", dependencies=[Depends(require_trusted_client)])
+def verified_account_identity(
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    result = _verified_account_channel(
+        "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    return {"connected": True, **result}
+
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
 def my_published_comments(
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
     limit: int = Query(default=100, ge=1, le=300),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
 ):
     mode = _normalize_account_mode(account_mode)
-    items = list_published_comments(account_mode=mode, limit=limit)
+    identity = _verified_account_channel(mode, oauth_client_id, oauth_client_secret)
+    items = list_published_comments(account_mode=mode, owner_channel_id=identity["channel_id"] if identity else None, limit=limit)
     return {"summary": published_summary(items), "items": items}
 
 
@@ -457,9 +501,13 @@ def my_published_comments(
 def refresh_my_published_comments(
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
 ):
     mode = _normalize_account_mode(account_mode)
-    comment_ids = comment_ids_to_refresh(account_mode=mode)
+    identity = _verified_account_channel(mode, oauth_client_id, oauth_client_secret)
+    owner_id = identity["channel_id"] if identity else None
+    comment_ids = comment_ids_to_refresh(account_mode=mode, owner_channel_id=owner_id)
     updated = 0
     if comment_ids:
         api_key = _resolve_youtube_api_key(youtube_api_key, mode)
@@ -470,7 +518,7 @@ def refresh_my_published_comments(
         except YouTubeLookupError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         updated = apply_comment_metrics(comment_ids, metrics)
-    items = list_published_comments(account_mode=mode)
+    items = list_published_comments(account_mode=mode, owner_channel_id=owner_id)
     return {"checked_count": updated, "summary": published_summary(items), "items": items}
 
 
@@ -638,6 +686,7 @@ def creator_reply_publish(
                     video_id=result["video_id"], comment_id=result["reply_id"],
                     comment=result.get("text") or payload.text,
                     comment_url=result.get("comment_url"), account_mode="personal",
+                    owner_channel_id=authenticated_youtube_channel()["channel_id"],
                 )
                 return {**result, "tracked": True}
             except Exception:
