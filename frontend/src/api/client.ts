@@ -363,12 +363,27 @@ export async function publishYouTubeComment(request: {
   return { ...posted, browser_backup_saved: saved };
 }
 
+
+export interface AuthenticatedYouTubeIdentity {
+  connected: boolean;
+  channel_id: string;
+  channel_title: string;
+}
+
+export async function getAuthenticatedYouTubeIdentity(): Promise<AuthenticatedYouTubeIdentity> {
+  return requestJson<AuthenticatedYouTubeIdentity>(
+    API_BASE + '/account/youtube-identity',
+    { headers: withYouTubeOAuth(withRuntimeKeys()) },
+    '현재 연결된 YouTube 계정을 확인하지 못했습니다',
+  );
+}
+
 export async function listMyComments(): Promise<PublishedCommentsResponse> {
   const mode = getAccountMode();
   try {
     const response = await requestJson<PublishedCommentsResponse>(
       `${API_BASE}/my-comments`,
-      { headers: withRuntimeKeys() },
+      { headers: withYouTubeOAuth(withRuntimeKeys()) },
       '내가 단 댓글을 불러오지 못했습니다',
     );
     backUpServerComments(response.items);
@@ -388,7 +403,7 @@ export async function listMyComments(): Promise<PublishedCommentsResponse> {
 export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
   const response = await requestJson<PublishedCommentsResponse>(
     `${API_BASE}/my-comments/refresh`,
-    { method: 'POST', headers: withRuntimeKeys() },
+    { method: 'POST', headers: withYouTubeOAuth(withRuntimeKeys()) },
     '실제 반응을 새로 확인하지 못했습니다',
   );
   backUpServerComments(response.items);
