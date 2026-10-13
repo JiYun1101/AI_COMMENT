@@ -4,7 +4,7 @@ from src.llm.openai_client import build_generation_input, validate_candidates
 
 
 def test_clean_output_preserves_readable_spacing_and_questions():
-    assert clean_comment("넘 괜찮네   😄ㅋㅋㅋㅋ!!!") == "넘 괜찮네 ㅋㅋ"
+    assert clean_comment("넘 괜찮네   😄ㅋㅋㅋㅋ!!!") == "넘 괜찮네"
     assert clean_comment("얼마야?") == "얼마야?"
     assert clean_comment("가격이 3.5만원이라 그런 듯.") == "가격이 3.5만원이라 그런 듯"
     assert detect_style("이거 좀 신기함") == "casual_imperfect"
