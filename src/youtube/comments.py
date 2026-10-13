@@ -427,7 +427,19 @@ def _authorized_json(http, url: str, *, params: dict, failure: str, **oauth) -> 
         raise YouTubeCommentPublishError("YouTube API에 연결할 수 없습니다.") from exc
     if response.status_code < 200 or response.status_code >= 300:
         mapped = response.status_code if response.status_code in {400, 401, 403, 404} else 502
-        raise YouTubeCommentPublishError(f"{failure} ({response.status_code}).", status_code=mapped)
+        reason = _youtube_error_reason(response)
+        explanation = {
+            "incompatibleParameters": "YouTube API 요청 매개변수 조합이 올바르지 않습니다.",
+            "operationNotSupported": "YouTube가 해당 댓글 ID 조회 방식을 지원하지 않습니다.",
+            "invalidFilters": "YouTube API 조회 조건이 올바르지 않습니다.",
+            "commentNotFound": "해당 댓글이 삭제되었거나 조회할 수 없습니다.",
+            "forbidden": "연결된 YouTube 계정에 댓글 조회 권한이 없습니다.",
+            "quotaExceeded": "YouTube API 할당량이 초과되었습니다.",
+        }.get(reason or "", "")
+        detail = f" 원인: {reason} — {explanation}" if reason else " 서버 로그에서 Google API 오류를 확인해야 합니다."
+        raise YouTubeCommentPublishError(
+            f"{failure} ({response.status_code}).{detail}", status_code=mapped
+        )
     try:
         return response.json()
     except ValueError as exc:
