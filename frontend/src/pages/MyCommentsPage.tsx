@@ -1,9 +1,10 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
+import { applySavedPublicMetrics, storePublicMetricResponse } from '../utils/publicMetricsBackup';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
 import { Header } from '../components/layout/Header';
@@ -33,6 +34,9 @@ function MilestoneCell({ item, label }: { item: PublishedComment; label: '24h' |
   const likes = label === '24h' ? item.likes_24h : item.likes_7d;
   const threshold = label === '24h' ? 24 : 24 * 7;
   if (likes != null) return <>{likes.toLocaleString()}</>;
+  if (item.local_only && item.hours_since_publish >= threshold) {
+    return <span className="eng-muted">기준 기록 없음</span>;
+  }
   return <span className="eng-muted">{item.hours_since_publish < threshold ? '대기' : '다음 확인 때'}</span>;
 }
 
@@ -69,24 +73,73 @@ export function MyCommentsPage() {
   }, [load, accountMode]);
 
   const refresh = async () => {
+    if (refreshing || loading) return;
     setRefreshing(true);
     setError(null);
     setNotice(null);
+    let next = data;
+    let serverError: string | null = null;
+    let savedCount = 0;
+    let publicCount = 0;
+    let unavailableCount = 0;
+    let publicError: string | null = null;
     try {
-      const next = await refreshMyComments();
-      setData(next);
-      setNotice(
-        next.checked_count
-          ? `댓글 ${next.checked_count}개의 실제 반응을 확인했습니다.`
-          : '최근 10분 안에 모두 확인한 댓글이라 새로 조회하지 않았습니다.',
-      );
+      // Local-only receipts cannot be refreshed via the OAuth-only server DB.
+      const onlyBrowserReceipts = Boolean(next?.items.length)
+        && next!.items.every((item) => item.local_only);
+      if (!onlyBrowserReceipts) {
+        try {
+          next = await refreshMyComments();
+          savedCount = next.checked_count ?? 0;
+        } catch (err) {
+          serverError = err instanceof Error ? err.message : '서버 기록을 확인하지 못했습니다.';
+          next = await listMyComments();
+        }
+      }
+      if (!next) next = await listMyComments();
+
+      const targets = next.items.filter((item) => item.local_only || serverError);
+      for (let i = 0; i < Math.min(targets.length, 150); i += 50) {
+        const chunk = targets.slice(i, i + 50);
+        try {
+          const result = await lookupPublicCommentMetrics(
+            chunk.map((item) => ({ video_id: item.video_id, comment_id: item.comment_id })),
+          );
+          if (!storePublicMetricResponse(result, accountMode)) {
+            publicError = '브라우저가 결과를 보관하지 못했습니다. 저장 공간 또는 시크릿 모드를 확인해주세요.';
+            break;
+          }
+          publicCount += result.observed_count;
+          unavailableCount += result.checked_count - result.observed_count;
+        } catch (err) {
+          publicError = err instanceof Error ? err.message : '공개 댓글 반응 조회에 실패했습니다.';
+          break;
+        }
+      }
+
+      setData(applySavedPublicMetrics(next, accountMode));
+      if (publicError) {
+        setError(publicError + ' 연결 설정에서 YouTube Data API 키를 확인해주세요.');
+      } else if (serverError && !publicCount) {
+        setError(serverError + ' 서버의 OAuth 연결 상태를 확인해주세요.');
+      }
+
+      const messages = [];
+      if (savedCount) messages.push(`서버 기록 ${savedCount}개 갱신`);
+      if (publicCount) messages.push(`브라우저 백업 포함 공개 댓글 ${publicCount}개 반응 확인`);
+      if (unavailableCount) messages.push(`공개 조회 불가 ${unavailableCount}개(삭제 여부는 확인 불가)`);
+      if (serverError && publicCount) messages.push('서버 추적은 연결되지 않았지만 공개 지표는 확인했습니다');
+      if (targets.length > 150) messages.push('최대 150개까지만 조회했습니다');
+      if (!messages.length && !publicError && !serverError) {
+        messages.push('최근 10분 이내에 서버 지표를 조회했거나 새로 확인할 공개 댓글이 없습니다.');
+      }
+      if (messages.length) setNotice(messages.join(' · '));
     } catch (err) {
       setError(err instanceof Error ? err.message : '실제 반응을 확인하지 못했습니다.');
     } finally {
       setRefreshing(false);
     }
   };
-
 
   const restoreFromYouTube = async () => {
     setRecoveryBusy(true);
@@ -249,14 +302,14 @@ export function MyCommentsPage() {
             )}
             {takeoutProgress && <p role="status" className="eng-muted">{takeoutProgress}</p>}
             {data?.backend_unavailable && (
-              <div role="alert" className="inline-status error">서버에 연결되지 않아 이 브라우저의 게시 기록만 표시하고 있습니다. 실시간 좋아요·답글은 조회되지 않습니다.</div>
+              <div role="alert" className="inline-status error">서버 추적 기록에 연결할 수 없어 브라우저 백업을 표시합니다. ‘실제 반응 새로 확인’으로 공개된 댓글의 좋아요·답글을 조회할 수 있습니다.</div>
             )}
             {items.some((item) => item.local_only) && (
               <div role="status" className="inline-status">
                 서버에 없는 브라우저 백업 {items.filter((item) => item.local_only).length}개
                 {accountMode === 'personal' && (
                   <button type="button" className="btn secondary" disabled={recoveryBusy}
-                    onClick={() => void restoreLocalComments()}>YouTube 본인 확인 후 다시 추적</button>
+                    onClick={() => void restoreLocalComments()}>YouTube 본인 확인 후 서버 기록 복구</button>
                 )}
               </div>
             )}
@@ -361,11 +414,22 @@ export function MyCommentsPage() {
                               {item.comment_type && <TypeTag type={item.comment_type} />}
                               <span className="eng-muted">{formatAge(item.hours_since_publish)}</span>
                               {item.status === 'missing' && <span className="eng-flag">삭제·검토 대기</span>}
-                              {item.local_only && <span className="eng-flag">브라우저 백업 · 추적 재등록 필요</span>}
+                              {item.local_only && (
+                                <span className="eng-flag">
+                                  {item.public_metric_status === 'active'
+                                    ? '브라우저 백업 · 공개 반응 확인됨'
+                                    : item.public_metric_status === 'unavailable'
+                                      ? '브라우저 백업 · 현재 공개 조회 불가'
+                                      : '브라우저 백업 · 공개 반응 조회 가능'}
+                                </span>
+                              )}
                             </div>
                             <p>{item.comment}</p>
                             <div className="eng-comment-meta">
                               <span>{item.video_title || item.video_id}</span>
+                              {item.last_checked_at && (
+                                <span className="eng-muted">마지막 실제 확인 {new Date(item.last_checked_at).toLocaleString('ko-KR')}</span>
+                              )}
                               {item.comment_url && (
                                 <a href={item.comment_url} target="_blank" rel="noopener noreferrer">
                                   YouTube에서 보기 <ArrowUpRight size={12} />

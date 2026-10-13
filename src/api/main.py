@@ -4,6 +4,7 @@ import html
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +68,7 @@ from src.youtube.comments import (
     authenticated_youtube_channel,
     youtube_oauth_status,
 )
-from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads
+from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads, fetch_public_comment_receipts
 from src.youtube.video_performance import fetch_my_videos, fetch_owned_video
 from src.storage.video_store import (
     list_video_metrics, recently_synced, save_video_metrics,
@@ -668,6 +669,51 @@ def my_published_comments(
     identity = _verified_account_channel(mode, oauth_client_id, oauth_client_secret)
     items = list_published_comments(account_mode=mode, owner_channel_id=identity["channel_id"] if identity else None, limit=limit)
     return {"summary": published_summary(items), "items": items}
+
+
+class PublicCommentReceipt(BaseModel):
+    video_id: str = Field(min_length=11, max_length=11, pattern=r"^[A-Za-z0-9_-]{11}$")
+    comment_id: str = Field(min_length=5, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+
+
+class PublicCommentMetricsRequest(BaseModel):
+    comments: list[PublicCommentReceipt] = Field(min_length=1, max_length=50)
+
+
+@app.post("/my-comments/public-metrics", dependencies=[Depends(require_trusted_client)])
+def public_published_comment_metrics(
+    payload: PublicCommentMetricsRequest,
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+):
+    """Read-only public YouTube counters, even when server DB/OAuth has reset.
+
+    Reading a publicly visible comment does NOT establish its ownership.
+    Never write these unverified readings to the account-scoped server DB.
+    """
+    mode = _normalize_account_mode(account_mode)
+    api_key = _resolve_youtube_api_key(youtube_api_key, mode)
+    try:
+        observed = fetch_public_comment_receipts(
+            [entry.model_dump() for entry in payload.comments], api_key=api_key,
+        )
+    except YouTubeConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except YouTubeLookupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="YouTube 댓글 정보를 조회하지 못했습니다. API 키·할당량·댓글 공개 상태를 확인해주세요.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    rows = list(observed.values())
+    return {
+        "checked_count": len(rows),
+        "observed_count": sum(row["status"] == "active" for row in rows),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "items": rows,
+        "storage": "browser_only",
+    }
 
 
 @app.post("/my-comments/refresh", dependencies=[Depends(require_trusted_client)])
