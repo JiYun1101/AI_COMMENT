@@ -76,3 +76,25 @@ def test_published_but_untracked_returns_warning(monkeypatch):
 def test_health_warns_if_durable_storage_not_confirmed(monkeypatch):
     monkeypatch.delenv("AI_COMMENT_STORAGE_PERSISTENT", raising=False)
     assert client.get("/health").json()["storage"]["persistent"] is False
+
+
+def test_history_visibility_is_scoped_to_verified_youtube_channel(tmp_path):
+    db = tmp_path / "account-history.db"
+    a = dict(video_id=VIDEO, comment="A", comment_url=None, account_mode="personal", path=db)
+    record_published_comment(comment_id="channel-a-comment", owner_channel_id="UC_a", **a)
+    record_published_comment(comment_id="channel-b-comment", owner_channel_id="UC_b", **a)
+    assert [row["comment_id"] for row in list_published_comments(
+        account_mode="personal", owner_channel_id="UC_a", path=db
+    )] == ["channel-a-comment"]
+    assert [row["comment_id"] for row in list_published_comments(
+        account_mode="personal", owner_channel_id="UC_b", path=db
+    )] == ["channel-b-comment"]
+
+
+def test_oauth_identity_cannot_be_chosen_by_client(monkeypatch):
+    from src.youtube import comments as yt
+    monkeypatch.setattr(yt, "_authorized_json", lambda *args, **kwargs: {
+        "items": [{"id": "UC_signed", "snippet": {"title": "my verified channel"}}],
+    })
+    identity = yt.authenticated_youtube_channel()
+    assert identity == {"channel_id": "UC_signed", "channel_title": "my verified channel"}
