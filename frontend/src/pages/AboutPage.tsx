@@ -14,7 +14,15 @@ export function AboutPage() {
           {logoFailed ? (
             <span className="brand-fallback">맛있는 댓글 <em>✦ 자동 댓글</em></span>
           ) : (
-            <img className="about-uploaded-logo" src={brandLogo} alt="맛있는 댓글 자동 댓글" onError={() => setLogoFailed(true)} />
+            <svg className="about-uploaded-logo" viewBox="0 0 720 281" role="img" aria-label="맛있는 댓글 자동 댓글" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <mask id="aboutLogoWithoutDd" maskUnits="userSpaceOnUse">
+                <rect x="0" y="0" width="720" height="281" fill="white" />
+                <rect x="396" y="118" width="84" height="74" fill="black" />
+              </mask>
+            </defs>
+            <image href={brandLogo} x="0" y="0" width="720" height="281" mask="url(#aboutLogoWithoutDd)" onError={() => setLogoFailed(true)} />
+          </svg>
           )}
         </button>
 
