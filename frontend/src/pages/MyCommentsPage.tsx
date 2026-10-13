@@ -1,7 +1,9 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAccountMode, listMyComments, refreshMyComments } from '../api/client';
+import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
+import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
 import { Header } from '../components/layout/Header';
@@ -42,6 +44,10 @@ export function MyCommentsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recoveryUrl, setRecoveryUrl] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
+  const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,7 +63,10 @@ export function MyCommentsPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    if (accountMode === 'personal') {
+      void getAuthenticatedYouTubeIdentity().then(setIdentity).catch(() => setIdentity(null));
+    }
+  }, [load, accountMode]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -75,6 +84,118 @@ export function MyCommentsPage() {
       setError(err instanceof Error ? err.message : '실제 반응을 확인하지 못했습니다.');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+
+  const restoreFromYouTube = async () => {
+    setRecoveryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const link = new URL(recoveryUrl);
+      if (!['www.youtube.com', 'youtube.com', 'm.youtube.com'].includes(link.hostname) ||
+          link.protocol !== 'https:') throw new Error('YouTube 댓글 주소를 붙여넣어 주세요.');
+      const video = link.searchParams.get('v') || '';
+      const comment = link.searchParams.get('lc') || '';
+      if (!/^[\w-]{11}$/.test(video) || !comment) throw new Error('주소에 영상 ID와 댓글 ID(lc)가 필요합니다.');
+      await recoverPublishedComment(video, comment);
+      setRecoveryUrl('');
+      await load();
+      setNotice('YouTube 작성자 인증을 확인하고 댓글 추적을 다시 등록했습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '댓글 복구에 실패했습니다.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const importBackupFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      if (file.size > 2 * 1024 * 1024) throw new Error('2MB 이하의 백업 파일만 지원합니다.');
+      const count = importPostedBackup(JSON.parse(await file.text()));
+      await load();
+      setNotice('이 브라우저에 댓글 영수증 ' + count + '개를 불러왔습니다. 실측 추적에는 YouTube 재인증과 영구 DB가 필요합니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '백업 파일을 확인할 수 없습니다.');
+    }
+  };
+
+  const restoreLocalComments = async () => {
+    const pending = (data?.items || []).filter((item) => item.local_only && item.account_mode === 'personal');
+    if (!pending.length) return;
+    setRecoveryBusy(true);
+    setError(null);
+    let restored = 0;
+    try {
+      for (const item of pending.slice(0, 50)) {
+        try {
+          await recoverPublishedComment(item.video_id, item.comment_id);
+          restored++;
+        } catch (e) {
+          setError(e instanceof Error ? e.message : '일부 댓글을 복구하지 못했습니다.');
+        }
+      }
+      await load();
+      setNotice('본인 확인된 댓글 ' + restored + '개를 서버 추적 목록에 복구했습니다.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+
+  const recoverFromTakeout = async (file: File | undefined) => {
+    if (!file) return;
+    setRecoveryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (accountMode !== 'personal') throw new Error('내 YouTube 계정을 연결해야 복구할 수 있습니다.');
+      const verified = await getAuthenticatedYouTubeIdentity();
+      setIdentity(verified);
+      if (file.size > 8 * 1024 * 1024) throw new Error('CSV 파일은 8MB 이하만 지원합니다.');
+      const records = parseTakeoutCommentsCsv(await file.text());
+      if (!records.length) throw new Error('복구 가능한 YouTube 댓글 ID를 찾지 못했습니다.');
+      let recovered = 0;
+      let failed = 0;
+      const bounded = records.slice(0, 150);
+      // Batch calls avoid one YouTube API round-trip for each historical comment.
+      for (let i = 0; i < bounded.length; i += 30) {
+        const subset = bounded.slice(i, i + 30);
+        const result = await recoverPublishedBatch(
+          subset.map((item) => ({ video_id: item.videoId, comment_id: item.commentId })),
+        );
+        recovered += result.registered_count;
+        failed += result.failed_count;
+        setTakeoutProgress('댓글 본인 확인 ' + Math.min(i + 30, bounded.length) + '/' + bounded.length);
+      }
+      await load();
+      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록, 실패 ' + failed + '개.' +
+        (records.length > bounded.length ? ' 150개를 초과한 나머지는 파일을 나누어 등록해주세요.' : '') +
+        ' 영구 DB 미연결 시 서버 재시작으로 다시 사라질 수 있습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Takeout 기록 복구에 실패했습니다.');
+    } finally {
+      setTakeoutProgress(null);
+      setRecoveryBusy(false);
+    }
+  };
+
+
+  const reconnectExistingRecords = async () => {
+    setRecoveryBusy(true);
+    setError(null);
+    try {
+      const result = await claimLegacyPublishedHistory();
+      await load();
+      setNotice('기존 서버 기록 중 본인 소유 댓글 ' + result.restored +
+        '개를 다시 연결했습니다. 확인한 댓글 ' + result.checked + '개.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '이전 기록 연결에 실패했습니다.');
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
@@ -112,6 +233,72 @@ export function MyCommentsPage() {
               {refreshing ? <LoaderCircle size={15} className="spin" /> : <RefreshCw size={15} />}
               {refreshing ? '확인 중...' : '실제 반응 새로 확인'}
             </button>
+          </section>
+
+
+          <section className="eng-panel" style={{ padding: '18px 22px', display: 'grid', gap: 12 }}>
+            <div className="eng-panel-head">
+              <h3>같은 계정의 이전 댓글 복구 및 백업</h3>
+              <small>현재 무료 서버의 DB는 영구 저장되지 않습니다. 서버 기록과 브라우저 보조 백업을 구분해 표시합니다.</small>
+            </div>
+            {accountMode === 'personal' && (
+              <p className="eng-muted" style={{ fontSize: 13 }}>
+                {identity ? '연결된 YouTube 채널: ' + (identity.channel_title || identity.channel_id)
+                  : '연결 계정 확인이 필요합니다. 계정 설정에서 YouTube를 다시 연결해 주세요.'}
+              </p>
+            )}
+            {takeoutProgress && <p role="status" className="eng-muted">{takeoutProgress}</p>}
+            {data?.backend_unavailable && (
+              <div role="alert" className="inline-status error">서버에 연결되지 않아 이 브라우저의 게시 기록만 표시하고 있습니다. 실시간 좋아요·답글은 조회되지 않습니다.</div>
+            )}
+            {items.some((item) => item.local_only) && (
+              <div role="status" className="inline-status">
+                서버에 없는 브라우저 백업 {items.filter((item) => item.local_only).length}개
+                {accountMode === 'personal' && (
+                  <button type="button" className="btn secondary" disabled={recoveryBusy}
+                    onClick={() => void restoreLocalComments()}>YouTube 본인 확인 후 다시 추적</button>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              {accountMode === 'personal' && (
+                <button type="button" className="btn secondary" disabled={recoveryBusy}
+                  onClick={() => void reconnectExistingRecords()}>
+                  이전 서버 댓글 기록 다시 연결
+                </button>
+              )}
+              <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              {accountMode === 'personal' && (
+                <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
+                  Google Takeout 댓글 CSV 가져오기
+                  <input type="file" accept=".csv,text/csv" disabled={recoveryBusy} style={{ display: 'none' }}
+                    onChange={(event) => { void recoverFromTakeout(event.target.files?.[0]); event.target.value = ''; }} />
+                </label>
+              )}
+              <label className="btn secondary" style={{ cursor: 'pointer' }}>
+                백업 파일 가져오기
+                <input type="file" accept="application/json,.json" style={{ display: 'none' }}
+                  onChange={(event) => { void importBackupFile(event.target.files?.[0]); event.target.value = ''; }} />
+              </label>
+              <a href="https://www.youtube.com/feed/history/comment_history" target="_blank" rel="noreferrer">
+                YouTube에서 내 댓글 기록 보기
+              </a>
+            </div>
+            {accountMode === 'personal' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                <input className="account-text-input" style={{ flex: '1 1 300px', minWidth: 0 }}
+                  aria-label="복구할 YouTube 댓글 링크" placeholder="YouTube 댓글 주소 (v=영상ID&lc=댓글ID)"
+                  value={recoveryUrl} onChange={(event) => setRecoveryUrl(event.target.value)} />
+                <button type="button" className="btn primary" disabled={!recoveryUrl.trim() || recoveryBusy}
+                  onClick={() => void restoreFromYouTube()}>
+                  {recoveryBusy ? '복구 중...' : '기존 댓글 다시 추적'}
+                </button>
+              </div>
+            )}
+            <p className="eng-muted" style={{ fontSize: 12 }}>
+              YouTube에 게시된 댓글은 다시 조회할 수 있어도 삭제된 AI 추천 점수나 분석 기록까지 자동 복구되지는 않습니다.
+              기기 간 영구 보존은 별도의 영구 DB가 필요합니다.
+            </p>
           </section>
 
           {error && <div className="inline-status error">{error}</div>}
@@ -174,6 +361,7 @@ export function MyCommentsPage() {
                               {item.comment_type && <TypeTag type={item.comment_type} />}
                               <span className="eng-muted">{formatAge(item.hours_since_publish)}</span>
                               {item.status === 'missing' && <span className="eng-flag">삭제·검토 대기</span>}
+                              {item.local_only && <span className="eng-flag">브라우저 백업 · 추적 재등록 필요</span>}
                             </div>
                             <p>{item.comment}</p>
                             <div className="eng-comment-meta">

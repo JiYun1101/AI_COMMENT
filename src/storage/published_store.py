@@ -24,6 +24,7 @@ def init_published_db(path: str | Path | None = None) -> None:
                 id TEXT PRIMARY KEY,
                 recommendation_id TEXT REFERENCES recommendations(id) ON DELETE SET NULL,
                 account_mode TEXT NOT NULL,
+                owner_channel_id TEXT,
                 video_id TEXT NOT NULL,
                 comment_id TEXT NOT NULL UNIQUE,
                 comment TEXT NOT NULL,
@@ -45,6 +46,15 @@ def init_published_db(path: str | Path | None = None) -> None:
             """
         )
 
+    # Legacy rows are unscoped until the original author is re-verified.
+    with _connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(published_comments)")}
+        if "owner_channel_id" not in columns:
+            connection.execute("ALTER TABLE published_comments ADD COLUMN owner_channel_id TEXT")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_published_owner ON published_comments(owner_channel_id, published_at DESC)"
+        )
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -58,6 +68,8 @@ def record_published_comment(
     comment_url: str | None,
     account_mode: str,
     recommendation_id: str | None = None,
+    owner_channel_id: str | None = None,
+    published_at: str | None = None,
     path: str | Path | None = None,
 ) -> str:
     init_published_db(path)
@@ -72,22 +84,34 @@ def record_published_comment(
         connection.execute(
             """
             INSERT OR IGNORE INTO published_comments (
-                id, recommendation_id, account_mode, video_id, comment_id,
+                id, recommendation_id, account_mode, owner_channel_id, video_id, comment_id,
                 comment, comment_url, published_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 published_id,
                 recommendation_id,
                 account_mode,
+                owner_channel_id,
                 video_id,
                 comment_id,
                 comment,
                 comment_url,
-                _now().isoformat(),
+                published_at or _now().isoformat(),
             ),
         )
-    return published_id
+        if owner_channel_id:
+            connection.execute(
+                """UPDATE published_comments SET owner_channel_id = ?
+                   WHERE comment_id = ? AND owner_channel_id IS NULL""",
+                (owner_channel_id, comment_id),
+            )
+        row = connection.execute(
+            "SELECT id FROM published_comments WHERE comment_id = ?", (comment_id,)
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("게시 기록을 저장하지 못했습니다.")
+        return str(row["id"])
 
 
 _SELECT = """
@@ -107,11 +131,19 @@ def _with_age(row: dict, now: datetime) -> dict:
 def list_published_comments(
     *,
     account_mode: str | None = None,
+    owner_channel_id: str | None = None,
     limit: int = 100,
     path: str | Path | None = None,
 ) -> list[dict]:
     init_published_db(path)
-    where, params = ("WHERE p.account_mode = ?", [account_mode]) if account_mode else ("", [])
+    conditions, params = [], []
+    if account_mode:
+        conditions.append("p.account_mode = ?")
+        params.append(account_mode)
+    if owner_channel_id:
+        conditions.append("p.owner_channel_id = ?")
+        params.append(owner_channel_id)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     with _connect(path) as connection:
         rows = connection.execute(
             f"{_SELECT} {where} ORDER BY p.published_at DESC LIMIT ?",
@@ -124,6 +156,7 @@ def list_published_comments(
 def comment_ids_to_refresh(
     *,
     account_mode: str | None = None,
+    owner_channel_id: str | None = None,
     min_interval_minutes: int = 10,
     path: str | Path | None = None,
 ) -> list[str]:
@@ -135,6 +168,9 @@ def comment_ids_to_refresh(
     if account_mode:
         where.append("account_mode = ?")
         params.append(account_mode)
+    if owner_channel_id:
+        where.append("owner_channel_id = ?")
+        params.append(owner_channel_id)
     with _connect(path) as connection:
         rows = connection.execute(
             f"SELECT comment_id FROM published_comments WHERE {' AND '.join(where)}",
@@ -254,3 +290,29 @@ def published_summary(items: list[dict]) -> dict:
             for key, values in sorted(by_type.items(), key=lambda pair: -len(pair[1]))
         ],
     }
+
+
+def list_legacy_unbound_comments(*, limit: int = 30, path: str | Path | None = None) -> list[dict]:
+    """Legacy personal rows have no author ID. Never show them to a new channel."""
+    init_published_db(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """SELECT comment_id, video_id FROM published_comments
+               WHERE account_mode = 'personal' AND owner_channel_id IS NULL
+               ORDER BY published_at DESC LIMIT ?""", (max(1, min(limit, 100)),)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def attach_verified_legacy_comment(
+    comment_id: str, channel_id: str, *, path: str | Path | None = None,
+) -> bool:
+    """Only called after verified YouTube API proves the channel authored comment_id."""
+    init_published_db(path)
+    with _connect(path) as conn:
+        cursor = conn.execute(
+            """UPDATE published_comments SET owner_channel_id = ?
+               WHERE comment_id = ? AND account_mode = 'personal'
+                 AND owner_channel_id IS NULL""", (channel_id, comment_id),
+        )
+        return cursor.rowcount == 1

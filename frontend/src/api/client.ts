@@ -20,6 +20,7 @@ import type {
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
 } from '../types/comment';
+import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
@@ -347,7 +348,7 @@ export async function publishYouTubeComment(request: {
           'X-AI-Comment-Account-Mode': mode,
         };
 
-  return requestJson<YouTubeCommentPublishResponse>(
+  const posted = await requestJson<YouTubeCommentPublishResponse>(
     `${API_BASE}/youtube/comments`,
     {
       method: 'POST',
@@ -356,21 +357,101 @@ export async function publishYouTubeComment(request: {
     },
     'YouTube 댓글 게시에 실패했습니다',
   );
+  // Save a second receipt outside the server's temporary SQLite database.
+  // This is device-local recovery, not an account-wide durable database.
+  const saved = backUpPostedComment(posted, request.recommendation_id, mode);
+  return { ...posted, browser_backup_saved: saved };
 }
 
-export async function listMyComments(): Promise<PublishedCommentsResponse> {
-  return requestJson<PublishedCommentsResponse>(
-    `${API_BASE}/my-comments`,
-    { headers: withRuntimeKeys() },
-    '내가 단 댓글을 불러오지 못했습니다',
+
+export interface AuthenticatedYouTubeIdentity {
+  connected: boolean;
+  channel_id: string;
+  channel_title: string;
+}
+
+export async function getAuthenticatedYouTubeIdentity(): Promise<AuthenticatedYouTubeIdentity> {
+  return requestJson<AuthenticatedYouTubeIdentity>(
+    API_BASE + '/account/youtube-identity',
+    { headers: withYouTubeOAuth(withRuntimeKeys()) },
+    '현재 연결된 YouTube 계정을 확인하지 못했습니다',
   );
 }
 
+export async function listMyComments(): Promise<PublishedCommentsResponse> {
+  const mode = getAccountMode();
+  try {
+    const response = await requestJson<PublishedCommentsResponse>(
+      `${API_BASE}/my-comments`,
+      { headers: withYouTubeOAuth(withRuntimeKeys()) },
+      '내가 단 댓글을 불러오지 못했습니다',
+    );
+    backUpServerComments(response.items);
+    return mergePostedBackup(response, mode);
+  } catch (error) {
+    const backup = readPostedBackup(mode);
+    if (!backup.length) throw error;
+    return mergePostedBackup({
+      summary: {
+        tracked_count: 0, measured_count: 0, missing_count: 0, average_likes: null,
+        replied_rate: null, prediction_pair_count: 0, prediction_spearman: null, by_type: [],
+      }, items: [], backend_unavailable: true,
+    }, mode);
+  }
+}
+
 export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
-  return requestJson<PublishedCommentsResponse>(
+  const response = await requestJson<PublishedCommentsResponse>(
     `${API_BASE}/my-comments/refresh`,
-    { method: 'POST', headers: withRuntimeKeys() },
+    { method: 'POST', headers: withYouTubeOAuth(withRuntimeKeys()) },
     '실제 반응을 새로 확인하지 못했습니다',
+  );
+  backUpServerComments(response.items);
+  return mergePostedBackup(response, getAccountMode());
+}
+
+export async function recoverPublishedBatch(
+  comments: Array<{ video_id: string; comment_id: string }>,
+): Promise<{
+  owner_channel_id: string;
+  registered_count: number;
+  failed_count: number;
+  failures: Array<{ comment_id: string; reason: string }>;
+  storage_persistent: boolean;
+}> {
+  return requestJson(
+    API_BASE + '/my-comments/recover/batch',
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': 'personal',
+      }),
+      body: JSON.stringify({ comments }),
+    },
+    '기존 YouTube 댓글 일괄 등록에 실패했습니다',
+  );
+}
+
+export async function claimLegacyPublishedHistory(): Promise<{ checked: number; restored: number; remaining: number }> {
+  return requestJson(
+    API_BASE + '/my-comments/claim-legacy',
+    { method: 'POST', headers: withYouTubeOAuth(withRuntimeKeys()) },
+    '이전 서버 댓글 기록 연결에 실패했습니다',
+  );
+}
+
+export async function recoverPublishedComment(
+  videoId: string, commentId: string,
+): Promise<{ tracked: true; id: string; video_id: string; comment_id: string }> {
+  return requestJson(
+    `${API_BASE}/my-comments/recover`,
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth({ 'Content-Type': 'application/json', 'X-AI-Comment-Account-Mode': 'personal' }),
+      body: JSON.stringify({ video_id: videoId, comment_id: commentId }),
+    },
+    'YouTube 댓글을 추적 대상으로 복구하지 못했습니다',
   );
 }
 

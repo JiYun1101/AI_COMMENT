@@ -351,6 +351,14 @@ export function RecommendPage() {
         recommendation_id: recommendation.id,
       });
       setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
+      if (!posted.tracked || !posted.browser_backup_saved) {
+        setError(
+          '댓글은 YouTube에 게시됐지만 추적 기록이 완전히 저장되지는 않았습니다. ' +
+          (posted.browser_backup_saved
+            ? '이 브라우저의 게시 영수증은 남아 있습니다. 내 댓글 성과에서 복구할 수 있습니다.'
+            : '브라우저 백업도 실패했습니다. 게시된 댓글 주소를 별도로 보관해주세요.'),
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'YouTube 댓글 게시에 실패했습니다.');
     } finally {
@@ -370,6 +378,12 @@ export function RecommendPage() {
       <div className="main">
         <Header title="댓글 추천" />
         <div className="recommend">
+          {serviceHealth?.storage.persistent === false && (
+            <div className="inline-status error" role="alert">
+              현재 서버 저장소가 영구 보존되지 않습니다. 댓글 게시 후 기록을 브라우저에 백업하고,
+              추적을 지속하려면 영구 DB 연결이 필요합니다.
+            </div>
+          )}
           <div className="hero">
             <span className="hero-eyebrow"><span className="dot" /> AI 댓글 추천 · v0.5</span>
             <h1 className="hero-title">영상 맥락을 분석해<br />자연스러운 댓글을 생성합니다</h1>

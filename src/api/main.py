@@ -40,6 +40,8 @@ from src.storage.published_store import (
     list_published_comments,
     published_summary,
     record_published_comment,
+    list_legacy_unbound_comments,
+    attach_verified_legacy_comment,
 )
 from src.storage.analysis_store import (
     dashboard_summary,
@@ -60,6 +62,9 @@ from src.youtube.comments import (
     disconnect_youtube_oauth,
     publish_youtube_comment,
     publish_youtube_reply,
+    fetch_owned_youtube_comment,
+    verify_owned_comment_batch,
+    authenticated_youtube_channel,
     youtube_oauth_status,
 )
 from src.youtube.engagement import fetch_comment_metrics, fetch_video_comment_threads
@@ -154,7 +159,14 @@ def health_check():
             "oauth": youtube_oauth_status(),
             "demo": demo,
         },
-        "storage": {"ready": True},
+        "storage": {
+            "ready": True,
+            "persistent": os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true",
+            "warning": (
+                None if os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true"
+                else "SQLite 저장소의 영구 보존이 확인되지 않았습니다. 재배포 시 기록이 유실될 수 있습니다."
+            ),
+        },
         "auth": auth_status(),
     }
 
@@ -368,10 +380,10 @@ def youtube_comment_publish(
 
 
 def _track_published_comment(result: dict, payload: YouTubeCommentPublishRequest, mode: str) -> dict:
-    """게시에 성공한 댓글을 성과 추적 대상으로 기록한다. 기록 실패가 게시 결과를 바꾸지는 않는다."""
+    """Publish result must disclose failed persistence; browser can retain a backup."""
     comment_id = result.get("comment_id")
     if not comment_id:
-        return {**result, "tracked": False}
+        return {**result, "tracked": False, "tracking_warning": "YouTube 게시 ID가 없어 추적할 수 없습니다."}
     try:
         record_published_comment(
             video_id=result.get("video_id") or payload.video_id,
@@ -379,11 +391,14 @@ def _track_published_comment(result: dict, payload: YouTubeCommentPublishRequest
             comment=result.get("comment") or payload.comment,
             comment_url=result.get("comment_url"),
             account_mode=mode,
+            owner_channel_id=(
+                authenticated_youtube_channel()["channel_id"] if mode == "personal" else None
+            ),
             recommendation_id=payload.recommendation_id,
         )
     except Exception:  # noqa: BLE001
         logger.exception("published comment tracking failed")
-        return {**result, "tracked": False}
+        return {**result, "tracked": False, "tracking_warning": "YouTube 게시는 완료됐지만 서버 추적 기록을 저장하지 못했습니다."}
     return {**result, "tracked": True}
 
 
@@ -400,13 +415,164 @@ def _resolve_youtube_api_key(header_value: str | None, mode: str) -> str:
     return resolved
 
 
+class RecoverCommentRequest(BaseModel):
+    video_id: str = Field(min_length=11, max_length=11)
+    comment_id: str = Field(min_length=1, max_length=100)
+
+
+@app.post("/my-comments/recover", dependencies=[Depends(require_trusted_client)])
+def recover_published_comment(
+    payload: RecoverCommentRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    """Re-attach public YouTube comments, but ONLY if OAuth proves authorship."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 계정으로 연결해야 댓글을 복구할 수 있습니다.")
+    try:
+        original = fetch_owned_youtube_comment(
+            comment_id=payload.comment_id, video_id=payload.video_id,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+        identity = _verified_account_channel(
+            "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri
+        )
+        stored_id = record_published_comment(
+            video_id=original["video_id"], comment_id=original["comment_id"],
+            comment=original["comment"], comment_url=original["comment_url"],
+            account_mode="personal", owner_channel_id=identity["channel_id"],
+            published_at=original["published_at"],
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"tracked": True, "id": stored_id, **original}
+
+
+
+
+class RecoverCommentBatchRequest(BaseModel):
+    comments: list[RecoverCommentRequest] = Field(min_length=1, max_length=30)
+
+
+@app.post("/my-comments/recover/batch", dependencies=[Depends(require_trusted_client)])
+def recover_published_batch(
+    payload: RecoverCommentBatchRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정을 연결해야 복구할 수 있습니다.")
+    try:
+        verified, rejected, owner = verify_owned_comment_batch(
+            [row.model_dump() for row in payload.comments],
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    saved = []
+    for row in verified:
+        try:
+            record_id = record_published_comment(
+                video_id=row["video_id"], comment_id=row["comment_id"], comment=row["comment"],
+                comment_url=row["comment_url"], published_at=row["published_at"],
+                account_mode="personal", owner_channel_id=owner["channel_id"],
+            )
+            saved.append({"id": record_id, **row})
+        except Exception:
+            logger.exception("batch comment recovery persistence failed")
+            rejected.append({"comment_id": row["comment_id"], "reason": "서버 기록 저장에 실패했습니다"})
+    return {
+        "owner_channel_id": owner["channel_id"],
+        "registered_count": len(saved), "failed_count": len(rejected),
+        "items": saved, "failures": rejected,
+        "storage_persistent": os.getenv("AI_COMMENT_STORAGE_PERSISTENT", "").lower() == "true",
+    }
+
+
+
+def _verified_account_channel(
+    account_mode: str,
+    oauth_client_id: str | None = None,
+    oauth_client_secret: str | None = None,
+    oauth_redirect_uri: str | None = None,
+) -> dict | None:
+    if _normalize_account_mode(account_mode) != "personal":
+        return None
+    try:
+        return authenticated_youtube_channel(
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotAuthorizedError, YouTubeOAuthNotConfiguredError) as exc:
+        raise HTTPException(status_code=401, detail="같은 YouTube 계정을 다시 연결해주세요. " + str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.get("/account/youtube-identity", dependencies=[Depends(require_trusted_client)])
+def verified_account_identity(
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    result = _verified_account_channel(
+        "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    return {"connected": True, **result}
+
+@app.post("/my-comments/claim-legacy", dependencies=[Depends(require_trusted_client)])
+def claim_legacy_published_history(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    """Attach old unscoped SQLite records only after checking exact YouTube authorship."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정 연결이 필요합니다.")
+    identity = _verified_account_channel(
+        account_mode, oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    seen, restored = 0, 0
+    for item in list_legacy_unbound_comments(limit=20):
+        seen += 1
+        try:
+            fetch_owned_youtube_comment(
+                comment_id=item["comment_id"], video_id=item["video_id"],
+                client_id=_normalize_oauth_client_id(oauth_client_id),
+                client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+                redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+            )
+        except (YouTubeCommentPublishError, YouTubeOAuthError):
+            continue
+        if attach_verified_legacy_comment(item["comment_id"], identity["channel_id"]):
+            restored += 1
+    return {"checked": seen, "restored": restored, "remaining": len(list_legacy_unbound_comments(limit=100))}
+
+
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
 def my_published_comments(
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
     limit: int = Query(default=100, ge=1, le=300),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
 ):
     mode = _normalize_account_mode(account_mode)
-    items = list_published_comments(account_mode=mode, limit=limit)
+    identity = _verified_account_channel(mode, oauth_client_id, oauth_client_secret)
+    items = list_published_comments(account_mode=mode, owner_channel_id=identity["channel_id"] if identity else None, limit=limit)
     return {"summary": published_summary(items), "items": items}
 
 
@@ -414,9 +580,13 @@ def my_published_comments(
 def refresh_my_published_comments(
     youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
 ):
     mode = _normalize_account_mode(account_mode)
-    comment_ids = comment_ids_to_refresh(account_mode=mode)
+    identity = _verified_account_channel(mode, oauth_client_id, oauth_client_secret)
+    owner_id = identity["channel_id"] if identity else None
+    comment_ids = comment_ids_to_refresh(account_mode=mode, owner_channel_id=owner_id)
     updated = 0
     if comment_ids:
         api_key = _resolve_youtube_api_key(youtube_api_key, mode)
@@ -427,7 +597,7 @@ def refresh_my_published_comments(
         except YouTubeLookupError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         updated = apply_comment_metrics(comment_ids, metrics)
-    items = list_published_comments(account_mode=mode)
+    items = list_published_comments(account_mode=mode, owner_channel_id=owner_id)
     return {"checked_count": updated, "summary": published_summary(items), "items": items}
 
 
@@ -582,13 +752,26 @@ def creator_reply_publish(
     if get_block_reason(payload.text) in {"profanity", "hate_speech", "threat", "spam"}:
         raise HTTPException(status_code=422, detail="안전 기준을 통과하지 못한 답글은 게시할 수 없습니다.")
     try:
-        return publish_youtube_reply(
+        result = publish_youtube_reply(
             parent_id=payload.parent_id,
             text=payload.text,
             client_id=_normalize_oauth_client_id(oauth_client_id),
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
             redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
         )
+        if result.get("reply_id") and result.get("video_id"):
+            try:
+                record_published_comment(
+                    video_id=result["video_id"], comment_id=result["reply_id"],
+                    comment=result.get("text") or payload.text,
+                    comment_url=result.get("comment_url"), account_mode="personal",
+                    owner_channel_id=authenticated_youtube_channel()["channel_id"],
+                )
+                return {**result, "tracked": True}
+            except Exception:
+                logger.exception("creator reply tracking failed")
+        return {**result, "tracked": False,
+                "tracking_warning": "답글 게시는 완료됐지만 추적 기록 저장에 실패했습니다."}
     except YouTubeOAuthNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except YouTubeOAuthNotAuthorizedError as exc:

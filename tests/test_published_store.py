@@ -126,6 +126,7 @@ def test_publish_tracks_comment_and_refresh_reads_real_reactions(tmp_path, monke
     item = refreshed.json()["items"][0]
     assert item["like_count"] == 5 and item["predicted_score"] == 70.0
 
+    monkeypatch.setattr(api_main, "_verified_account_channel", lambda mode, *args: {"channel_id": "personal-channel"} if mode == "personal" else None)
     personal = client.get("/my-comments", headers={"X-AI-Comment-Account-Mode": "personal", "X-API-Key": "test-key"})
     assert personal.json()["items"] == []
 
