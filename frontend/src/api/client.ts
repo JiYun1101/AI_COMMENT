@@ -1,6 +1,8 @@
 import type {
   AccountMode,
   AnalysisDetail,
+  AudienceObservationReport,
+  AudienceSnapshotSummary,
   AnalysisSummary,
   CommentsResponse,
   CreatorInboxResponse,
@@ -369,6 +371,42 @@ export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
     `${API_BASE}/my-comments/refresh`,
     { method: 'POST', headers: withRuntimeKeys() },
     '실제 반응을 새로 확인하지 못했습니다',
+  );
+}
+
+/** Read publicly available top-level comments; works without an LLM. */
+export async function getAudienceObserved(
+  videoId: string,
+  analysisId?: string | null,
+): Promise<AudienceObservationReport> {
+  const query = new URLSearchParams({ video_id: videoId });
+  if (analysisId) query.set('analysis_id', analysisId);
+  return requestJson<AudienceObservationReport>(
+    `${API_BASE}/audience/observed?${query.toString()}`,
+    { headers: withRuntimeKeys() },
+    '실제 댓글 반응을 읽어오지 못했습니다',
+  );
+}
+
+/** Protected persistence; API always re-fetches live comments from YouTube. */
+export async function saveAudienceSnapshot(
+  videoId: string,
+  analysisId?: string | null,
+): Promise<{ snapshot: AudienceSnapshotSummary; report: AudienceObservationReport }> {
+  const query = new URLSearchParams({ video_id: videoId });
+  if (analysisId) query.set('analysis_id', analysisId);
+  return requestJson(
+    `${API_BASE}/audience/observations?${query.toString()}`,
+    { method: 'POST', headers: withRuntimeKeys() },
+    '실제 댓글 스냅샷을 저장하지 못했습니다',
+  );
+}
+
+export async function listAudienceSnapshots(videoId: string): Promise<{ items: AudienceSnapshotSummary[] }> {
+  return requestJson(
+    `${API_BASE}/audience/observations/${encodeURIComponent(videoId)}`,
+    { headers: withRuntimeKeys() },
+    '저장된 실측 기록을 조회하지 못했습니다',
   );
 }
 
