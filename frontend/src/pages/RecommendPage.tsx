@@ -1,5 +1,5 @@
 import { Check, Copy, LoaderCircle, RefreshCw, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
@@ -49,6 +49,8 @@ export function RecommendPage() {
 
   const [serviceHealth, setServiceHealth] = useState<ServiceHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [healthReloadToken, setHealthReloadToken] = useState(0);
+  const inputGeneration = useRef(0);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
@@ -76,6 +78,8 @@ export function RecommendPage() {
   });
 
   const invalidateResults = () => {
+    // Ignore a previous paid generation if the user edits its input mid-flight.
+    inputGeneration.current += 1;
     setResults(null);
     setAnalysisId(null);
     setResolvedCategory(null);
@@ -104,7 +108,7 @@ export function RecommendPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [healthReloadToken]);
 
   useEffect(() => {
     if (mode !== 'url' || !url.trim() || !urlValid) {
@@ -203,8 +207,9 @@ export function RecommendPage() {
   };
 
   const submit = async () => {
-    if (readinessChecking || readinessMessage || !inputReady) return;
+    if (submitting || readinessChecking || readinessMessage || !inputReady) return;
 
+    const generation = ++inputGeneration.current;
     setSubmitting(true);
     setError(null);
     try {
@@ -221,6 +226,7 @@ export function RecommendPage() {
               top_k: count,
             },
       );
+      if (generation !== inputGeneration.current) return;
       setResults(response.recommendations);
       setAnalysisId(response.analysis_id);
       setResolvedCategory(response.resolved_category);
@@ -229,7 +235,9 @@ export function RecommendPage() {
       setTrace(response.trace ?? null);
       if (response.youtube_context) setPreview(response.youtube_context);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      if (generation === inputGeneration.current) {
+        setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -382,6 +390,15 @@ export function RecommendPage() {
             <div className="inline-status error" role="alert">
               현재 서버 저장소가 영구 보존되지 않습니다. 댓글 게시 후 기록을 브라우저에 백업하고,
               추적을 지속하려면 영구 DB 연결이 필요합니다.
+            </div>
+          )}
+          {healthError && (
+            <div className="inline-status error" role="alert">
+              <span>서버 상태를 확인하지 못했습니다. {healthError}</span>
+              <button type="button" className="btn secondary sm" onClick={() => {
+                setHealthError(null);
+                setHealthReloadToken((value) => value + 1);
+              }}>연결 다시 확인</button>
             </div>
           )}
           <div className="hero">

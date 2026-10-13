@@ -86,7 +86,8 @@ export function AccountPage() {
     setServerBusy(true);
     setServerError(null);
     try {
-      await verifyServerConnection(serverToken);
+      const verified = await verifyServerConnection(serverToken);
+      if (!verified.connected) throw new Error('서버 연결 확인에 실패했습니다.');
       setStoredApiAccessToken(serverToken);
       setServerStatus('connected');
       markSaved('server');
