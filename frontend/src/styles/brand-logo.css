@@ -59,8 +59,8 @@
   font-style: normal;
   font-weight: 650;
   letter-spacing: -.02em;
-  color: var(--brand-600);
-  border: 1px solid var(--brand-200);
+  color: #2474ec;
+  border: 1px solid #b9d8ff;
   border-radius: 20px;
   padding: 4px 6px;
 }
