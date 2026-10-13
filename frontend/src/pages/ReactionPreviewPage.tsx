@@ -249,6 +249,79 @@ export function ReactionPreviewPage() {
             {error && <div className="reaction-inline-error">{error}</div>}
           </section>
 
+
+          <section className="reaction-panel audience-observation-panel">
+            <div className="reaction-panel-head">
+              <div><span>OBSERVED AUDIENCE</span><h3>실제 댓글 반응</h3></div>
+              <small>LLM 없이 YouTube의 공개 댓글을 읽고 유형별로 분류합니다.</small>
+            </div>
+            <div className="audience-observation-actions">
+              <button className="btn secondary" type="button" onClick={() => void loadObserved()} disabled={!urlValid || observing}>
+                {observing ? <LoaderCircle size={15} className="spin" /> : <BarChart3 size={15} />}
+                {observing ? '조회 중...' : '실제 반응 불러오기'}
+              </button>
+              {observed && (
+                <button className="btn secondary" type="button" onClick={() => void persistObserved()} disabled={savingSnapshot}>
+                  {savingSnapshot ? <LoaderCircle size={15} className="spin" /> : <CheckCircle2 size={15} />}
+                  {savingSnapshot ? '저장 중...' : '실측 스냅샷 저장'}
+                </button>
+              )}
+            </div>
+            {observationError && <div role="alert" className="reaction-inline-error">{observationError}</div>}
+            {savedSnapshot && (
+              <p className="audience-observation-note">
+                저장됨 · {new Date(savedSnapshot.observed_at).toLocaleString()} · {savedSnapshot.sample_count}개 댓글
+              </p>
+            )}
+            {observed && (
+              <>
+                <p className="audience-observation-note">공개 최상위 댓글 {observed.observed.total}개 · 관련도순 표본</p>
+                {observed.observed.total === 0 ? (
+                  <p className="audience-observation-note">공개 댓글이 조회되지 않아 비교할 수 없습니다.</p>
+                ) : (
+                  <div className="reaction-distribution">
+                    {observed.observed.distribution.map((item) => (
+                      <div className="reaction-dist-row" key={item.key}>
+                        <div className="reaction-dist-label"><strong>{item.label}</strong><span>{item.count}개</span></div>
+                        <div className="reaction-dist-track"><span style={{ width: item.percentage + '%' }} /></div>
+                        <b>{item.percentage.toFixed(1)}%</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {observed.comparison && (
+                  <div className="audience-comparison">
+                    <h4>예상 후보 ↔ 실제 댓글</h4>
+                    <p>추천된 댓글 후보 {observed.expected?.total}개와 실제 댓글 {observed.observed.total}개의 유형 구성 차이입니다.</p>
+                    <div className="audience-comparison-header"><span>유형</span><span>생성 후보</span><span>실제 댓글</span><span>차이</span></div>
+                    {observed.comparison.distribution.map((item) => (
+                      <div className="audience-comparison-row" key={item.key}>
+                        <span>{item.label}</span>
+                        <span>{item.expected_percentage.toFixed(1)}%</span>
+                        <span>{item.observed_percentage.toFixed(1)}%</span>
+                        <strong>{item.delta_percentage_points > 0 ? '+' : ''}{item.delta_percentage_points.toFixed(1)}%p</strong>
+                      </div>
+                    ))}
+                    <p className="audience-observation-note">{observed.comparison.warning}</p>
+                  </div>
+                )}
+                {observed.examples.length > 0 && (
+                  <div className="audience-observed-comments">
+                    <h4>실제 댓글 예시</h4>
+                    {observed.examples.map((item) => (
+                      <article key={item.id} className="audience-observed-comment">
+                        <span>{observed.observed.distribution.find((entry) => entry.key === item.intent)?.label ?? '기타'}</span>
+                        <p>{item.text}</p>
+                        <small>좋아요 {item.like_count} · 답글 {item.reply_count}</small>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                <p className="audience-observation-note">{observed.caveat}</p>
+              </>
+            )}
+          </section>
+
           {loading && (
             <section className="reaction-loading">
               <LoaderCircle size={24} className="spin" />
