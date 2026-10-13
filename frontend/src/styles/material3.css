@@ -7,14 +7,14 @@
  * components). Keep visual overrides here; behavior belongs to React.
  */
 :root {
-  --md-surface: #fff;
-  --md-surface-dim: #faf9fc;
-  --md-surface-container: #f3f0f7;
-  --md-surface-container-high: #ece6f2;
-  --md-primary-container: #e9dff3;
-  --md-on-primary-container: #463061;
-  --md-outline-variant: #e2dbe8;
-  --md-state-hover: rgba(99, 69, 140, .055);
+  --md-surface: var(--neutral-0);
+  --md-surface-dim: var(--neutral-50);
+  --md-surface-container: var(--neutral-100);
+  --md-surface-container-high: var(--neutral-150);
+  --md-primary-container: var(--brand-50);
+  --md-on-primary-container: var(--brand-700);
+  --md-outline-variant: var(--neutral-200);
+  --md-state-hover: rgba(44, 110, 242, .055);
   --md-shape-card: 18px;
   --md-shape-control: 12px;
 }
@@ -65,7 +65,7 @@
 .app-header {
   align-items: center;
   padding: 24px 36px 20px;
-  background: rgba(250, 249, 252, .94);
+  background: rgba(247, 248, 250, .94);
   border-bottom: 1px solid var(--md-outline-variant);
   backdrop-filter: blur(12px);
 }

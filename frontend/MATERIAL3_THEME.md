@@ -2,7 +2,7 @@
 
 **Reference:** [Google Material 3 Design Kit for Figma](https://www.figma.com/community/file/1035203688168086460/material-3-design-kit)
 
-This product does not import the original Figma components or claim pixel-perfect parity. We applied their visual principles to the existing React components while retaining application behavior, Korean Pretendard typography and the verified AI_COMMENT logo.
+This product does not import the original Figma components or claim pixel-perfect parity. We use their spacing, shapes, selection states and elevation patterns, while retaining the **original blue AI_COMMENT palette**, cool-grayscale neutrals, application behavior, Korean Pretendard typography and verified logo.
 
 ## Token mapping
 
@@ -18,7 +18,7 @@ This product does not import the original Figma components or claim pixel-perfec
 | Accessible focus state | `:focus-visible` outline |
 | Reduced motion | `prefers-reduced-motion` |
 
-Colors and elevation live in `src/styles/tokens.css`; app-wide Material-inspired component treatments live in `src/styles/material3.css`, imported last in `main.tsx` so behavior-specific styles remain untouched. Avoid adding hardcoded new blue accents; use brand and surface roles.
+The color hex values in `src/styles/tokens.css` are restored to the original pre-Material-3 blue/cool-gray palette. All `--md-*` color aliases in `src/styles/material3.css` reference those tokens, without introducing lavender hues. Elevation and shape remain Material-3-inspired. Colors and elevation live in `src/styles/tokens.css`; app-wide Material-inspired component treatments live in `src/styles/material3.css`, imported last in `main.tsx` so behavior-specific styles remain untouched. Avoid adding hardcoded new blue accents; use brand and surface roles.
 
 ## Screen-level design choices
 
