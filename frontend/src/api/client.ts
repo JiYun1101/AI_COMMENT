@@ -20,7 +20,7 @@ import type {
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
 } from '../types/comment';
-import { backUpPostedComment, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
+import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ??
@@ -371,6 +371,7 @@ export async function listMyComments(): Promise<PublishedCommentsResponse> {
       { headers: withRuntimeKeys() },
       '내가 단 댓글을 불러오지 못했습니다',
     );
+    backUpServerComments(response.items);
     return mergePostedBackup(response, mode);
   } catch (error) {
     const backup = readPostedBackup(mode);
@@ -385,11 +386,13 @@ export async function listMyComments(): Promise<PublishedCommentsResponse> {
 }
 
 export async function refreshMyComments(): Promise<PublishedCommentsResponse> {
-  return mergePostedBackup(await requestJson<PublishedCommentsResponse>(
+  const response = await requestJson<PublishedCommentsResponse>(
     `${API_BASE}/my-comments/refresh`,
     { method: 'POST', headers: withRuntimeKeys() },
     '실제 반응을 새로 확인하지 못했습니다',
-  ), getAccountMode());
+  );
+  backUpServerComments(response.items);
+  return mergePostedBackup(response, getAccountMode());
 }
 
 export async function recoverPublishedComment(
