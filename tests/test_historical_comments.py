@@ -50,3 +50,43 @@ def test_historical_profile_tolerates_missing_dataset(tmp_path: Path):
     assert profile["coverage"] == "none"
     assert profile["matched_count"] == 0
     assert profile["reference_examples"] == []
+
+
+def test_reference_examples_do_not_mirror_excessive_laughter(tmp_path):
+    import csv
+    rows = [
+        {
+            "comment_text": f"즐거운 영상 보면서 웃었어요 ㅋㅋ {i}",
+            "post_text": "즐거운 영상",
+            "category": "vlog",
+            "like_count": 80 - i,
+            "reply_count": 0,
+            "is_top_comment": 1,
+        }
+        for i in range(10)
+    ] + [
+        {
+            "comment_text": f"촬영과 구도에 대한 차분한 관찰 {i}입니다",
+            "post_text": "즐거운 영상",
+            "category": "vlog",
+            "like_count": 25 - i,
+            "reply_count": 0,
+            "is_top_comment": 1,
+        }
+        for i in range(8)
+    ]
+    path = tmp_path / "vlog_comments.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    profile = build_historical_profile(
+        "즐거운 영상",
+        topics=["lifestyle"],
+        content_styles=["vlog"],
+        dataset_paths=[path],
+        reference_limit=6,
+    )
+    assert profile["matched_count"] == 18
+    assert len(profile["reference_examples"]) == 6
+    assert sum("ㅋㅋ" in text or "ㅎㅎ" in text for text in profile["reference_examples"]) <= 1

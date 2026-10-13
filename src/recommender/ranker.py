@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
+import re
 import time
+from difflib import SequenceMatcher
 
 from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
@@ -23,6 +26,68 @@ def _time_budget_seconds() -> float:
 
 def _normalized_comment(value: str) -> str:
     return " ".join(value.split()).strip().lower()
+
+
+
+_LAUGHTER_MARKERS = re.compile(r"ㅋ{2,}|ㅎ{2,}|\b(?:lol|haha|hehe)\b", re.IGNORECASE)
+_STYLE_PUNCTUATION = re.compile(r"[^\w가-힣]+")
+
+
+def _has_laughter(text: str) -> bool:
+    return bool(_LAUGHTER_MARKERS.search(text))
+
+
+def _content_without_style(text: str) -> str:
+    """Ignore trailing laughter and punctuation when comparing substantive text."""
+    return _STYLE_PUNCTUATION.sub("", _LAUGHTER_MARKERS.sub("", text).lower())
+
+
+def _too_similar(left: str, right: str) -> bool:
+    a, b = _content_without_style(left), _content_without_style(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if min(len(a), len(b)) < 12:
+        return False
+    return SequenceMatcher(None, a, b).ratio() >= 0.87
+
+
+def _select_diverse_results(scored: list[dict], top_k: int, persona: dict | None) -> list[dict]:
+    """Preserve ranker ordering but constrain repetitive laughter and near-paraphrases.
+
+    Normal/default voice: at most 20% laughter-marked comments when alternatives
+    exist. Playful persona: at most 40%. If a model outputs *only* marked or
+    near-duplicate candidates, fill the rest rather than fail a working request.
+    The raw model scores remain untouched and are NOT calibrated probabilities.
+    """
+    playful = (persona or {}).get("id") == "playful_casual"
+    marker_limit = max(1, math.ceil(top_k * (0.4 if playful else 0.2)))
+    chosen: list[dict] = []
+    chosen_ids: set[str] = set()
+
+    def add(allow_extra_laughter: bool, allow_similar: bool) -> None:
+        for item in scored:
+            if len(chosen) >= top_k:
+                return
+            comment = str(item["comment"])
+            if comment in chosen_ids:
+                continue
+            if not allow_extra_laughter and _has_laughter(comment) and sum(
+                _has_laughter(str(row["comment"])) for row in chosen
+            ) >= marker_limit:
+                continue
+            if not allow_similar and any(_too_similar(comment, str(row["comment"])) for row in chosen):
+                continue
+            chosen.append(item)
+            chosen_ids.add(comment)
+
+    # First prioritize meaningful variation, then relax constraints if needed.
+    add(allow_extra_laughter=False, allow_similar=False)
+    add(allow_extra_laughter=False, allow_similar=True)
+    add(allow_extra_laughter=True, allow_similar=False)
+    add(allow_extra_laughter=True, allow_similar=True)
+    return chosen[:top_k]
 
 
 def recommend_comments_with_meta(
@@ -107,8 +172,9 @@ def recommend_comments_with_meta(
         item["comment"]: item.get("type", "general") for item in safe_candidates
     }
 
+    selected_results = _select_diverse_results(scored_results, top_k, persona)
     recommendations = []
-    for index, item in enumerate(scored_results[:top_k], start=1):
+    for index, item in enumerate(selected_results, start=1):
         recommendations.append(
             {
                 "rank": index,
@@ -120,7 +186,7 @@ def recommend_comments_with_meta(
 
     final_rank_by_normalized = {
         _normalized_comment(item["comment"]): index
-        for index, item in enumerate(scored_results[:top_k], start=1)
+        for index, item in enumerate(selected_results, start=1)
     }
     score_by_normalized = {
         _normalized_comment(item["comment"]): item["score"]

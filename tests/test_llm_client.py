@@ -101,3 +101,17 @@ def test_invalid_response_is_generation_error():
     client = OpenAIResponsesClient(api_key="key", model="model", session=session)
     with pytest.raises(LLMGenerationError):
         client.generate({}, candidate_count=5)
+
+
+def test_prompt_balances_laughter_instead_of_mirroring_historical_slang():
+    from src.llm.openai_client import SYSTEM_INSTRUCTIONS, build_generation_input
+
+    assert "no more than 10%" in SYSTEM_INSTRUCTIONS
+    assert "at most 30%" in SYSTEM_INSTRUCTIONS
+    assert "Historical casual_ratio is descriptive" in SYSTEM_INSTRUCTIONS
+    context = {"historical_comments": {"casual_ratio": 0.95, "reference_examples": ["너무 좋네요 ㅋㅋ"]}}
+    default = build_generation_input(context, candidate_count=20)
+    playful = build_generation_input(context, candidate_count=20, persona={"id": "playful_casual"})
+    assert default["task"]["laughter_marker_max_ratio"] == 0.1
+    assert playful["task"]["laughter_marker_max_ratio"] == 0.3
+    assert "Do not optimize or repeat ㅋㅋ/ㅎㅎ" in " ".join(default["task"]["rules"])

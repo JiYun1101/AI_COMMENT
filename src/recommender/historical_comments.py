@@ -145,12 +145,19 @@ def build_historical_profile(
 
     references: list[str] = []
     seen: set[str] = set()
+    laughter_references = 0
     for row in selected:
         text = row["comment_text"].strip()
         normalized = re.sub(r"\s+", " ", text).lower()
         if normalized in seen:
             continue
         seen.add(normalized)
+        # Historical style evidence should not prime the LLM with a full
+        # list of laugh-marker endings. Allow one realistic playful example.
+        if re.search(r"ㅋ{2,}|ㅎ{2,}|\b(?:lol|haha|hehe)\b", text, re.I):
+            if laughter_references >= 1:
+                continue
+            laughter_references += 1
         references.append(text)
         if len(references) >= reference_limit:
             break
