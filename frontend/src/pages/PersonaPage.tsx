@@ -53,11 +53,10 @@ export function PersonaPage() {
     window.setTimeout(() => setSaved(false), 1400);
   };
 
-  const handleSave = () => {
-    if (!draft) return;
+  const handleSave = (next: CustomPersona) => {
     setError(null);
     try {
-      const result = saveCustomPersona(draft);
+      const result = saveCustomPersona(next);
       setCustom(readCustomPersonas());
       setDraft(null);
       choosePersona(result.id);
@@ -81,7 +80,7 @@ export function PersonaPage() {
     <div className="app">
       <Sidebar current="persona" onNav={handleNav} />
       <div className="main">
-        <Header title="페르소나" subtitle="페르소나를 만들고 말투·자주 쓰는 표현·금지 문장부호를 설정합니다." />
+        <Header title="페르소나" subtitle="카드를 선택하거나, 나만의 말투를 만들어 바로 사용하세요." />
 
         <main className="persona-page">
           <section className="persona-intro">
@@ -90,7 +89,7 @@ export function PersonaPage() {
               <h2>같은 영상도 다른 목소리로</h2>
               <p>
                 페르소나는 신원이나 역할이 아니라 댓글의 목소리를 정합니다.
-                기본 프리셋을 선택하거나 나만의 말투를 추가할 수 있습니다. 자주 쓰는 표현과 금지할 표현·문장부호까지 설정해 댓글 추천에 적용하세요.
+                카드를 고르거나 직접 말투를 적고 바로 사용할 수 있어요.
               </p>
             </div>
             <div className="persona-current">
@@ -154,80 +153,63 @@ export function PersonaPage() {
                 </button>
               );
             })}
-          </div>
 
-          <section className="persona-custom-section">
-            <div className="persona-custom-heading">
-              <div>
-                <span className="persona-kicker">MY PERSONAS</span>
-                <h2>내가 만든 페르소나</h2>
-                <p>페르소나는 이 브라우저에 저장됩니다. 계정 간 자동 동기화는 아직 지원하지 않습니다.</p>
-              </div>
-              <button type="button" className="btn primary" disabled={custom.length >= MAX_CUSTOM_PERSONAS}
-                onClick={() => { setDraft(newCustomPersona()); setError(null); setDeletingId(null); }}>
-                <Plus size={15} /> 새 페르소나
-              </button>
-            </div>
-            {custom.length === 0 && !draft && (
-              <div className="persona-custom-empty">
-                자주 쓰는 말, 말투, 피하고 싶은 표현을 기록해 나만의 페르소나를 만들어보세요.
-              </div>
-            )}
-            <div className="persona-custom-list">
-              {custom.map((item) => (
-                <div key={item.id} className={'persona-custom-card' + (selected === item.id ? ' active' : '')}>
-                  <div className="persona-custom-card-main">
-                    <strong>{item.name}</strong>
-                    <p>{item.speech_style || '말투를 자유롭게 설정한 페르소나'}</p>
-                    <small>
-                      선호 표현 {item.recurring_phrases.length}개 · 금지 표현 {item.prohibited_phrases.length}개 · 금지 기호 {item.forbidden_marks.length}개
-                    </small>
-                  </div>
-                  <div className="persona-custom-card-actions">
-                    <button type="button" className="btn secondary" onClick={() => choosePersona(item.id)}
-                      aria-pressed={selected === item.id}>{selected === item.id ? '선택됨' : '사용하기'}</button>
-                    <button type="button" className="persona-custom-icon-btn"
-                      aria-label={`${item.name} 편집`}
+            {custom.map((item) => (
+              draft?.id === item.id ? (
+                <CustomPersonaEditor key={item.id} value={draft} error={error}
+                  onChange={(next) => { setDraft(next); setError(null); }}
+                  onCancel={() => { setDraft(null); setError(null); }} onSave={handleSave} />
+              ) : (
+                <div key={item.id} className={'persona-card persona-user-card' + (selected === item.id ? ' active' : '')}>
+                  <button type="button" className="persona-user-select" onClick={() => choosePersona(item.id)}
+                    aria-pressed={selected === item.id} aria-label={`${item.name} 페르소나 사용`}>
+                    <div className="persona-card-top">
+                      <span className="persona-icon"><MessageSquareText size={19} /></span>
+                      {selected === item.id && <span className="persona-selected"><Check size={13} /> 선택됨</span>}
+                    </div>
+                    <h3>{item.name}</h3>
+                    <p className="persona-user-description">{item.speech_style || item.recurring_phrases.join(', ') || '나만의 댓글 말투'}</p>
+                    <div className="persona-example">
+                      <span>금지 표현</span>
+                      <p>{[...item.prohibited_phrases, ...item.forbidden_marks.map((mark) => ({
+                        period: '.', exclamation: '!', question: '?', comma: '쉼표',
+                        tilde: '~', emoji: '이모지', laughter: 'ㅋㅋ·ㅎㅎ',
+                      })[mark])].join(' · ') || '제한 없음'}</p>
+                    </div>
+                  </button>
+                  <div className="persona-user-actions">
+                    <button type="button" aria-label={`${item.name} 수정`}
                       onClick={() => { setDraft({ ...item }); setError(null); setDeletingId(null); }}>
-                      <Pencil size={16} />
+                      <Pencil size={13} /> 수정
                     </button>
-                    <button type="button" className="persona-custom-icon-btn danger"
-                      aria-label={`${item.name} 삭제`}
+                    <button type="button" aria-label={`${item.name} 삭제`}
                       onClick={() => { setDeletingId(item.id); setDraft(null); }}>
-                      <Trash2 size={16} />
+                      <Trash2 size={13} /> 삭제
                     </button>
                   </div>
                   {deletingId === item.id && (
                     <div className="persona-delete-confirm" role="group" aria-label="페르소나 삭제 확인">
-                      <span>이 페르소나를 삭제할까요? 저장한 말투 설정이 사라집니다.</span>
-                      <button type="button" className="btn secondary" onClick={() => setDeletingId(null)}>취소</button>
-                      <button type="button" className="btn primary" onClick={() => handleDelete(item.id)}>삭제</button>
+                      <span>이 페르소나를 삭제할까요?</span>
+                      <button type="button" onClick={() => setDeletingId(null)}>취소</button>
+                      <button type="button" onClick={() => handleDelete(item.id)}>삭제</button>
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
-            {draft && (
-              <CustomPersonaEditor
-                value={draft}
-                error={error}
+              )
+            ))}
+            {draft && !custom.some((item) => item.id === draft.id) ? (
+              <CustomPersonaEditor key={draft.id} value={draft} error={error}
                 onChange={(next) => { setDraft(next); setError(null); }}
-                onCancel={() => { setDraft(null); setError(null); }}
-                onSave={handleSave}
-              />
-            )}
-          </section>
-
-          <section className="persona-coming">
-            <Sparkles size={16} />
-            <div>
-              <strong>말투 설정은 다음 댓글 생성부터 적용됩니다</strong>
-              <span>
-                자주 쓰는 표현과 예시는 참고용이며, 금지 표현과 문장부호는 최종 후보에서 검사합니다.
-                지나치게 엄격한 제한으로 후보가 부족하면 생성 오류가 표시될 수 있습니다.
-              </span>
-            </div>
-          </section>
+                onCancel={() => { setDraft(null); setError(null); }} onSave={handleSave} />
+            ) : custom.length < MAX_CUSTOM_PERSONAS ? (
+              <button type="button" className="persona-card persona-add-card"
+                onClick={() => { setDraft(newCustomPersona()); setError(null); setDeletingId(null); }}>
+                <span className="persona-icon"><Plus size={21} /></span>
+                <strong>+ 나만의 페르소나</strong>
+                <span>말투와 사용하지 않을 표현을 적고 바로 사용</span>
+              </button>
+            ) : null}
+          </div>
         </main>
       </div>
     </div>
