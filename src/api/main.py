@@ -727,6 +727,31 @@ def delete_my_published_comment(
     return {"deleted": True, "comment_id": comment_id, "tracking_removed": removed}
 
 
+@app.get("/my-comments/export", dependencies=[Depends(require_trusted_client)])
+def export_my_comments(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    """Account-scoped, read-only recovery snapshot. Never export other accounts."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 계정에서만 댓글 기록을 백업할 수 있습니다.")
+    identity = _verified_account_channel("personal", oauth_client_id, oauth_client_secret)
+    rows = list_published_comments(
+        account_mode="personal", owner_channel_id=identity["channel_id"], limit=501,
+    )
+    if len(rows) > 500:
+        raise HTTPException(
+            status_code=409, detail="댓글이 500개를 초과합니다. 일부 데이터만 백업하지 않도록 내보내기를 중단했습니다.",
+        )
+    return JSONResponse(
+        {"format": "ai-comment-published-backup-v1",
+         "exported_at": datetime.now(timezone.utc).isoformat(),
+         "channel_id": identity["channel_id"], "comments": rows},
+        headers={"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="ai-comment-owned-comments.json"'},
+    )
+
+
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
 def my_published_comments(
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
