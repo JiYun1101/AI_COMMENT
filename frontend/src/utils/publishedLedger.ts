@@ -75,6 +75,18 @@ export function importPostedBackup(value: unknown): number {
   return clean.length;
 }
 
+/** Keep browser receipts aligned only after a successful YouTube edit. */
+export function updatePostedBackupText(commentId: string, text: string): void {
+  const rows = readPostedBackup();
+  if (!rows.some((row) => row.comment_id === commentId)) return;
+  persist(rows.map((row) => row.comment_id === commentId ? { ...row, comment: text } : row));
+}
+
+/** A successful YouTube deletion must also erase its offline receipt. */
+export function removePostedBackupComment(commentId: string): void {
+  persist(readPostedBackup().filter((row) => row.comment_id !== commentId));
+}
+
 export function exportPostedBackup(): void {
   const data = JSON.stringify({
     format: 'ai-comment-published-backup-v1',
