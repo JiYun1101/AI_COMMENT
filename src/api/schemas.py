@@ -19,6 +19,19 @@ class ScoreRequest(BaseModel):
     )
 
 
+class CustomPersonaRequest(BaseModel):
+    """Untrusted, browser-authored writing preferences: bounded and style-only."""
+    id: str = Field(pattern=r"^custom_[A-Za-z0-9-]{8,64}$", max_length=71)
+    name: str = Field(min_length=1, max_length=40)
+    speech_style: str = Field(default="", max_length=240)
+    recurring_phrases: list[str] = Field(default_factory=list, max_length=8)
+    prohibited_phrases: list[str] = Field(default_factory=list, max_length=8)
+    forbidden_marks: list[Literal[
+        "period", "exclamation", "question", "comma", "tilde", "emoji", "laughter"
+    ]] = Field(default_factory=list, max_length=7)
+    sample_comment: str = Field(default="", max_length=200)
+
+
 class RecommendRequest(BaseModel):
     post_text: str | None = Field(
         default=None,
@@ -40,16 +53,12 @@ class RecommendRequest(BaseModel):
         max_length=80,
         description="하위 호환용 선택 힌트. 공식/파생 분류는 서버의 deterministic context builder가 결정합니다.",
     )
-    persona_id: Literal[
-        "none",
-        "polite_viewer",
-        "friendly_viewer",
-        "warm_supporter",
-        "calm_analyst",
-        "playful_casual",
-    ] = Field(
-        default="none",
-        description="선택한 댓글 말투 페르소나. none이면 기존 생성 방식과 동일하게 동작합니다.",
+    persona_id: str = Field(
+        default="none", max_length=71,
+        description="기존 페르소나 ID 또는 custom_ 사용자 페르소나 ID",
+    )
+    custom_persona: CustomPersonaRequest | None = Field(
+        default=None, description="custom_ 페르소나인 경우에만 함께 전송하는 말투 제한",
     )
     top_k: int = Field(default=5, ge=1, le=10)
 
