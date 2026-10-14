@@ -427,6 +427,39 @@ export async function lookupPublicCommentMetrics(
   );
 }
 
+/** Mutations affect the real YouTube comment, not just the local receipt. */
+export async function editPublishedYouTubeComment(
+  commentId: string, text: string,
+): Promise<{ updated: boolean; comment_id: string; comment: string; tracking_saved: boolean }> {
+  return requestJson(
+    `${API_BASE}/my-comments/${encodeURIComponent(commentId)}`,
+    {
+      method: 'PUT',
+      headers: withYouTubeOAuth(withRuntimeKeys({
+        'Content-Type': 'application/json',
+        'X-AI-Comment-Account-Mode': 'personal',
+      })),
+      body: JSON.stringify({ text }),
+    },
+    'YouTube 댓글 수정에 실패했습니다',
+  );
+}
+
+export async function deletePublishedYouTubeComment(
+  commentId: string,
+): Promise<{ deleted: boolean; comment_id: string; tracking_removed: boolean }> {
+  return requestJson(
+    `${API_BASE}/my-comments/${encodeURIComponent(commentId)}`,
+    {
+      method: 'DELETE',
+      headers: withYouTubeOAuth(withRuntimeKeys({
+        'X-AI-Comment-Account-Mode': 'personal',
+      })),
+    },
+    'YouTube 댓글 삭제에 실패했습니다',
+  );
+}
+
 export async function recoverPublishedBatch(
   comments: Array<{ video_id: string; comment_id: string }>,
 ): Promise<{
