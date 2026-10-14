@@ -22,6 +22,7 @@ import type {
   OwnedVideoPerformanceResponse,
 } from '../types/comment';
 import { applySavedPublicMetrics, type PublicMetricResponse } from '../utils/publicMetricsBackup';
+import { getCustomPersona } from '../utils/customPersonas';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
 const API_BASE =
@@ -108,16 +109,11 @@ export function setAccountMode(value: AccountMode): void {
 
 export function getSelectedPersona(): PersonaId {
   const value = getStoredValue(PERSONA_STORAGE_KEY) as PersonaId;
+  if (value.startsWith('custom_')) return getCustomPersona(value) ? value : 'none';
   return [
-    'none',
-    'polite_viewer',
-    'friendly_viewer',
-    'warm_supporter',
-    'calm_analyst',
-    'playful_casual',
-  ].includes(value)
-    ? value
-    : 'none';
+    'none', 'polite_viewer', 'friendly_viewer', 'warm_supporter',
+    'calm_analyst', 'playful_casual',
+  ].includes(value) ? value : 'none';
 }
 
 export function setSelectedPersona(value: PersonaId): void {
@@ -233,6 +229,11 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
       body: JSON.stringify({
         ...request,
         persona_id: request.persona_id ?? getSelectedPersona(),
+        custom_persona: request.custom_persona ?? (
+          (request.persona_id ?? getSelectedPersona()).startsWith('custom_')
+            ? getCustomPersona(request.persona_id ?? getSelectedPersona())
+            : undefined
+        ),
       }),
     },
     '추천 요청이 실패했습니다',
