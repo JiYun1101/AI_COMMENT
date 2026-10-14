@@ -101,3 +101,75 @@ def resolve_persona(persona_id: str | None) -> PersonaDirective | None:
     if normalized == "none":
         return None
     return PERSONAS.get(normalized)
+
+
+FORBIDDEN_MARKS = {
+    "period": ".。．",
+    "exclamation": "!！",
+    "question": "?？",
+    "comma": ",，",
+    "tilde": "~～",
+}
+
+
+def build_custom_persona(data: dict) -> dict:
+    """Validate user-provided style metadata, never turn it into system rules."""
+    name = str(data.get("name") or "").strip()
+    style = str(data.get("speech_style") or "").strip()
+    example = str(data.get("sample_comment") or "").strip()
+    if not name or len(name) > 40 or len(style) > 240 or len(example) > 200:
+        raise ValueError("페르소나 이름과 말투 제한의 길이를 확인해주세요.")
+
+    def phrases(key: str) -> list[str]:
+        values = data.get(key) or []
+        if not isinstance(values, list) or len(values) > 8:
+            raise ValueError("표현은 항목별로 최대 8개까지 입력할 수 있습니다.")
+        cleaned = []
+        for item in values:
+            if not isinstance(item, str) or not item.strip() or len(item.strip()) > 60:
+                raise ValueError("표현은 항목당 1~60자로 입력해주세요.")
+            if item.strip() not in cleaned:
+                cleaned.append(item.strip())
+        return cleaned
+
+    allowed = set(FORBIDDEN_MARKS) | {"emoji", "laughter"}
+    marks = data.get("forbidden_marks") or []
+    if not isinstance(marks, list) or len(marks) > len(allowed) or any(mark not in allowed for mark in marks):
+        raise ValueError("지원하지 않는 문장부호 제한입니다.")
+    return {
+        "id": data["id"],
+        "name": name,
+        "user_defined": True,
+        "speech_style": style,
+        "recurring_phrases": phrases("recurring_phrases"),
+        "prohibited_phrases": phrases("prohibited_phrases"),
+        "forbidden_marks": list(dict.fromkeys(marks)),
+        "sample_comment": example,
+        "formality": "사용자 설정",
+        "tone": "사용자 설정",
+        "markers": "사용자 설정",
+        "length": "자동",
+        "rules": [],
+    }
+
+
+def custom_persona_violation(comment: str, persona: dict | None) -> str | None:
+    """Hard-stop forbidden expressions/marks even if a model ignores the prompt."""
+    if not persona or not persona.get("user_defined"):
+        return None
+    folded = comment.casefold()
+    for expression in persona.get("prohibited_phrases") or []:
+        if expression.casefold() in folded:
+            return f"페르소나 금지 표현: {expression}"
+    for mark in persona.get("forbidden_marks") or []:
+        if mark == "laughter":
+            import re
+            if re.search(r"(?:ㅋ{1,}|ㅎ{2,})", comment):
+                return "페르소나 금지: 웃음 표현"
+        elif mark == "emoji":
+            from src.recommender.writing_style import EMOJI
+            if EMOJI.search(comment):
+                return "페르소나 금지: 이모지"
+        elif mark in FORBIDDEN_MARKS and any(char in comment for char in FORBIDDEN_MARKS[mark]):
+            return f"페르소나 금지 문장부호: {mark}"
+    return None

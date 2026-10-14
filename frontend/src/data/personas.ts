@@ -1,7 +1,8 @@
-import type { PersonaId } from '../types/comment';
+import type { PersonaId, PresetPersonaId } from '../types/comment';
+import { getCustomPersona } from '../utils/customPersonas';
 
 export type PersonaPreset = {
-  id: Exclude<PersonaId, 'none'>;
+  id: Exclude<PresetPersonaId, 'none'>;
   name: string;
   formality: '합쇼체' | '해요체' | '반말';
   tone: '응원' | '차분' | '유머';
@@ -64,5 +65,6 @@ export function getPersonaPreset(id: PersonaId): PersonaPreset | null {
 }
 
 export function getPersonaLabel(id: PersonaId): string {
+  if (id.startsWith('custom_')) return getCustomPersona(id)?.name ?? '페르소나 없음';
   return getPersonaPreset(id)?.name ?? '페르소나 없음';
 }

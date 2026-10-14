@@ -11,6 +11,7 @@ from src.llm.openai_client import LLMGenerationError
 from src.model.predict import score_comments
 from src.recommender.candidate_generator import CandidateGenerationClient, generate_candidates
 from src.recommender.safety_filter import get_block_reason
+from src.recommender.persona import custom_persona_violation
 from src.recommender.writing_style import casual_target, detect_style
 
 logger = logging.getLogger(__name__)
@@ -148,21 +149,23 @@ def recommend_comments_with_meta(
             comment = str(candidate.get("comment") or "")
             normalized = _normalized_comment(comment)
             block_reason = get_block_reason(comment)
+            style_violation = custom_persona_violation(comment, persona)
+            rejection_reason = block_reason or style_violation
             trace_item = {
                 "sequence": len(trace_candidates) + 1,
                 "attempt": attempt,
                 "type": candidate.get("type", "general"),
                 "comment": comment,
                 "writing_style": detect_style(comment, candidate.get("writing_style")),
-                "safety": "blocked" if block_reason else "passed",
-                "safety_reason": block_reason,
+                "safety": "blocked" if rejection_reason else "passed",
+                "safety_reason": rejection_reason,
                 "duplicate": False,
                 "ranker_score": None,
                 "selected": False,
                 "final_rank": None,
             }
 
-            if block_reason is not None:
+            if rejection_reason is not None:
                 safety_blocked_count += 1
                 trace_candidates.append(trace_item)
                 continue

@@ -32,7 +32,7 @@ from src.llm.openai_client import LLMGenerationError, LLMNotReadyError, OpenAIRe
 from src.llm.provider import llm_readiness
 from src.model.predict import ModelNotReadyError, model_readiness, score_comments
 from src.recommender.generation_context import build_generation_context, summarize_generation_context
-from src.recommender.persona import resolve_persona
+from src.recommender.persona import resolve_persona, build_custom_persona
 from src.recommender.ranker import recommend_comments_with_meta
 from src.recommender.safety_filter import get_block_reason
 from src.storage.published_store import (
@@ -1067,7 +1067,19 @@ def recommend_comment_candidates(
         additional_context=additional_context,
         category_hint=request.category,
     )
-    persona = resolve_persona(request.persona_id)
+    if request.persona_id.startswith("custom_"):
+        if request.custom_persona is None or request.custom_persona.id != request.persona_id:
+            raise HTTPException(status_code=422, detail="사용자 페르소나 설정이 선택한 ID와 일치하지 않습니다.")
+        try:
+            persona = build_custom_persona(request.custom_persona.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        if request.custom_persona is not None:
+            raise HTTPException(status_code=422, detail="기존 페르소나 ID에 사용자 설정을 덮어쓸 수 없습니다.")
+        persona = resolve_persona(request.persona_id)
+        if request.persona_id != "none" and persona is None:
+            raise HTTPException(status_code=422, detail="지원하지 않는 페르소나 ID입니다.")
     context_summary = summarize_generation_context(generation_context)
     resolved_category = str(context_summary["primary_category"] or "Other")
     ranking_reference_text = source_reference_text

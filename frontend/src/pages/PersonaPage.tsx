@@ -3,6 +3,9 @@ import {
   Check,
   Heart,
   MessageSquareText,
+  Plus,
+  Pencil,
+  Trash2,
   RotateCcw,
   Sparkles,
   UserRound,
@@ -13,7 +16,12 @@ import { getSelectedPersona, setSelectedPersona } from '../api/client';
 import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { getPersonaLabel, getPersonaPreset, PERSONA_PRESETS } from '../data/personas';
-import type { PersonaId } from '../types/comment';
+import { CustomPersonaEditor } from '../components/persona/CustomPersonaEditor';
+import {
+  MAX_CUSTOM_PERSONAS, newCustomPersona,
+  readCustomPersonas, removeCustomPersona, saveCustomPersona,
+} from '../utils/customPersonas';
+import type { CustomPersona, PersonaId } from '../types/comment';
 
 const PERSONA_ICONS = {
   polite_viewer: MessageSquareText,
@@ -27,6 +35,10 @@ export function PersonaPage() {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<PersonaId>(() => getSelectedPersona());
   const [saved, setSaved] = useState(false);
+  const [custom, setCustom] = useState<CustomPersona[]>(() => readCustomPersonas());
+  const [draft, setDraft] = useState<CustomPersona | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleNav = (key: SidebarKey) => {
     if (key === 'dashboard') navigate('/dashboard');
@@ -41,13 +53,35 @@ export function PersonaPage() {
     window.setTimeout(() => setSaved(false), 1400);
   };
 
+  const handleSave = () => {
+    if (!draft) return;
+    setError(null);
+    try {
+      const result = saveCustomPersona(draft);
+      setCustom(readCustomPersonas());
+      setDraft(null);
+      choosePersona(result.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '페르소나를 저장하지 못했습니다.');
+    }
+  };
+
+  const handleDelete = (id: string) => {
+    removeCustomPersona(id);
+    setCustom(readCustomPersonas());
+    setDeletingId(null);
+    setDraft((current) => current?.id === id ? null : current);
+    if (selected === id) choosePersona('none');
+  };
+
+  const selectedCustom = custom.find((entry) => entry.id === selected);
   const selectedPreset = getPersonaPreset(selected);
 
   return (
     <div className="app">
       <Sidebar current="persona" onNav={handleNav} />
       <div className="main">
-        <Header title="페르소나" subtitle="추천 댓글의 말투와 분위기를 선택합니다." />
+        <Header title="페르소나" subtitle="페르소나를 만들고 말투·자주 쓰는 표현·금지 문장부호를 설정합니다." />
 
         <main className="persona-page">
           <section className="persona-intro">
@@ -56,7 +90,7 @@ export function PersonaPage() {
               <h2>같은 영상도 다른 목소리로</h2>
               <p>
                 페르소나는 신원이나 역할이 아니라 댓글의 목소리를 정합니다.
-                지금은 프리셋 선택과 저장만 지원하며, 댓글 유형과는 별도의 설정입니다.
+                기본 프리셋을 선택하거나 나만의 말투를 추가할 수 있습니다. 자주 쓰는 표현과 금지할 표현·문장부호까지 설정해 댓글 추천에 적용하세요.
               </p>
             </div>
             <div className="persona-current">
@@ -67,6 +101,7 @@ export function PersonaPage() {
                   {selectedPreset.formality} · {selectedPreset.tone} · {selectedPreset.markers} · {selectedPreset.length}
                 </small>
               )}
+              {selectedCustom && <small>{selectedCustom.speech_style || '사용자 설정 말투'} · 금지 기호 {selectedCustom.forbidden_marks.length}개</small>}
               {saved && <em><Check size={13} /> 다른 페이지에도 저장됨</em>}
             </div>
           </section>
@@ -121,13 +156,75 @@ export function PersonaPage() {
             })}
           </div>
 
+          <section className="persona-custom-section">
+            <div className="persona-custom-heading">
+              <div>
+                <span className="persona-kicker">MY PERSONAS</span>
+                <h2>내가 만든 페르소나</h2>
+                <p>페르소나는 이 브라우저에 저장됩니다. 계정 간 자동 동기화는 아직 지원하지 않습니다.</p>
+              </div>
+              <button type="button" className="btn primary" disabled={custom.length >= MAX_CUSTOM_PERSONAS}
+                onClick={() => { setDraft(newCustomPersona()); setError(null); setDeletingId(null); }}>
+                <Plus size={15} /> 새 페르소나
+              </button>
+            </div>
+            {custom.length === 0 && !draft && (
+              <div className="persona-custom-empty">
+                자주 쓰는 말, 말투, 피하고 싶은 표현을 기록해 나만의 페르소나를 만들어보세요.
+              </div>
+            )}
+            <div className="persona-custom-list">
+              {custom.map((item) => (
+                <div key={item.id} className={'persona-custom-card' + (selected === item.id ? ' active' : '')}>
+                  <div className="persona-custom-card-main">
+                    <strong>{item.name}</strong>
+                    <p>{item.speech_style || '말투를 자유롭게 설정한 페르소나'}</p>
+                    <small>
+                      선호 표현 {item.recurring_phrases.length}개 · 금지 표현 {item.prohibited_phrases.length}개 · 금지 기호 {item.forbidden_marks.length}개
+                    </small>
+                  </div>
+                  <div className="persona-custom-card-actions">
+                    <button type="button" className="btn secondary" onClick={() => choosePersona(item.id)}
+                      aria-pressed={selected === item.id}>{selected === item.id ? '선택됨' : '사용하기'}</button>
+                    <button type="button" className="persona-custom-icon-btn"
+                      aria-label={`${item.name} 편집`}
+                      onClick={() => { setDraft({ ...item }); setError(null); setDeletingId(null); }}>
+                      <Pencil size={16} />
+                    </button>
+                    <button type="button" className="persona-custom-icon-btn danger"
+                      aria-label={`${item.name} 삭제`}
+                      onClick={() => { setDeletingId(item.id); setDraft(null); }}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  {deletingId === item.id && (
+                    <div className="persona-delete-confirm" role="group" aria-label="페르소나 삭제 확인">
+                      <span>이 페르소나를 삭제할까요? 저장한 말투 설정이 사라집니다.</span>
+                      <button type="button" className="btn secondary" onClick={() => setDeletingId(null)}>취소</button>
+                      <button type="button" className="btn primary" onClick={() => handleDelete(item.id)}>삭제</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {draft && (
+              <CustomPersonaEditor
+                value={draft}
+                error={error}
+                onChange={(next) => { setDraft(next); setError(null); }}
+                onCancel={() => { setDraft(null); setError(null); }}
+                onSave={handleSave}
+              />
+            )}
+          </section>
+
           <section className="persona-coming">
             <Sparkles size={16} />
             <div>
-              <strong>선택값은 자동 유지됩니다</strong>
+              <strong>말투 설정은 다음 댓글 생성부터 적용됩니다</strong>
               <span>
-                여기서 고른 페르소나는 브라우저에 저장되어 댓글 추천·대시보드·계정 페이지를 이동해도 유지됩니다.
-                다음 단계에서 자주 쓰는 말과 표현 습관을 이 프리셋에 추가할 예정입니다.
+                자주 쓰는 표현과 예시는 참고용이며, 금지 표현과 문장부호는 최종 후보에서 검사합니다.
+                지나치게 엄격한 제한으로 후보가 부족하면 생성 오류가 표시될 수 있습니다.
               </span>
             </div>
           </section>

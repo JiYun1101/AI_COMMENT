@@ -309,3 +309,137 @@
     flex-direction: column;
   }
 }
+
+/* User-owned persona editor, scoped so default preset cards remain unchanged. */
+.persona-custom-section {
+  margin-top: 28px;
+  display: grid;
+  gap: 14px;
+}
+.persona-custom-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.persona-custom-heading h2 {
+  font-size: 19px;
+  margin: 0 0 6px;
+  color: var(--fg1);
+}
+.persona-custom-heading p {
+  margin: 0;
+  color: var(--fg3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.persona-custom-empty {
+  padding: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--neutral-50);
+  color: var(--fg3);
+  font-size: 12.5px;
+}
+.persona-custom-list { display: grid; gap: 10px; }
+.persona-custom-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+.persona-custom-card.active { border-color: var(--brand-500); box-shadow: 0 0 0 2px var(--brand-50); }
+.persona-custom-card-main { flex: 1 1 230px; min-width: 0; }
+.persona-custom-card-main strong { display: block; font-size: 14px; color: var(--fg1); }
+.persona-custom-card-main p {
+  margin: 5px 0;
+  font-size: 12.5px;
+  color: var(--fg2);
+  overflow-wrap: anywhere;
+}
+.persona-custom-card-main small { font-size: 11px; color: var(--fg3); }
+.persona-custom-card-actions { display: flex; align-items: center; gap: 6px; }
+.persona-custom-icon-btn, .persona-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--fg2);
+  cursor: pointer;
+}
+.persona-custom-icon-btn:hover, .persona-close:hover { background: var(--neutral-50); }
+.persona-custom-icon-btn.danger { color: var(--danger-500); }
+.persona-delete-confirm {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  background: var(--neutral-50);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.persona-delete-confirm span { margin-right: auto; }
+.persona-editor {
+  padding: 23px;
+  display: grid;
+  gap: 19px;
+  border: 1px solid var(--brand-200);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.persona-editor-head { display: flex; gap: 12px; justify-content: space-between; }
+.persona-editor-head h3 { margin: 0 0 8px; font-size: 18px; }
+.persona-editor-head p { margin: 0; color: var(--fg3); font-size: 12.5px; line-height: 1.5; }
+.persona-editor-fields { display: grid; gap: 17px; }
+.persona-field { display: grid; gap: 7px; }
+.persona-field > span, .persona-marks legend { font-size: 12.5px; font-weight: 650; color: var(--fg1); }
+.persona-field > span b { font-weight: 500; color: var(--brand-600); font-size: 10px; }
+.persona-field input, .persona-field textarea {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg1);
+  resize: vertical;
+}
+.persona-field :is(input, textarea):focus-visible {
+  outline: 2px solid var(--brand-400);
+  outline-offset: 1px;
+}
+.persona-field small, .persona-marks small { color: var(--fg3); font-size: 11px; line-height: 1.6; }
+.persona-marks { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; }
+.persona-marks legend { margin-bottom: 10px; }
+.persona-mark-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.persona-mark-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.persona-mark-list label.selected { border-color: var(--brand-400); background: var(--brand-50); color: var(--brand-700); }
+.persona-mark-list input { accent-color: var(--brand-600); }
+.persona-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.persona-editor-error { margin: 0; color: var(--danger-600); font-size: 12px; }
+@media (max-width: 620px) {
+  .persona-custom-heading { flex-direction: column; }
+  .persona-custom-card-actions { flex-wrap: wrap; }
+  .persona-editor { padding: 15px; }
+}
