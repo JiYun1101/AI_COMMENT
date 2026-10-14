@@ -10,7 +10,16 @@ export type BackedUpComment = Pick<
   PublishedComment,
   'video_id' | 'comment_id' | 'comment' | 'comment_url' | 'published_at' |
   'account_mode' | 'recommendation_id'
->;
+> & Partial<Pick<
+  PublishedComment,
+  'predicted_score' | 'comment_type' | 'video_title' | 'channel' |
+  'like_count' | 'reply_count' | 'likes_24h' | 'replies_24h' |
+  'likes_7d' | 'replies_7d' | 'last_checked_at'
+>>;
+
+function validNonnegativeCount(value: unknown): boolean {
+  return value == null || (Number.isSafeInteger(value) && (value as number) >= 0);
+}
 
 function isValidRecord(input: unknown): input is BackedUpComment {
   if (!input || typeof input !== 'object') return false;
@@ -20,7 +29,15 @@ function isValidRecord(input: unknown): input is BackedUpComment {
     typeof row.video_id === 'string' && /^[\w-]{11}$/.test(row.video_id) &&
     typeof row.comment === 'string' && row.comment.length <= 10000 &&
     typeof row.published_at === 'string' && Number.isFinite(Date.parse(row.published_at)) &&
-    (row.account_mode === 'demo' || row.account_mode === 'personal')
+    (row.account_mode === 'demo' || row.account_mode === 'personal') &&
+    (row.predicted_score == null || (typeof row.predicted_score === 'number' && Number.isFinite(row.predicted_score))) &&
+    (row.comment_type == null || (typeof row.comment_type === 'string' && row.comment_type.length <= 100)) &&
+    (row.video_title == null || (typeof row.video_title === 'string' && row.video_title.length <= 500)) &&
+    (row.channel == null || (typeof row.channel === 'string' && row.channel.length <= 300)) &&
+    (row.last_checked_at == null || (typeof row.last_checked_at === 'string' &&
+      Number.isFinite(Date.parse(row.last_checked_at)))) &&
+    [row.like_count, row.reply_count, row.likes_24h, row.replies_24h,
+      row.likes_7d, row.replies_7d].every(validNonnegativeCount)
   );
 }
 
@@ -110,18 +127,20 @@ export function mergePostedBackup(data: PublishedCommentsResponse, mode: Account
       ...row,
       id: 'local:' + row.comment_id,
       hours_since_publish: Math.max(0, (now - Date.parse(row.published_at)) / 3_600_000),
-      like_count: null,
-      reply_count: null,
-      likes_24h: null,
-      replies_24h: null,
-      likes_7d: null,
-      replies_7d: null,
+      // Historical snapshots are *not* live readings. Keep the last known
+      // numbers visible, but label the record as an offline snapshot.
+      like_count: row.like_count ?? null,
+      reply_count: row.reply_count ?? null,
+      likes_24h: row.likes_24h ?? null,
+      replies_24h: row.replies_24h ?? null,
+      likes_7d: row.likes_7d ?? null,
+      replies_7d: row.replies_7d ?? null,
       status: 'pending',
-      last_checked_at: null,
-      predicted_score: null,
-      comment_type: null,
-      video_title: null,
-      channel: null,
+      last_checked_at: row.last_checked_at ?? null,
+      predicted_score: row.predicted_score ?? null,
+      comment_type: row.comment_type ?? null,
+      video_title: row.video_title ?? null,
+      channel: row.channel ?? null,
       local_only: true,
     }));
   return {
@@ -137,10 +156,23 @@ export function backUpServerComments(items: PublishedComment[]): boolean {
     const existing = new Map(readPostedBackup().map((x) => [x.comment_id, x]));
     for (const row of items) {
       if (!isValidRecord(row)) continue;
+      const previous = existing.get(row.comment_id);
       existing.set(row.comment_id, {
         video_id: row.video_id, comment_id: row.comment_id, comment: row.comment,
         comment_url: row.comment_url, published_at: row.published_at,
-        account_mode: row.account_mode, recommendation_id: row.recommendation_id,
+        account_mode: row.account_mode,
+        recommendation_id: row.recommendation_id ?? previous?.recommendation_id ?? null,
+        predicted_score: row.predicted_score ?? previous?.predicted_score ?? null,
+        comment_type: row.comment_type ?? previous?.comment_type ?? null,
+        video_title: row.video_title ?? previous?.video_title ?? null,
+        channel: row.channel ?? previous?.channel ?? null,
+        like_count: row.like_count ?? previous?.like_count ?? null,
+        reply_count: row.reply_count ?? previous?.reply_count ?? null,
+        likes_24h: row.likes_24h ?? previous?.likes_24h ?? null,
+        replies_24h: row.replies_24h ?? previous?.replies_24h ?? null,
+        likes_7d: row.likes_7d ?? previous?.likes_7d ?? null,
+        replies_7d: row.replies_7d ?? previous?.replies_7d ?? null,
+        last_checked_at: row.last_checked_at ?? previous?.last_checked_at ?? null,
       });
     }
     persist([...existing.values()].sort((a, b) => b.published_at.localeCompare(a.published_at)));
