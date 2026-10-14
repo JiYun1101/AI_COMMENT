@@ -18,7 +18,7 @@ import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { getPersonaLabel, getPersonaPreset, PERSONA_PRESETS } from '../data/personas';
 import { CustomPersonaEditor } from '../components/persona/CustomPersonaEditor';
 import {
-  getCustomPersona, MAX_CUSTOM_PERSONAS, newCustomPersona,
+  MAX_CUSTOM_PERSONAS, newCustomPersona,
   readCustomPersonas, removeCustomPersona, saveCustomPersona,
 } from '../utils/customPersonas';
 import type { CustomPersona, PersonaId } from '../types/comment';
