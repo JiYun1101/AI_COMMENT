@@ -7,6 +7,7 @@ any scene or making thumbnail pixels into video frames.
 from __future__ import annotations
 
 import re
+import math
 from collections import defaultdict
 from typing import Any, Callable, Iterable
 
@@ -27,6 +28,8 @@ def group_caption_moments(
     max_moments: int = MAX_MOMENTS,
 ) -> list[dict]:
     """Group real timed captions into windows and sample across full duration."""
+    if window_seconds <= 0 or max_moments <= 0:
+        raise ValueError("window_seconds and max_moments must be positive")
     windows: dict[int, list[str]] = defaultdict(list)
     for idx, item in enumerate(captions):
         if idx >= MAX_CAPTIONS:
@@ -35,7 +38,7 @@ def group_caption_moments(
         value = _caption_value(item, "text")
         if isinstance(start, bool) or not isinstance(start, (float, int)):
             continue
-        if start < 0 or not isinstance(value, str):
+        if not math.isfinite(start) or start < 0 or not isinstance(value, str):
             continue
         content = re.sub(r"\s+", " ", value).strip()
         if not content:
@@ -53,6 +56,8 @@ def group_caption_moments(
     ]
     if len(all_moments) <= max_moments:
         return all_moments
+    if max_moments == 1:
+        return [all_moments[0]]
     # Even coverage across the video rather than only the beginning.
     selected = sorted({
         round(i * (len(all_moments) - 1) / (max_moments - 1))
