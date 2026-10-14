@@ -11,7 +11,9 @@ interface Props {
 }
 
 function splitPhrases(value: string): string[] {
-  return value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  // Keep the trailing empty line while editing, otherwise users cannot
+  // press Enter to start a new phrase in a controlled textarea.
+  return value.split(/\r?\n/);
 }
 
 export function CustomPersonaEditor({ value, error, onChange, onCancel, onSave }: Props) {
