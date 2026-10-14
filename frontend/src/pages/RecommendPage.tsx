@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { Composer } from '../components/recommend/Composer';
+import { VideoMomentsPanel } from '../components/recommend/VideoMomentsPanel';
 import { EmptyExamples, type ExampleVideo } from '../components/recommend/EmptyExamples';
 import { HistoryStrip } from '../components/recommend/HistoryStrip';
 import { RecommendationTracePanel } from '../components/recommend/RecommendationTracePanel';
@@ -413,6 +414,10 @@ export function RecommendPage() {
             onSubmit={submit}
             submitting={submitting}
           />
+
+          {mode === 'url' && preview?.video_id && (
+            <VideoMomentsPanel key={preview.video_id} url={preview.url} />
+          )}
 
           {isEmpty && !results && !submitting && <EmptyExamples onPick={pickExample} />}
           {submitting && (

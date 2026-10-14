@@ -91,6 +91,7 @@ from src.youtube.context import (
     YouTubeLookupError,
     build_reference_text,
     fetch_youtube_context,
+    extract_video_id,
 )
 
 configure_logging()
@@ -252,6 +253,17 @@ def preview_youtube_video(
     if mode == "demo" and not resolved_key:
         resolved_key = _normalize_youtube_api_key(os.getenv("DEMO_YOUTUBE_API_KEY"))
     return _youtube_context_or_http_error(url, resolved_key).to_dict()
+
+
+@app.get("/videos/moments", dependencies=[Depends(require_trusted_client)])
+def video_caption_moments(url: str = Query(..., min_length=1, max_length=500)):
+    """Time-aligned caption evidence; NOT a claim of visual understanding."""
+    from src.youtube.video_moments import get_video_caption_moments
+    try:
+        video_id = extract_video_id(url)
+    except InvalidYouTubeUrlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return get_video_caption_moments(video_id)
 
 
 @app.get("/youtube/oauth/status", dependencies=[Depends(require_trusted_client)])
@@ -725,6 +737,31 @@ def delete_my_published_comment(
     except Exception:
         logger.exception("YouTube deletion succeeded but tracking record removal failed")
     return {"deleted": True, "comment_id": comment_id, "tracking_removed": removed}
+
+
+@app.get("/my-comments/export", dependencies=[Depends(require_trusted_client)])
+def export_my_comments(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+):
+    """Account-scoped, read-only recovery snapshot. Never export other accounts."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 계정에서만 댓글 기록을 백업할 수 있습니다.")
+    identity = _verified_account_channel("personal", oauth_client_id, oauth_client_secret)
+    rows = list_published_comments(
+        account_mode="personal", owner_channel_id=identity["channel_id"], limit=501,
+    )
+    if len(rows) > 500:
+        raise HTTPException(
+            status_code=409, detail="댓글이 500개를 초과합니다. 일부 데이터만 백업하지 않도록 내보내기를 중단했습니다.",
+        )
+    return JSONResponse(
+        {"format": "ai-comment-published-backup-v1",
+         "exported_at": datetime.now(timezone.utc).isoformat(),
+         "channel_id": identity["channel_id"], "comments": rows},
+        headers={"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="ai-comment-owned-comments.json"'},
+    )
 
 
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
