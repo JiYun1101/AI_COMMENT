@@ -178,6 +178,66 @@
   gap: 2px;
 }
 
+/* YouTube comment editing stays within the table cell, including narrow screens. */
+.eng-comment-actions,
+.eng-comment-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.eng-comment-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--fg2);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.eng-comment-action:hover { border-color: var(--border-strong); color: var(--fg1); }
+.eng-comment-action.danger { color: var(--danger-700); }
+.eng-comment-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.eng-comment-action:focus-visible,
+.eng-comment-editor textarea:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+.eng-comment-editor,
+.eng-comment-delete-confirm {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 220px;
+  margin-top: var(--sp-2);
+}
+.eng-comment-editor label,
+.eng-comment-delete-confirm strong { font-weight: var(--fw-semibold); font-size: var(--fs-caption); }
+.eng-comment-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  padding: var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: var(--fg1);
+  background: var(--surface);
+  resize: vertical;
+}
+.eng-comment-delete-confirm {
+  padding: var(--sp-3);
+  background: var(--danger-50);
+  color: var(--danger-700);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-caption);
+}
+.eng-comment-delete-confirm .eng-comment-controls { margin-top: 0; }
+
 /* ---------------- 유형별 막대 ---------------- */
 .eng-bar {
   display: grid;
