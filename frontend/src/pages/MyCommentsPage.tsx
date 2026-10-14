@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
-import { applySavedPublicMetrics, storePublicMetricResponse } from '../utils/publicMetricsBackup';
+import { applySavedPublicMetrics, storePublicMetricResponse, removeSavedPublicCommentMetrics } from '../utils/publicMetricsBackup';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
 import { Header } from '../components/layout/Header';
@@ -173,6 +173,7 @@ export function MyCommentsPage() {
       const result = await deletePublishedYouTubeComment(item.comment_id);
       if (!result.deleted) throw new Error('YouTube에서 댓글 삭제를 확인하지 못했습니다.');
       removePostedBackupComment(item.comment_id);
+      removeSavedPublicCommentMetrics(item.comment_id);
       setDeletingId(null);
       setEditingId(null);
       await load();
