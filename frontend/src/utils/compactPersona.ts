@@ -1,4 +1,6 @@
-import type { CustomPersona, ForbiddenPersonaMark } from '../types/comment';
+// Keep the standalone parser dependency-free for both app and Node tests.
+type ForbiddenPersonaMark = 'period' | 'exclamation' | 'question' | 'comma' | 'tilde' | 'emoji' | 'laughter';
+type Restrictions = { forbidden_marks: ForbiddenPersonaMark[]; prohibited_phrases: string[] };
 
 /** One short input is enough for both banned words and punctuation.
  *  Use "쉼표" to prohibit a comma because commas separate entries.
@@ -18,14 +20,14 @@ const MARK_ALIASES: Record<string, ForbiddenPersonaMark> = {
   'ㅋㅋ/ㅎㅎ': 'laughter', 'ㅋㅋ ㅎㅎ': 'laughter',
 };
 
-export function formatPersonaRestrictions(persona: CustomPersona): string {
+export function formatPersonaRestrictions(persona: Restrictions): string {
   return [
     ...persona.forbidden_marks.map((mark) => MARK_NAMES[mark]),
     ...persona.prohibited_phrases,
   ].join(', ');
 }
 
-export function parsePersonaRestrictions(input: string): Pick<CustomPersona, 'forbidden_marks' | 'prohibited_phrases'> {
+export function parsePersonaRestrictions(input: string): Restrictions {
   const pieces = input.split(/[,，;；\n]+/).map((part) => part.trim()).filter(Boolean);
   const forbidden_marks: ForbiddenPersonaMark[] = [];
   const prohibited_phrases: string[] = [];
