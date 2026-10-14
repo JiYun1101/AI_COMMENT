@@ -591,6 +591,93 @@ def fetch_owned_youtube_comment(
     }
 
 
+def _require_own_comment_for_mutation(
+    comment_id: str, *, http, oauth: dict,
+) -> str:
+    """Verify the *actual* YouTube author before changing a public comment."""
+    if not comment_id or len(comment_id) > 100 or not all(
+        ch.isalnum() or ch in "._-" for ch in comment_id
+    ):
+        raise YouTubeCommentPublishError("댓글 ID가 올바르지 않습니다.", status_code=422)
+    owner = authenticated_youtube_channel(session=http, **oauth)
+    payload = _authorized_json(
+        http, YOUTUBE_COMMENTS_URL,
+        params={"part": "snippet", "id": comment_id, "textFormat": "plainText"},
+        failure="수정·삭제할 댓글을 확인하지 못했습니다", **oauth,
+    )
+    items = payload.get("items") or []
+    if not items or str(items[0].get("id")) != comment_id:
+        raise YouTubeCommentPublishError("댓글이 삭제되었거나 조회되지 않습니다.", status_code=404)
+    author_id = ((items[0].get("snippet") or {}).get("authorChannelId") or {}).get("value")
+    if author_id != owner["channel_id"]:
+        raise YouTubeCommentPublishError(
+            "현재 연결된 YouTube 채널이 작성한 댓글만 수정·삭제할 수 있습니다.",
+            status_code=403,
+        )
+    return owner["channel_id"]
+
+
+def _mutate_owned_youtube_comment(
+    comment_id: str, *, method: str, new_text: str | None = None,
+    session=None, client_id: str | None = None,
+    client_secret: str | None = None, redirect_uri: str | None = None,
+) -> dict:
+    http = session or requests.Session()
+    oauth = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+    owner_id = _require_own_comment_for_mutation(comment_id, http=http, oauth=oauth)
+    options = {"params": {"part": "snippet"}, "json": {
+        "id": comment_id, "snippet": {"textOriginal": new_text},
+    }} if method == "PUT" else {"params": {"id": comment_id}}
+    try:
+        response = _authorized_request(
+            http, method, YOUTUBE_COMMENTS_URL, **options, **oauth,
+        )
+    except requests.RequestException as exc:
+        raise YouTubeCommentPublishError("YouTube 댓글 변경 API에 연결할 수 없습니다.") from exc
+    if not 200 <= response.status_code < 300:
+        reason = _youtube_error_reason(response)
+        details = {
+            "commentTextTooLong": "댓글이 너무 깁니다.",
+            "operationNotSupported": "YouTube가 이 댓글의 API 수정을 지원하지 않습니다. YouTube에서 직접 수정해주세요.",
+            "commentNotFound": "댓글을 찾을 수 없습니다.",
+            "forbidden": "이 계정으로 댓글을 변경할 권한이 없습니다.",
+        }
+        message = details.get(reason or "", f"YouTube 댓글 변경 실패 ({response.status_code})" +
+                              (f" · {reason}" if reason else ""))
+        raise YouTubeCommentPublishError(
+            message, status_code=response.status_code if response.status_code in {400, 401, 403, 404} else 502,
+        )
+    return {"comment_id": comment_id, "owner_channel_id": owner_id,
+            "comment": new_text if method == "PUT" else None}
+
+
+def edit_owned_youtube_comment(
+    comment_id: str, text: str, *, session=None,
+    client_id: str | None = None, client_secret: str | None = None,
+    redirect_uri: str | None = None,
+) -> dict:
+    text = text.strip()
+    if not text or len(text) > 10000:
+        raise YouTubeCommentPublishError("댓글은 1~10,000자여야 합니다.", status_code=422)
+    reason = get_block_reason(text)
+    if reason is not None:
+        raise YouTubeCommentPublishError(f"안전 검사를 통과하지 못한 댓글입니다: {reason}", status_code=422)
+    return _mutate_owned_youtube_comment(
+        comment_id, method="PUT", new_text=text, session=session,
+        client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri,
+    )
+
+
+def delete_owned_youtube_comment(
+    comment_id: str, *, session=None, client_id: str | None = None,
+    client_secret: str | None = None, redirect_uri: str | None = None,
+) -> dict:
+    return _mutate_owned_youtube_comment(
+        comment_id, method="DELETE", session=session,
+        client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri,
+    )
+
+
 def authenticated_youtube_channel(
     *, session=None, client_id: str | None = None,
     client_secret: str | None = None, redirect_uri: str | None = None,
