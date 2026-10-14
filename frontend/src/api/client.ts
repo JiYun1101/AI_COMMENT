@@ -380,6 +380,26 @@ export async function getAuthenticatedYouTubeIdentity(): Promise<AuthenticatedYo
   );
 }
 
+/** Download the authenticated server's complete per-channel tracking snapshot. */
+export async function exportVerifiedCommentSnapshot(): Promise<number> {
+  const payload = await requestJson<{ format: string; exported_at: string; channel_id: string; comments: unknown[] }>(
+    `${API_BASE}/my-comments/export`,
+    { headers: withYouTubeOAuth(withRuntimeKeys({ 'X-AI-Comment-Account-Mode': 'personal' })) },
+    '서버 댓글 기록 백업에 실패했습니다',
+  );
+  if (!Array.isArray(payload.comments) || !payload.channel_id) {
+    throw new Error('서버 백업의 채널·댓글 정보가 올바르지 않습니다.');
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `ai-comment-server-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return payload.comments.length;
+}
+
 export async function listMyComments(): Promise<PublishedCommentsResponse> {
   const mode = getAccountMode();
   try {
