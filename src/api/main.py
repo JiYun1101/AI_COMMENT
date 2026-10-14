@@ -41,6 +41,8 @@ from src.storage.published_store import (
     list_published_comments,
     published_summary,
     record_published_comment,
+    update_owned_published_text,
+    delete_owned_published_record,
     list_legacy_unbound_comments,
     attach_verified_legacy_comment,
 )
@@ -63,6 +65,8 @@ from src.youtube.comments import (
     disconnect_youtube_oauth,
     publish_youtube_comment,
     publish_youtube_reply,
+    edit_owned_youtube_comment,
+    delete_owned_youtube_comment,
     fetch_owned_youtube_comment,
     verify_owned_comment_batch,
     authenticated_youtube_channel,
@@ -656,6 +660,71 @@ def claim_legacy_published_history(
         if attach_verified_legacy_comment(item["comment_id"], identity["channel_id"]):
             restored += 1
     return {"checked": seen, "restored": restored, "remaining": len(list_legacy_unbound_comments(limit=100))}
+
+
+class EditPublishedCommentRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=10000)
+
+
+@app.put("/my-comments/{comment_id}", dependencies=[Depends(require_trusted_client)])
+def edit_my_published_comment(
+    comment_id: str,
+    payload: EditPublishedCommentRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 계정의 본인 댓글만 수정할 수 있습니다.")
+    try:
+        changed = edit_owned_youtube_comment(
+            comment_id, payload.text,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    saved = False
+    try:
+        saved = update_owned_published_text(
+            comment_id, changed["owner_channel_id"], changed["comment"],
+        )
+    except Exception:
+        logger.exception("YouTube edit succeeded but tracking text sync failed")
+    return {"updated": True, "comment_id": comment_id,
+            "comment": changed["comment"], "tracking_saved": saved}
+
+
+@app.delete("/my-comments/{comment_id}", dependencies=[Depends(require_trusted_client)])
+def delete_my_published_comment(
+    comment_id: str,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 계정의 본인 댓글만 삭제할 수 있습니다.")
+    try:
+        deleted = delete_owned_youtube_comment(
+            comment_id, client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    removed = False
+    try:
+        removed = delete_owned_published_record(comment_id, deleted["owner_channel_id"])
+    except Exception:
+        logger.exception("YouTube deletion succeeded but tracking record removal failed")
+    return {"deleted": True, "comment_id": comment_id, "tracking_removed": removed}
 
 
 @app.get("/my-comments", dependencies=[Depends(require_trusted_client)])
