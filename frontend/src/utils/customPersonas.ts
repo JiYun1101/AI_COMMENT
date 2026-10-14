@@ -29,10 +29,12 @@ export function validateCustomPersona(value: unknown): CustomPersona | null {
   if (typeof row.name !== 'string' || !row.name.trim() || row.name.trim().length > 40) return null;
   if (typeof row.speech_style !== 'string' || row.speech_style.length > 240) return null;
   if (typeof row.sample_comment !== 'string' || row.sample_comment.length > 200) return null;
-  if (!Array.isArray(row.recurring_phrases) || row.recurring_phrases.length > 8 ||
-      row.recurring_phrases.some((value) => typeof value !== 'string' || value.length > 60)) return null;
-  if (!Array.isArray(row.prohibited_phrases) || row.prohibited_phrases.length > 8 ||
-      row.prohibited_phrases.some((value) => typeof value !== 'string' || value.length > 60)) return null;
+  if (!Array.isArray(row.recurring_phrases) ||
+      row.recurring_phrases.some((value) => typeof value !== 'string' || value.length > 60) ||
+      row.recurring_phrases.filter((value) => value.trim()).length > 8) return null;
+  if (!Array.isArray(row.prohibited_phrases) ||
+      row.prohibited_phrases.some((value) => typeof value !== 'string' || value.length > 60) ||
+      row.prohibited_phrases.filter((value) => value.trim()).length > 8) return null;
   if (!Array.isArray(row.forbidden_marks) || row.forbidden_marks.length > MARKS.size ||
       row.forbidden_marks.some((value) => !MARKS.has(value))) return null;
   return {
