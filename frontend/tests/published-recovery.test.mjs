@@ -42,3 +42,19 @@ test('Takeout importer registers comments in authenticated batches against verif
   assert.match(backend, /def recover_published_batch/);
   assert.match(backend, /verify_owned_comment_batch/);
 });
+
+
+test('own comments page offers inline editing and confirmed permanent YouTube deletion', () => {
+  const page = read('src/pages/MyCommentsPage.tsx');
+  const api = read('src/api/client.ts');
+  const ledger = read('src/utils/publishedLedger.ts');
+  assert.match(page, /editPublishedYouTubeComment/);
+  assert.match(page, /deletePublishedYouTubeComment/);
+  assert.match(page, /YouTube에서 이 댓글을 영구 삭제할까요/);
+  assert.match(page, /accountMode === 'personal'/);
+  assert.match(page, /removePostedBackupComment/);
+  assert.match(page, /updatePostedBackupText/);
+  assert.match(api, /method: 'PUT'/);
+  assert.match(api, /method: 'DELETE'/);
+  assert.match(ledger, /readPostedBackup\(\)\.filter\(\(row\) => row\.comment_id !== commentId\)/);
+});
