@@ -91,6 +91,7 @@ from src.youtube.context import (
     YouTubeLookupError,
     build_reference_text,
     fetch_youtube_context,
+    extract_video_id,
 )
 
 configure_logging()
@@ -252,6 +253,17 @@ def preview_youtube_video(
     if mode == "demo" and not resolved_key:
         resolved_key = _normalize_youtube_api_key(os.getenv("DEMO_YOUTUBE_API_KEY"))
     return _youtube_context_or_http_error(url, resolved_key).to_dict()
+
+
+@app.get("/videos/moments", dependencies=[Depends(require_trusted_client)])
+def video_caption_moments(url: str = Query(..., min_length=1, max_length=500)):
+    """Time-aligned caption evidence; NOT a claim of visual understanding."""
+    from src.youtube.video_moments import get_video_caption_moments
+    try:
+        video_id = extract_video_id(url)
+    except InvalidYouTubeUrlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return get_video_caption_moments(video_id)
 
 
 @app.get("/youtube/oauth/status", dependencies=[Depends(require_trusted_client)])
