@@ -71,6 +71,18 @@ export function storePublicMetricResponse(value: PublicMetricResponse, mode: Acc
   } catch { return false; }
 }
 
+/** Clear stale counters after an authenticated, successful YouTube deletion. */
+export function removeSavedPublicCommentMetrics(commentId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(
+      read().filter((row) => row.comment_id !== commentId),
+    ));
+  } catch {
+    // Deletion on YouTube has already succeeded; local cache cleanup is best effort.
+  }
+}
+
 export function applySavedPublicMetrics(
   data: PublishedCommentsResponse, mode: AccountMode,
 ): PublishedCommentsResponse {
