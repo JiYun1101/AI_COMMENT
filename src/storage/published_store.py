@@ -114,6 +114,36 @@ def record_published_comment(
         return str(row["id"])
 
 
+def update_owned_published_text(comment_id: str, owner_channel_id: str, text: str,
+                                *, path: str | Path | None = None) -> bool:
+    """Update only the verified owner's tracking row after YouTube succeeds."""
+    init_published_db(path)
+    with _connect(path) as connection:
+        cursor = connection.execute(
+            """UPDATE published_comments SET comment = ?
+               WHERE comment_id = ? AND account_mode = 'personal'
+                 AND owner_channel_id = ?""",
+            (text, comment_id, owner_channel_id),
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+
+
+def delete_owned_published_record(comment_id: str, owner_channel_id: str,
+                                  *, path: str | Path | None = None) -> bool:
+    """Remove only the verified owner's tracking row after YouTube deletion."""
+    init_published_db(path)
+    with _connect(path) as connection:
+        cursor = connection.execute(
+            """DELETE FROM published_comments
+               WHERE comment_id = ? AND account_mode = 'personal'
+                 AND owner_channel_id = ?""",
+            (comment_id, owner_channel_id),
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+
+
 _SELECT = """
     SELECT p.*, r.predicted_score, r.type AS comment_type, a.video_title, a.channel
     FROM published_comments p
