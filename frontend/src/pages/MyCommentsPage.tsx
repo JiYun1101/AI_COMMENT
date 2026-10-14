@@ -1,9 +1,9 @@
-import { ArrowUpRight, LoaderCircle, MessageSquareReply, RefreshCw, ThumbsUp, TrendingUp } from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, MessageSquareReply, Pencil, RefreshCw, ThumbsUp, Trash2, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
-import { exportPostedBackup, importPostedBackup } from '../utils/publishedLedger';
+import { exportPostedBackup, importPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
 import { applySavedPublicMetrics, storePublicMetricResponse } from '../utils/publicMetricsBackup';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
@@ -52,6 +52,10 @@ export function MyCommentsPage() {
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
   const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [mutatingId, setMutatingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,6 +142,47 @@ export function MyCommentsPage() {
       setError(err instanceof Error ? err.message : '실제 반응을 확인하지 못했습니다.');
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const saveEditedComment = async (item: PublishedComment) => {
+    const updated = editingText.trim();
+    if (!updated || updated === item.comment || updated.length > 10000 || mutatingId) return;
+    setMutatingId(item.comment_id);
+    setError(null);
+    try {
+      const result = await editPublishedYouTubeComment(item.comment_id, updated);
+      updatePostedBackupText(item.comment_id, result.comment);
+      setEditingId(null);
+      await load();
+      setNotice(result.tracking_saved
+        ? 'YouTube 댓글과 서버 추적 기록을 수정했습니다.'
+        : 'YouTube 댓글을 수정했습니다. 브라우저 백업은 변경했지만 서버 기록은 별도로 확인해야 합니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '댓글 수정에 실패했습니다.');
+    } finally {
+      setMutatingId(null);
+    }
+  };
+
+  const deleteComment = async (item: PublishedComment) => {
+    if (mutatingId) return;
+    setMutatingId(item.comment_id);
+    setError(null);
+    try {
+      const result = await deletePublishedYouTubeComment(item.comment_id);
+      if (!result.deleted) throw new Error('YouTube에서 댓글 삭제를 확인하지 못했습니다.');
+      removePostedBackupComment(item.comment_id);
+      setDeletingId(null);
+      setEditingId(null);
+      await load();
+      setNotice(result.tracking_removed
+        ? 'YouTube 댓글을 삭제하고 서버·브라우저 기록에서도 제거했습니다.'
+        : 'YouTube 댓글을 삭제하고 브라우저 기록에서 제거했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '댓글 삭제에 실패했습니다.');
+    } finally {
+      setMutatingId(null);
     }
   };
 
@@ -424,7 +469,30 @@ export function MyCommentsPage() {
                                 </span>
                               )}
                             </div>
-                            <p>{item.comment}</p>
+
+                            {editingId === item.comment_id ? (
+                              <div className="eng-comment-editor">
+                                <label htmlFor={`comment-edit-${item.id}`}>YouTube 댓글 수정</label>
+                                <textarea
+                                  id={`comment-edit-${item.id}`}
+                                  value={editingText}
+                                  onChange={(event) => setEditingText(event.target.value)}
+                                  maxLength={10000}
+                                  rows={3}
+                                  disabled={mutatingId !== null}
+                                />
+                                <div className="eng-comment-controls">
+                                  <span className="eng-muted">{editingText.length.toLocaleString()}/10,000자</span>
+                                  <button type="button" className="btn primary"
+                                    disabled={Boolean(mutatingId) || !editingText.trim() || editingText.trim() === item.comment}
+                                    onClick={() => void saveEditedComment(item)}>
+                                    {mutatingId === item.comment_id ? '저장 중...' : 'YouTube에 저장'}
+                                  </button>
+                                  <button type="button" className="btn secondary" disabled={Boolean(mutatingId)}
+                                    onClick={() => setEditingId(null)}>취소</button>
+                                </div>
+                              </div>
+                            ) : <p>{item.comment}</p>}
                             <div className="eng-comment-meta">
                               <span>{item.video_title || item.video_id}</span>
                               {item.last_checked_at && (
@@ -436,6 +504,36 @@ export function MyCommentsPage() {
                                 </a>
                               )}
                             </div>
+                            {accountMode === 'personal' && editingId !== item.comment_id && (
+                              <div className="eng-comment-actions">
+                                <button type="button" className="eng-comment-action"
+                                  disabled={Boolean(mutatingId) || Boolean(deletingId)}
+                                  aria-label="YouTube 댓글 수정"
+                                  onClick={() => { setEditingId(item.comment_id); setEditingText(item.comment); setDeletingId(null); setError(null); }}>
+                                  <Pencil size={13} /> 수정
+                                </button>
+                                <button type="button" className="eng-comment-action danger"
+                                  disabled={Boolean(mutatingId) || Boolean(deletingId && deletingId !== item.comment_id)}
+                                  aria-label="YouTube 댓글 삭제"
+                                  onClick={() => { setDeletingId(item.comment_id); setEditingId(null); setError(null); }}>
+                                  <Trash2 size={13} /> 삭제
+                                </button>
+                              </div>
+                            )}
+                            {deletingId === item.comment_id && (
+                              <div className="eng-comment-delete-confirm" role="group" aria-label="댓글 삭제 확인">
+                                <strong>YouTube에서 이 댓글을 영구 삭제할까요?</strong>
+                                <span>삭제한 댓글은 되돌릴 수 없고, 앱의 추적 기록에서도 제거됩니다.</span>
+                                <div className="eng-comment-controls">
+                                  <button type="button" className="btn secondary" disabled={Boolean(mutatingId)}
+                                    onClick={() => setDeletingId(null)}>취소</button>
+                                  <button type="button" className="btn primary" disabled={Boolean(mutatingId)}
+                                    onClick={() => void deleteComment(item)}>
+                                    {mutatingId === item.comment_id ? '삭제 중...' : 'YouTube 댓글 영구 삭제'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </td>
                           <td className="num">{item.predicted_score == null ? <span className="eng-muted">—</span> : item.predicted_score.toFixed(1)}</td>
                           <td className="num strong">{metric(item.like_count, '확인 전')}</td>
