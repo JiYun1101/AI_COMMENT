@@ -4,13 +4,26 @@ export type ResolvedCategory = string;
 export type FeedbackValue = 'useful' | 'not_useful' | null;
 export type TranscriptStatus = 'available' | 'unavailable' | 'fetch_failed';
 export type AccountMode = 'demo' | 'personal';
-export type PersonaId =
+export type PresetPersonaId =
   | 'none'
   | 'polite_viewer'
   | 'friendly_viewer'
   | 'warm_supporter'
   | 'calm_analyst'
   | 'playful_casual';
+export type PersonaId = PresetPersonaId | `custom_${string}`;
+
+export type ForbiddenPersonaMark = 'period' | 'exclamation' | 'question' | 'comma' | 'tilde' | 'emoji' | 'laughter';
+
+export interface CustomPersona {
+  id: `custom_${string}`;
+  name: string;
+  speech_style: string;
+  recurring_phrases: string[];
+  prohibited_phrases: string[];
+  forbidden_marks: ForbiddenPersonaMark[];
+  sample_comment: string;
+}
 
 export const COMMENT_TYPE_LABEL: Record<CommentType, string> = {
   insight: '인사이트',
@@ -36,6 +49,7 @@ export interface RecommendRequest {
   additional_context?: string;
   category?: string;
   persona_id?: PersonaId;
+  custom_persona?: CustomPersona;
   top_k: number;
 }
 
