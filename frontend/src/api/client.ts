@@ -16,6 +16,7 @@ import type {
   RecommendResponse,
   ServiceHealth,
   VideoPreviewData,
+  VideoCaptionMomentsResponse,
   YouTubeCommentPublishResponse,
   YouTubeDemoStatus,
   YouTubeOAuthStatus,
@@ -236,6 +237,15 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
       }),
     },
     '추천 요청이 실패했습니다',
+  );
+}
+
+export async function getVideoCaptionMoments(url: string): Promise<VideoCaptionMomentsResponse> {
+  const params = new URLSearchParams({ url });
+  return requestJson<VideoCaptionMomentsResponse>(
+    `${API_BASE}/videos/moments?${params.toString()}`,
+    { headers: withRuntimeKeys() },
+    '자막 구간을 확인하지 못했습니다',
   );
 }
 
