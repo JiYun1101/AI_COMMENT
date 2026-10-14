@@ -1,7 +1,7 @@
 import { ArrowUpRight, LoaderCircle, MessageSquareReply, Pencil, RefreshCw, ThumbsUp, Trash2, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
+import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, exportVerifiedCommentSnapshot, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
 import { exportPostedBackup, importPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
 import { applySavedPublicMetrics, storePublicMetricResponse, removeSavedPublicCommentMetrics } from '../utils/publicMetricsBackup';
@@ -209,6 +209,20 @@ export function MyCommentsPage() {
     }
   };
 
+  const exportServerComments = async () => {
+    if (recoveryBusy) return;
+    setRecoveryBusy(true);
+    setError(null);
+    try {
+      const count = await exportVerifiedCommentSnapshot();
+      setNotice(`서버에서 본인 채널의 댓글 ${count}개를 JSON으로 다운로드했습니다. 파일을 안전하게 보관하세요.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '서버 백업을 다운로드하지 못했습니다.');
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   const importBackupFile = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
@@ -366,7 +380,13 @@ export function MyCommentsPage() {
                   이전 서버 댓글 기록 다시 연결
                 </button>
               )}
-              <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              <button type="button" className="btn secondary" onClick={exportPostedBackup}>브라우저 기록 JSON 백업</button>
+              {accountMode === 'personal' && (
+                <button type="button" className="btn secondary" disabled={recoveryBusy}
+                  onClick={() => void exportServerComments()}>
+                  서버 원본·성과 JSON 백업
+                </button>
+              )}
               {accountMode === 'personal' && (
                 <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
                   Google Takeout 댓글 CSV 가져오기
@@ -466,7 +486,9 @@ export function MyCommentsPage() {
                                     ? '브라우저 백업 · 공개 반응 확인됨'
                                     : item.public_metric_status === 'unavailable'
                                       ? '브라우저 백업 · 현재 공개 조회 불가'
-                                      : '브라우저 백업 · 공개 반응 조회 가능'}
+                                      : item.last_checked_at
+                                        ? '브라우저 백업 · 마지막 측정값 보존'
+                                        : '브라우저 백업 · 공개 반응 조회 가능'}
                                 </span>
                               )}
                             </div>
