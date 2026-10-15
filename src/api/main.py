@@ -577,7 +577,7 @@ def refresh_my_video_performance(
         return {**_my_videos_payload(channel_id), "checked_count": 0, "cached": True}
     try:
         report = fetch_my_videos(
-            limit=100,
+            limit=None,
             client_id=_normalize_oauth_client_id(oauth_client_id),
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
         )
