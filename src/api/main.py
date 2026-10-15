@@ -429,6 +429,49 @@ class RecoverCommentRequest(BaseModel):
     comment_id: str = Field(min_length=1, max_length=100)
 
 
+@app.post("/my-comments/restore-durable", dependencies=[Depends(require_trusted_client)])
+def restore_durable_comment_receipts(
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    """Rebuild local tracking from durable IDs, confirming each YouTube author."""
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정을 연결해주세요.")
+    if not os.getenv("DATABASE_URL"):
+        raise HTTPException(status_code=503, detail="영구 DB가 연결되지 않았습니다.")
+    identity = _verified_account_channel(
+        "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri
+    )
+    from src.storage.durable_receipts import list_receipts
+    try:
+        receipts = list_receipts(identity["channel_id"], limit=100)
+    except Exception as exc:
+        logger.exception("durable receipt retrieval failed")
+        raise HTTPException(status_code=503, detail="영구 DB 조회에 실패했습니다.") from exc
+    restored, rejected = 0, 0
+    for receipt in receipts:
+        try:
+            original = fetch_owned_youtube_comment(
+                comment_id=receipt["comment_id"],
+                video_id=receipt["video_id"],
+                client_id=_normalize_oauth_client_id(oauth_client_id),
+                client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+                redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+            )
+            record_published_comment(
+                video_id=original["video_id"], comment_id=original["comment_id"],
+                comment=original["comment"], comment_url=original["comment_url"],
+                published_at=original["published_at"],
+                account_mode="personal", owner_channel_id=identity["channel_id"],
+            )
+            restored += 1
+        except (YouTubeOAuthError, ValueError, RuntimeError):
+            rejected += 1
+    return {"restored": restored, "failed": rejected, "checked": len(receipts)}
+
+
 @app.post("/my-comments/recover", dependencies=[Depends(require_trusted_client)])
 def recover_published_comment(
     payload: RecoverCommentRequest,
