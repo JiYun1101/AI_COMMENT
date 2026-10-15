@@ -1037,6 +1037,7 @@ def viewer_reply_publish(
     try:
         return publish_youtube_reply(
             parent_id=payload.parent_id, text=payload.text, require_video_owner=False,
+            prevent_duplicate=True,
             client_id=_normalize_oauth_client_id(oauth_client_id),
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
             redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
