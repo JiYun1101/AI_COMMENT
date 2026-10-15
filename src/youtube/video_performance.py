@@ -80,14 +80,14 @@ def _parse_video(item, owner_id: str):
     }
 
 
-def fetch_my_videos(*, limit: int = 100, session=None,
+def fetch_my_videos(*, limit: int | None = None, session=None,
                     client_id=None, client_secret=None, redirect_uri=None) -> dict:
     """channels.list + uploads playlistItems.list + batched videos.list.
 
-    1-2 playlist pages and 1-2 video batches for 100 videos. No search.list.
+    Traverse the uploads playlist using page tokens, then batch videos.list in 50s. No search.list.
     """
-    if not 1 <= limit <= 200:
-        raise ValueError("한 번에 1~200개의 영상을 조회할 수 있습니다.")
+    if limit is not None and limit < 1:
+        raise ValueError("영상 조회 제한은 1 이상이어야 합니다.")
     http = session or requests.Session()
     options = _oauth(client_id=client_id, client_secret=client_secret, redirect_uri=redirect_uri)
     channel = _channel(http, options)
@@ -95,11 +95,12 @@ def fetch_my_videos(*, limit: int = 100, session=None,
     if not playlist:
         raise YouTubeCommentPublishError("채널 업로드 영상 목록을 찾지 못했습니다.", status_code=404)
     ids = []
+    seen_ids = set()
+    seen_tokens = set()
     token = None
-    pages = 0
-    while len(ids) < limit and pages < 4:
+    while limit is None or len(ids) < limit:
         params = {"part": "contentDetails", "playlistId": playlist,
-                  "maxResults": min(50, limit - len(ids))}
+                  "maxResults": 50 if limit is None else min(50, limit - len(ids))}
         if token:
             params["pageToken"] = token
         response = _authorized_json(
@@ -108,12 +109,17 @@ def fetch_my_videos(*, limit: int = 100, session=None,
         )
         for row in response.get("items") or []:
             vid = str((row.get("contentDetails") or {}).get("videoId") or "")
-            if len(vid) == 11 and vid not in ids:
+            if len(vid) == 11 and vid not in seen_ids:
+                seen_ids.add(vid)
                 ids.append(vid)
-        pages += 1
-        token = response.get("nextPageToken")
-        if not token:
+                if limit is not None and len(ids) >= limit:
+                    break
+        next_token = response.get("nextPageToken")
+        if not next_token or next_token in seen_tokens:
+            token = None
             break
+        seen_tokens.add(next_token)
+        token = next_token
 
     videos = {}
     for start in range(0, len(ids), 50):
@@ -130,7 +136,7 @@ def fetch_my_videos(*, limit: int = 100, session=None,
         "channel_id": channel["channel_id"],
         "channel_title": channel["channel_title"],
         "videos": [videos[vid] for vid in ids if vid in videos],
-        "limit_reached": len(ids) >= limit and bool(token),
+        "limit_reached": limit is not None and len(ids) >= limit and bool(token),
     }
 
 
