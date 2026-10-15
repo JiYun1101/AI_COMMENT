@@ -1,4 +1,4 @@
-import { Check, ExternalLink, LoaderCircle, MessageSquareReply, RefreshCw, Sparkles, Send } from 'lucide-react';
+import { Check, ExternalLink, LoaderCircle, MessageSquareReply, Sparkles, Send } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '../components/layout/Header';
