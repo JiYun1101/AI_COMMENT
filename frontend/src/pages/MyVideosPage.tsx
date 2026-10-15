@@ -1,5 +1,5 @@
 import { ArrowUpRight, BarChart3, Film, LoaderCircle, Plus, RefreshCw, TrendingUp } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getMyVideos, refreshMyVideos, trackMyVideo } from '../api/client';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
@@ -12,6 +12,14 @@ import type { OwnedVideoMetric, OwnedVideoPerformanceResponse } from '../types/c
 const format = (n: number | null | undefined) => n == null ? '—' : n.toLocaleString('ko-KR');
 const observed = (n: number | null) => n == null ? '미측정' : (n > 0 ? '+' : '') + format(n);
 const date = (s: string | null) => s ? new Date(s).toLocaleString('ko-KR') : '확인 전';
+// The engagement score is a transparent public counter ratio, NOT an AI quality score.
+// A view and a unique user are not equivalent, and comments may include replies.
+export const engagementScore = (item: OwnedVideoMetric): number | null =>
+  item.views != null && item.views > 0 && item.likes != null && item.comments != null
+    ? Math.round(((item.likes + item.comments) / item.views) * 10000) / 100
+    : null;
+type VideoSort = 'published' | 'engagement' | 'views' | 'likes' | 'comments';
+
 
 export function MyVideosPage() {
   const navigate = useNavigate();
@@ -22,6 +30,8 @@ export function MyVideosPage() {
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<VideoSort>('published');
+  const [descending, setDescending] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -94,9 +104,31 @@ export function MyVideosPage() {
     else if (key === 'persona') navigate('/persona');
     else if (key === 'account') navigate('/account');
   };
-  const matches = (data?.items ?? []).filter((item) =>
-    !query.trim() || (item.title + item.video_id).toLowerCase().includes(query.trim().toLowerCase()));
+  const matches = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const rows = (data?.items ?? []).filter((item) =>
+      !needle || (item.title + item.video_id).toLowerCase().includes(needle));
+    const metric = (item: OwnedVideoMetric): number | null => {
+      if (sort === 'published') {
+        const t = item.published_at ? Date.parse(item.published_at) : NaN;
+        return Number.isFinite(t) ? t : null;
+      }
+      if (sort === 'engagement') return engagementScore(item);
+      return item[sort];
+    };
+    return rows.sort((a, b) => {
+      const av = metric(a), bv = metric(b);
+      if (av == null && bv == null) return a.video_id.localeCompare(b.video_id);
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return (descending ? bv - av : av - bv) || a.video_id.localeCompare(b.video_id);
+    });
+  }, [data?.items, query, sort, descending]);
   const summary = data?.summary;
+  const scored = matches.map(engagementScore).filter((n): n is number => n != null);
+  const meanEngagement = scored.length
+    ? (scored.reduce((total, score) => total + score, 0) / scored.length).toFixed(2) + '%'
+    : '—';
 
   return (
     <div className="app">
@@ -192,16 +224,32 @@ export function MyVideosPage() {
               {!!data?.items.length && (
                 <section className="eng-panel">
                   <div className="eng-panel-head">
-                    <h3>내 영상별 성과</h3>
-                    <small>변화 수치는 스냅샷 차이이며 YouTube Studio의 일별 분석과는 다를 수 있습니다. 누락된 수치는 ‘—’로 표시합니다.</small>
+                    <h3>영상 비교 대시보드</h3>
+                    <small>변화 수치는 스냅샷 차이이며 YouTube Studio의 일별 분석과는 다를 수 있습니다. 반응 점수 = (좋아요 + 댓글) ÷ 조회수 × 100입니다. 공개 누적 수치 기준이며 조회수 0 또는 일부 수치 미공개 시 ‘—’로 표시합니다.</small>
                   </div>
                   <input className="account-text-input" type="search" value={query}
                     onChange={(e) => setQuery(e.target.value)} placeholder="영상 제목 검색"
                     aria-label="영상 제목 검색" style={{ width: '100%', marginBottom: 12 }} />
+                  <div className="video-compare-controls">
+                    <label htmlFor="video-compare-sort">정렬 기준</label>
+                    <select id="video-compare-sort" value={sort} onChange={(e) => setSort(e.target.value as VideoSort)}>
+                      <option value="published">업로드 시점</option>
+                      <option value="engagement">반응 점수</option>
+                      <option value="views">조회수</option>
+                      <option value="likes">좋아요</option>
+                      <option value="comments">댓글</option>
+                    </select>
+                    <button type="button" className="btn secondary sm" onClick={() => setDescending((v) => !v)}>
+                      {descending ? '높은 순 / 최신 순' : '낮은 순 / 오래된 순'}
+                    </button>
+                    <span className="eng-muted">표시 영상 {matches.length}개 · 평균 반응 점수 {meanEngagement}</span>
+                  </div>
                   <div className="eng-table-wrap">
                     <table className="eng-table">
                       <thead><tr>
-                        <th>영상</th>
+                        <th>영상 제목</th>
+                        <th>업로드 시점</th>
+                        <th className="num">반응 점수</th>
                         <th className="num">조회수</th>
                         <th className="num">최근 측정 간</th>
                         <th className="num">24시간 변화</th>
@@ -222,7 +270,6 @@ export function MyVideosPage() {
                                   </div>
                                   <strong className="video-performance-title">{item.title}</strong>
                                   <div className="eng-comment-meta">
-                                    <span>{date(item.published_at)}</span>
                                     <a href={`https://www.youtube.com/watch?v=${item.video_id}`} target="_blank" rel="noopener noreferrer">
                                       YouTube에서 보기 <ArrowUpRight size={12} />
                                     </a>
@@ -230,6 +277,8 @@ export function MyVideosPage() {
                                 </div>
                               </div>
                             </td>
+                            <td>{date(item.published_at)}</td>
+                            <td className="num strong">{engagementScore(item) == null ? '—' : engagementScore(item)!.toFixed(2) + '%'}</td>
                             <td className="num strong">{format(item.views)}</td>
                             <td className="num">{observed(item.views_since_previous)}</td>
                             <td className="num">{observed(item.views_24h)}</td>
