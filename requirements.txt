@@ -7,6 +7,7 @@ uvicorn
 joblib
 python-dotenv
 requests
+psycopg[binary]==3.2.10
 youtube-transcript-api==1.2.4
 pytest
 httpx2
