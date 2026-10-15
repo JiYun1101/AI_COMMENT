@@ -91,7 +91,7 @@ def verified_parent_comment(
         raise YouTubeCommentPublishError("답글 추천에 적합하지 않은 댓글입니다.", status_code=422)
     if not snippet.get("canReply", True):
         raise YouTubeCommentPublishError("답글을 달 수 없는 댓글입니다.", status_code=403)
-    return {"comment": comment, "category": category}
+    return {"comment": comment, "category": category, "author_channel_id": (top.get("authorChannelId") or {}).get("value")}
 
 
 def suggest_replies(
