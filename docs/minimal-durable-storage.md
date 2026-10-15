@@ -16,8 +16,10 @@ by the verified channel ID. It does not persist access tokens.
 
 **This is not yet a full SQLite-to-PostgreSQL cutover.** Local SQLite still
 powers analytics, listing, comment edits/deletions, and session handshakes.
-Receipt retrieval exists as a backend helper, but UI recovery from it is not
-wired yet. Keep the feature branch unmerged until read/recovery and credentials
+Receipt recovery is available through authenticated `POST /my-comments/restore-durable`,
+which verifies each YouTube comment's ownership before reconstructing local
+tracking. Frontend UI still needs a dedicated trigger. This recovery is
+bounded to the latest 100 IDs. Keep the feature branch unmerged until read/recovery and credentials
 are deployed and verified.
 
 To activate later: put a Supabase Postgres pooler URI in Render's backend-only
