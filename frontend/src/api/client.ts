@@ -615,3 +615,12 @@ export async function trackMyVideo(videoId: string): Promise<OwnedVideoPerforman
     '영상을 추적 목록에 추가하지 못했습니다',
   );
 }
+
+/** Post a direct reply to a YouTube top-level comment using the connected viewer account. */
+export async function postViewerReply(request: { parent_id: string; text: string }): Promise<CreatorReplyResponse> {
+  return requestJson<CreatorReplyResponse>(
+    `${API_BASE}/viewer/replies`,
+    { method: 'POST', headers: withYouTubeOAuth({ 'Content-Type': 'application/json', 'X-AI-Comment-Account-Mode': getAccountMode() }), body: JSON.stringify(request) },
+    '대댓글 게시에 실패했습니다',
+  );
+}
