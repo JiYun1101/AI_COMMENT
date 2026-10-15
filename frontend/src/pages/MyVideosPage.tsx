@@ -132,7 +132,7 @@ export function MyVideosPage() {
               <section className="eng-panel" style={{ display: 'grid', gap: 10 }}>
                 <div className="eng-panel-head">
                   <h3>{data?.channel_title || '내 YouTube 채널'} · 영상 추적</h3>
-                  <small>최근 업로드 100개를 가져옵니다. 이전 영상은 URL로 직접 추가할 수 있습니다.</small>
+                  <small>연결된 채널의 전체 업로드 영상 목록을 가져옵니다. 영상이 많을 경우 동기화에 시간이 걸릴 수 있습니다.</small>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                   <input className="account-text-input" value={input}
