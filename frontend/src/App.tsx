@@ -10,6 +10,7 @@ import { AboutPage } from './pages/AboutPage';
 import { MyCommentsPage } from './pages/MyCommentsPage';
 import { MyVideosPage } from './pages/MyVideosPage';
 import { CreatorInboxPage } from './pages/CreatorInboxPage';
+import { ViewerRepliesPage } from './pages/ViewerRepliesPage';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
       <Route path="/creator-comment" element={<CreatorSeedPage />} />
       <Route path="/creator-inbox" element={<CreatorInboxPage />} />
       <Route path="/my-comments" element={<MyCommentsPage />} />
+      <Route path="/viewer-replies" element={<ViewerRepliesPage />} />
       <Route path="/my-videos" element={<MyVideosPage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/account" element={<AccountHomePage />} />
