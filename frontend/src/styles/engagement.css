@@ -555,3 +555,10 @@
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
+
+/* 내 영상 비교 대시보드 */
+.video-compare-controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 16px}
+.video-compare-controls label{font-size:12px;font-weight:650;color:var(--fg2)}
+.video-compare-controls select{border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--surface);color:var(--fg1);font:inherit;font-size:12px}
+.video-compare-controls .eng-muted{margin-left:auto;font-size:12px}
+@media(max-width:640px){.video-compare-controls .eng-muted{width:100%;margin-left:0}}
