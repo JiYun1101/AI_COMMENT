@@ -65,8 +65,8 @@ def test_ai_drafts_grounded_and_filtered():
 
 def test_auto_reply_rejects_existing_youtube_reply():
     mock_http = MagicMock()
-    with patch("src.youtube.comments._authorized_json") as fetch, \\
-         patch("src.youtube.comments._authorized_request") as post:
+    with (patch("src.youtube.comments._authorized_json") as fetch,
+          patch("src.youtube.comments._authorized_request") as post):
         fetch.side_effect = [
             {"items": [{"id": "my-channel"}]},
             {"items": [{"snippet": {"videoId": "abcdefghijk", "channelId": "video-owner"}}]},
@@ -86,8 +86,8 @@ def test_auto_reply_post_checks_before_inserting():
     result = MagicMock()
     result.status_code = 200
     result.json.return_value = {"id": "reply001"}
-    with patch("src.youtube.comments._authorized_json") as fetch, \\
-         patch("src.youtube.comments._authorized_request", return_value=result) as post:
+    with (patch("src.youtube.comments._authorized_json") as fetch,
+          patch("src.youtube.comments._authorized_request", return_value=result) as post):
         fetch.side_effect = [
             {"items": [{"id": "my-channel"}]},
             {"items": [{"snippet": {"videoId": "abcdefghijk", "channelId": "other-channel"}}]},
