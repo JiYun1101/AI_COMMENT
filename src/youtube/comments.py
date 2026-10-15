@@ -451,6 +451,7 @@ def publish_youtube_reply(
     parent_id: str,
     text: str,
     require_video_owner: bool = True,
+    prevent_duplicate: bool = False,
     session=None,
     client_id: str | None = None,
     client_secret: str | None = None,
@@ -505,6 +506,33 @@ def publish_youtube_reply(
             "받은 댓글함은 연결한 계정이 소유한 영상의 댓글에만 답글을 달 수 있습니다.",
             status_code=403,
         )
+
+    if prevent_duplicate:
+        # Inspect existing replies under this parent before posting. Do not
+        # silently repeat an action when an earlier attempt may have succeeded.
+        page_token = None
+        for _ in range(5):
+            params = {"part": "snippet", "parentId": parent_id, "maxResults": 100}
+            if page_token:
+                params["pageToken"] = page_token
+            reply_page = _authorized_json(
+                http, YOUTUBE_COMMENTS_URL, params=params,
+                failure="기존 답글을 확인하지 못했습니다", **oauth,
+            )
+            if any(
+                ((item.get("snippet") or {}).get("authorChannelId") or {}).get("value") in my_channel_ids
+                for item in reply_page.get("items") or []
+            ):
+                raise YouTubeCommentPublishError(
+                    "이미 내 계정으로 답글을 단 댓글입니다.", status_code=409,
+                )
+            page_token = reply_page.get("nextPageToken")
+            if not page_token:
+                break
+        if page_token:
+            raise YouTubeCommentPublishError(
+                "기존 답글이 너무 많아 중복 게시 여부를 확인할 수 없습니다.", status_code=409,
+            )
 
     try:
         response = _authorized_request(
