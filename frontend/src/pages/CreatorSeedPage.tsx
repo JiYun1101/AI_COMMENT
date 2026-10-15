@@ -8,10 +8,11 @@ import {
   Pin,
   RefreshCw,
   Sparkles,
+  Send,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getHealth, recommend } from '../api/client';
+import { getAccountMode, getAuthenticatedYouTubeIdentity, getHealth, getVideoPreview, publishYouTubeComment, recommend } from '../api/client';
 import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import type { CommentRecommendation, ServiceHealth } from '../types/comment';
@@ -47,6 +48,13 @@ export function CreatorSeedPage() {
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [postingUrl, setPostingUrl] = useState('');
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishedUrls, setPublishedUrls] = useState<Record<string, string>>({});
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const postingLock = useRef(false);
+  const busy = loading || publishingId !== null;
+  const targetUrl = mode === 'url' ? url : postingUrl;
 
   const urlValid = useMemo(() => isValidYouTubeVideoUrl(url), [url]);
   const llmReady = Boolean(health?.llm.ready);
@@ -73,7 +81,7 @@ export function CreatorSeedPage() {
   }, []);
 
   const generate = async () => {
-    if (!inputReady || !llmReady || loading) return;
+    if (!inputReady || !llmReady || busy || postingLock.current) return;
     setLoading(true);
     setError(null);
     try {
@@ -91,6 +99,7 @@ export function CreatorSeedPage() {
             },
       );
       setResults(response.recommendations);
+      setPublishMessage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '댓글 후보를 생성하지 못했습니다.');
     } finally {
@@ -105,6 +114,44 @@ export function CreatorSeedPage() {
       window.setTimeout(() => setCopied((current) => (current === item.id ? null : current)), 1400);
     } catch {
       setError('클립보드 권한이 없어 복사하지 못했습니다.');
+    }
+  };
+
+  const publish = async (item: CommentRecommendation) => {
+    if (postingLock.current || loading || publishedUrls[item.id]) return;
+    if (!isValidYouTubeVideoUrl(targetUrl)) {
+      setPublishMessage('댓글을 게시할 YouTube 영상 URL을 입력해주세요.');
+      return;
+    }
+    if (getAccountMode() !== 'personal') {
+      setPublishMessage('내 계정 설정에서 YouTube 계정을 연결하고 개인 계정으로 전환해주세요.');
+      return;
+    }
+    postingLock.current = true;
+    setPublishingId(item.id);
+    setPublishMessage(null);
+    try {
+      const [video, identity] = await Promise.all([
+        getVideoPreview(targetUrl.trim()), getAuthenticatedYouTubeIdentity(),
+      ]);
+      if (!identity.connected || !video.channel_id || identity.channel_id !== video.channel_id) {
+        throw new Error('연결된 YouTube 채널이 소유한 영상에만 작성자 댓글을 게시할 수 있습니다. 내 계정 설정을 확인해주세요.');
+      }
+      const posted = await publishYouTubeComment({
+        video_id: video.video_id,
+        channel_id: video.channel_id,
+        comment: item.comment,
+        recommendation_id: item.id,
+      });
+      setPublishedUrls((current) => ({ ...current, [item.id]: posted.comment_url }));
+      setPublishMessage(!posted.tracked || !posted.browser_backup_saved
+        ? '댓글은 게시됐지만 성과 추적 기록이 완전히 저장되지 않았습니다. 게시된 댓글 링크를 보관해주세요.'
+        : '댓글을 게시했습니다. 내 댓글 성과에서 반응을 확인할 수 있습니다.');
+    } catch (err) {
+      setPublishMessage(err instanceof Error ? err.message : '댓글 게시에 실패했습니다.');
+    } finally {
+      postingLock.current = false;
+      setPublishingId(null);
     }
   };
 
@@ -148,6 +195,7 @@ export function CreatorSeedPage() {
               <button
                 type="button"
                 className={mode === 'url' ? 'active' : ''}
+                disabled={busy}
                 onClick={() => {
                   setMode('url');
                   setResults(null);
@@ -159,6 +207,7 @@ export function CreatorSeedPage() {
               <button
                 type="button"
                 className={mode === 'draft' ? 'active' : ''}
+                disabled={busy}
                 onClick={() => {
                   setMode('draft');
                   setResults(null);
@@ -176,6 +225,7 @@ export function CreatorSeedPage() {
                   id="creator-video-url"
                   type="url"
                   value={url}
+                  disabled={busy}
                   placeholder="https://www.youtube.com/watch?v=..."
                   onChange={(event) => {
                     setUrl(event.target.value);
@@ -194,6 +244,7 @@ export function CreatorSeedPage() {
                 <textarea
                   id="creator-video-draft"
                   value={draft}
+                  disabled={busy}
                   placeholder={"예) 제주도 3박 4일 혼자 여행 브이로그\n첫날에는 동문시장과 함덕을 갔고..."}
                   onChange={(event) => {
                     setDraft(event.target.value);
@@ -220,7 +271,7 @@ export function CreatorSeedPage() {
                 type="button"
                 className="btn primary"
                 onClick={() => void generate()}
-                disabled={!inputReady || !llmReady || loading}
+                disabled={!inputReady || !llmReady || busy}
               >
                 {loading ? <LoaderCircle size={14} className="spin" /> : <Sparkles size={14} />}
                 {loading ? '만드는 중...' : '맛있는 댓글 만들기'}
@@ -245,10 +296,21 @@ export function CreatorSeedPage() {
                   <span>FIRST COMMENT CANDIDATES</span>
                   <h3>작성자용 댓글 후보</h3>
                 </div>
-                <button type="button" className="btn secondary sm" onClick={() => void generate()} disabled={loading}>
+                <button type="button" className="btn secondary sm" onClick={() => void generate()} disabled={busy}>
                   <RefreshCw size={13} /> 새 후보
                 </button>
               </div>
+
+              {mode === 'draft' && (
+                <div className="creator-seed-field">
+                  <label htmlFor="creator-posting-url">댓글을 게시할 영상 URL</label>
+                  <input id="creator-posting-url" type="url" value={postingUrl} disabled={busy}
+                    placeholder="영상 업로드 후 YouTube URL을 입력하세요"
+                    onChange={(event) => setPostingUrl(event.target.value)} />
+                  <span className="creator-seed-help">업로드 전에는 복사해 보관하고, 업로드 후에는 아래 게시 버튼으로 바로 달 수 있습니다.</span>
+                </div>
+              )}
+              {publishMessage && <p role="status" className="creator-seed-help">{publishMessage}</p>}
 
               <div className="creator-seed-grid">
                 {results.map((item) => (
@@ -260,10 +322,20 @@ export function CreatorSeedPage() {
                     <p>{item.comment}</p>
                     <div className="creator-seed-card-footer">
                       <span>모델 점수 {item.predicted_score.toFixed(1)}</span>
-                      <button type="button" onClick={() => void copy(item)}>
-                        {copied === item.id ? <Check size={13} /> : <Copy size={13} />}
-                        {copied === item.id ? '복사됨' : '복사'}
-                      </button>
+                      <div className="creator-seed-card-buttons">
+                        <button type="button" onClick={() => void copy(item)}>
+                          {copied === item.id ? <Check size={13} /> : <Copy size={13} />}
+                          {copied === item.id ? '복사됨' : '복사'}
+                        </button>
+                        {publishedUrls[item.id] ? (
+                          <a href={publishedUrls[item.id]} target="_blank" rel="noopener noreferrer"><Check size={13} /> 게시됨 · 보기</a>
+                        ) : (
+                          <button type="button" onClick={() => void publish(item)} disabled={busy || !isValidYouTubeVideoUrl(targetUrl)}>
+                            {publishingId === item.id ? <LoaderCircle size={13} className="spin" /> : <Send size={13} />}
+                            {publishingId === item.id ? '게시 중...' : 'YouTube에 게시'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -271,7 +343,8 @@ export function CreatorSeedPage() {
 
               <div className="creator-seed-note">
                 <MessageSquare size={15} />
-                <span>현재는 초안 생성까지 제공합니다. 실제 고정댓글 게시·예약은 다음 단계에서 YouTube OAuth와 연결할 수 있습니다.</span>
+                <span>버튼을 누르면 선택한 댓글 한 개가 내 YouTube 계정으로 게시됩니다. 고정은 YouTube에서 직접 설정해주세요. </span>
+                <button type="button" className="btn secondary sm" onClick={() => navigate('/account/connect')}>내 계정 설정</button>
               </div>
             </section>
           )}
