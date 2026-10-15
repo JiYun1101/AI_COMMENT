@@ -5,6 +5,7 @@ import {
   Inbox,
   LayoutGrid,
   MessageSquare,
+  MessageSquareReply,
   Settings2,
   Sparkles,
   TrendingUp,
@@ -22,6 +23,7 @@ export type SidebarKey =
   | 'dashboard'
   | 'comments'
   | 'mycomments'
+  | 'viewer-replies'
   | 'myvideos'
   | 'reaction'
   | 'seed'
@@ -113,6 +115,7 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         <SidebarItem icon={LayoutGrid} label="대시보드" active={current === 'dashboard'} onClick={() => onNav('dashboard')} />
         <SidebarItem icon={UserRound} label="페르소나" active={current === 'persona'} onClick={() => go('/persona')} />
         <SidebarItem icon={TrendingUp} label="내 댓글 성과" active={current === 'mycomments'} onClick={() => navigate('/my-comments')} />
+        <SidebarItem icon={MessageSquareReply} label="대댓글 달기" active={current === 'viewer-replies'} onClick={() => navigate('/viewer-replies')} />
 
         <div className="side-divider" aria-hidden="true" />
 

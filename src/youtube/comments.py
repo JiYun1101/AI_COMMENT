@@ -450,6 +450,7 @@ def publish_youtube_reply(
     *,
     parent_id: str,
     text: str,
+    require_video_owner: bool = True,
     session=None,
     client_id: str | None = None,
     client_secret: str | None = None,
@@ -499,7 +500,7 @@ def publish_youtube_reply(
     snippet = items[0].get("snippet") or {}
     video_channel_id = snippet.get("channelId")
     video_id = snippet.get("videoId")
-    if video_channel_id not in my_channel_ids:
+    if require_video_owner and video_channel_id not in my_channel_ids:
         raise YouTubeCommentPublishError(
             "받은 댓글함은 연결한 계정이 소유한 영상의 댓글에만 답글을 달 수 있습니다.",
             status_code=403,
