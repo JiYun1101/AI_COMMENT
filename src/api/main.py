@@ -945,6 +945,83 @@ def creator_reply_drafts(
     )
 
 
+from src.viewer.auto_replies import candidate_targets, verified_parent_comment, suggest_replies
+
+class ViewerAutoReplySuggestRequest(BaseModel):
+    video_id: str = Field(min_length=11, max_length=11, pattern=r"^[A-Za-z0-9_-]{11}$")
+    parent_id: str = Field(min_length=5, max_length=100)
+
+
+@app.get("/viewer/auto-replies/candidates", dependencies=[Depends(require_trusted_client)])
+def viewer_auto_reply_candidates(
+    url: str = Query(..., min_length=1, max_length=500),
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정 연결이 필요합니다.")
+    identity = _verified_account_channel(
+        "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    key = _resolve_youtube_api_key(youtube_api_key, "personal")
+    video = _youtube_context_or_http_error(url.strip(), key)
+    try:
+        threads = fetch_video_comment_threads(video.video_id, api_key=key, limit=40)
+    except YouTubeLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "video": {"video_id": video.video_id, "title": video.title, "channel": video.channel},
+        "items": candidate_targets(threads, viewer_channel_id=identity["channel_id"], limit=6),
+        "scanned_count": len(threads),
+    }
+
+
+@app.post("/viewer/auto-replies/suggest", dependencies=[Depends(require_trusted_client)])
+def viewer_auto_reply_suggest(
+    payload: ViewerAutoReplySuggestRequest,
+    youtube_api_key: str | None = Header(default=None, alias="X-YouTube-API-Key"),
+    openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
+    openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정 연결이 필요합니다.")
+    identity = _verified_account_channel(
+        "personal", oauth_client_id, oauth_client_secret, oauth_redirect_uri,
+    )
+    client = _optional_openai_client(openai_api_key, openai_model, "personal")
+    if client is None:
+        raise HTTPException(status_code=503, detail="AI 대댓글 생성을 위해 OpenAI API Key와 모델을 설정해주세요.")
+    key = _resolve_youtube_api_key(youtube_api_key, "personal")
+    context = _youtube_context_or_http_error(
+        f"https://www.youtube.com/watch?v={payload.video_id}", key
+    )
+    try:
+        source = verified_parent_comment(
+            parent_id=payload.parent_id, video_id=payload.video_id,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+        if source.get("author_channel_id") == identity["channel_id"]:
+            raise HTTPException(status_code=422, detail="본인 댓글에는 자동 대댓글을 추천하지 않습니다.")
+        drafts = suggest_replies(
+            comment=source["comment"], video_title=context.title,
+            video_description=context.description or "", client=client,
+        )
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (LLMNotReadyError, LLMGenerationError) as exc:
+        raise _generation_http_error(exc) from exc
+    return {"parent_id": payload.parent_id, "video_id": payload.video_id, "drafts": drafts}
+
+
 @app.post("/viewer/replies", dependencies=[Depends(require_trusted_client)])
 def viewer_reply_publish(
     payload: CreatorReplyRequest,
@@ -960,6 +1037,7 @@ def viewer_reply_publish(
     try:
         return publish_youtube_reply(
             parent_id=payload.parent_id, text=payload.text, require_video_owner=False,
+            prevent_duplicate=True,
             client_id=_normalize_oauth_client_id(oauth_client_id),
             client_secret=_normalize_oauth_client_secret(oauth_client_secret),
             redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),

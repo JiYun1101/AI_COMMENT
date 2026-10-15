@@ -624,3 +624,42 @@ export async function postViewerReply(request: { parent_id: string; text: string
     '대댓글 게시에 실패했습니다',
   );
 }
+
+export interface AutoReplyCandidate {
+  parent_id: string;
+  author: string;
+  comment: string;
+  category: string;
+  match_score: number;
+  like_count: number;
+}
+export interface AutoReplyCandidatesResponse {
+  video: { video_id: string; title: string; channel: string };
+  items: AutoReplyCandidate[];
+  scanned_count: number;
+}
+
+/** YouTube-verified reply targets, not client-authored comment text. */
+export async function getAutoReplyCandidates(url: string): Promise<AutoReplyCandidatesResponse> {
+  const params = new URLSearchParams({ url });
+  return requestJson<AutoReplyCandidatesResponse>(
+    `${API_BASE}/viewer/auto-replies/candidates?${params.toString()}`,
+    { headers: withYouTubeOAuth(withRuntimeKeys()) },
+    '대댓글을 달 댓글 후보를 찾지 못했습니다',
+  );
+}
+
+export async function suggestAutoReply(request: {
+  video_id: string;
+  parent_id: string;
+}): Promise<{ video_id: string; parent_id: string; drafts: string[] }> {
+  return requestJson(
+    `${API_BASE}/viewer/auto-replies/suggest`,
+    {
+      method: 'POST',
+      headers: withYouTubeOAuth(withRuntimeKeys({ 'Content-Type': 'application/json' })),
+      body: JSON.stringify(request),
+    },
+    'AI 대댓글 추천에 실패했습니다',
+  );
+}

@@ -555,3 +555,25 @@
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
+
+/* 시청자 AI 대댓글 자동 달기 */
+.auto-reply-panel{display:grid;gap:14px;margin-bottom:18px}
+.auto-reply-panel .eng-panel-head h3{display:flex;align-items:center;gap:7px}
+.auto-reply-panel label{font-size:13px;font-weight:650;color:var(--fg2)}
+.auto-reply-input-row{display:flex;gap:10px;flex-wrap:wrap}
+.auto-reply-input-row input{min-width:0;flex:1 1 320px}
+.auto-reply-panel .eng-panel-head a,.auto-reply-row a{display:inline-flex;align-items:center;gap:4px;color:var(--brand-600);font-size:12px}
+.auto-reply-list{display:grid;gap:12px}
+.auto-reply-item{display:grid;gap:12px;padding:17px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.auto-reply-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.auto-reply-row a{margin-left:auto}
+.auto-reply-original{margin:0;line-height:1.65;font-size:14px;overflow-wrap:anywhere}
+.auto-reply-compose{display:grid;gap:10px}
+.auto-reply-drafts{display:grid;gap:7px}
+.auto-reply-drafts button{text-align:left;padding:10px 12px;border:1px solid var(--border);border-radius:9px;color:var(--fg2);background:var(--surface);cursor:pointer;font:inherit;font-size:13px;line-height:1.5}
+.auto-reply-drafts button.active{border-color:var(--brand-500);background:var(--brand-50);color:var(--fg1)}
+.auto-reply-compose textarea{resize:vertical;min-height:88px}
+.auto-reply-select{display:flex;align-items:center;gap:9px;cursor:pointer}
+.auto-reply-select input{width:16px;height:16px;accent-color:var(--brand-600)}
+.auto-reply-footer{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border)}
+@media(max-width:650px){.auto-reply-input-row .btn,.auto-reply-footer .btn{width:100%;justify-content:center}.auto-reply-item{padding:13px}.auto-reply-row a{margin-left:0}}
