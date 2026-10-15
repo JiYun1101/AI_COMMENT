@@ -7,10 +7,14 @@
 from __future__ import annotations
 
 import uuid
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.storage.analysis_store import _connect, init_db
+from src.storage.durable_receipts import persist_receipt
+
+logger = logging.getLogger(__name__)
 
 MILESTONES = (("24h", timedelta(hours=24)), ("7d", timedelta(days=7)))
 
@@ -111,7 +115,27 @@ def record_published_comment(
         ).fetchone()
         if row is None:
             raise RuntimeError("게시 기록을 저장하지 못했습니다.")
-        return str(row["id"])
+        saved_id = str(row["id"])
+        prediction = None
+        if recommendation_id:
+            score = connection.execute(
+                "SELECT predicted_score FROM recommendations WHERE id = ?",
+                (recommendation_id,),
+            ).fetchone()
+            prediction = float(score[0]) if score is not None else None
+    # YouTube has already accepted the comment. Do not raise here: a retry
+    # could publish a duplicate. Log durable-storage failure for recovery.
+    if owner_channel_id and account_mode == "personal":
+        try:
+            persist_receipt(
+                comment_id=comment_id, video_id=video_id,
+                owner_channel_id=owner_channel_id,
+                recommendation_id=recommendation_id,
+                predicted_score=prediction, published_at=published_at,
+            )
+        except Exception:
+            logger.exception("Durable receipt failed for published comment")
+    return saved_id
 
 
 def update_owned_published_text(comment_id: str, owner_channel_id: str, text: str,
