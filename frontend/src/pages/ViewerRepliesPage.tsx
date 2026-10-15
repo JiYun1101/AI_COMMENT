@@ -52,7 +52,7 @@ export function ViewerRepliesPage() {
   const patch = (id: string, update: Partial<Suggestion>) =>
     setSuggestions(current => ({
       ...current,
-      [id]: { drafts: [], text: '', selected: false, ...current[id], ...update },
+      [id]: { ...(current[id] ?? { drafts: [], text: '', selected: false }), ...update },
     }));
 
   const generateFor = async (videoId: string, row: AutoReplyCandidate, select: boolean) => {
