@@ -945,6 +945,31 @@ def creator_reply_drafts(
     )
 
 
+@app.post("/viewer/replies", dependencies=[Depends(require_trusted_client)])
+def viewer_reply_publish(
+    payload: CreatorReplyRequest,
+    account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    oauth_client_id: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-ID"),
+    oauth_client_secret: str | None = Header(default=None, alias="X-YouTube-OAuth-Client-Secret"),
+    oauth_redirect_uri: str | None = Header(default=None, alias="X-YouTube-OAuth-Redirect-URI"),
+):
+    if _normalize_account_mode(account_mode) != "personal":
+        raise HTTPException(status_code=403, detail="개인 YouTube 계정 연결이 필요합니다.")
+    if get_block_reason(payload.text) in {"profanity", "hate_speech", "threat", "spam"}:
+        raise HTTPException(status_code=422, detail="안전 기준을 통과하지 못한 답글은 게시할 수 없습니다.")
+    try:
+        return publish_youtube_reply(
+            parent_id=payload.parent_id, text=payload.text, require_video_owner=False,
+            client_id=_normalize_oauth_client_id(oauth_client_id),
+            client_secret=_normalize_oauth_client_secret(oauth_client_secret),
+            redirect_uri=_normalize_oauth_redirect_uri(oauth_redirect_uri),
+        )
+    except (YouTubeOAuthNotConfiguredError, YouTubeOAuthNotAuthorizedError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except YouTubeCommentPublishError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @app.post("/creator/inbox/replies", dependencies=[Depends(require_trusted_client)])
 def creator_reply_publish(
     payload: CreatorReplyRequest,
