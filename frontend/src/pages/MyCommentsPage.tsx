@@ -400,7 +400,15 @@ export function MyCommentsPage() {
             </p>
           </section>
 
-          {error && <div className="inline-status error">{error}</div>}
+          {error && (
+            <div className="inline-status error" role="alert">
+              {error}
+              {/유효한 API 키|X-API-Key|서버 인증|401/.test(error) && (
+                <button type="button" className="btn secondary"
+                  onClick={() => navigate('/account/connect')}>서버 연결 다시 하기</button>
+              )}
+            </div>
+          )}
           {notice && <div className="inline-status">{notice}</div>}
 
           <div className="kpi-strip">

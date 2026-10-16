@@ -58,8 +58,20 @@ export function AccountPage() {
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     }
     verifyServerConnection()
-      .then((result) => setServerStatus(result.connected ? 'connected' : 'disconnected'))
-      .catch(() => setServerStatus('disconnected'));
+      .then((result) => {
+        setServerStatus(result.connected ? 'connected' : 'disconnected');
+        setServerError(null);
+      })
+      .catch((error: unknown) => {
+        setServerStatus('disconnected');
+        const message = error instanceof Error ? error.message : '';
+        const expiredCredential = /유효한 API 키|X-API-Key|401/.test(message);
+        setServerError(expiredCredential
+          ? '서버는 실행 중이지만 이 브라우저의 서버 인증이 거부됐습니다. 기존 인증을 초기화하고 이전에 받은 개인 초대 링크로 다시 연결하세요.'
+          : getStoredApiAccessToken()
+            ? '서버 연결을 확인할 수 없습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요.'
+            : null);
+      });
     getYouTubeOAuthStatus()
       .then(setOauthStatus)
       .catch(() => setOauthStatus(null));
@@ -280,8 +292,28 @@ export function AccountPage() {
                     setServerError(null);
                   }}>이 브라우저 연결 해제</button>
                 )}
+                {serverStatus === 'disconnected' && Boolean(getStoredApiAccessToken()) && (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    onClick={() => {
+                      setStoredApiAccessToken('');
+                      setServerToken('');
+                      setServerError(null);
+                      // YouTube OAuth, API settings, existing comment receipts stay intact.
+                    }}
+                  >
+                    이전 서버 인증 초기화
+                  </button>
+                )}
               </div>
               {serverError && <div className="oauth-error" role="alert">{serverError}</div>}
+              {serverStatus === 'disconnected' && (
+                <p className="account-field-note">
+                  기존 인증 초기화는 YouTube 계정·댓글 기록·브라우저 백업을 삭제하지 않습니다.
+                  앞서 받은 개인 초대 링크를 열고 이 화면에서 ‘서버 연결하기’를 눌러주세요.
+                </p>
+              )}
               <details className="server-advanced">
                 <summary>기존 서버 토큰으로 연결</summary>
                 <label className="account-label" htmlFor="api-access-token">Access Token</label>
