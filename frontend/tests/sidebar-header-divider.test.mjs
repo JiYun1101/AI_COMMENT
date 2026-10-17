@@ -6,14 +6,14 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '..');
 const read = (p) => readFileSync(resolve(root, p), 'utf8');
 
-test('sidebar logo divider uses the measured main header height', () => {
+test('sidebar logo divider uses the shared home page top-bar height', () => {
   const header = read('src/components/layout/Header.tsx');
   const styles = read('src/styles/material3.css');
-  assert.match(header, /ref=\{headerRef\} className="app-header"/);
-  assert.match(header, /getBoundingClientRect\(\)\.height/);
-  assert.match(header, /shell\.style\.setProperty\('--app-header-height'/);
-  assert.match(header, /new ResizeObserver\(syncHeight\)/);
-  assert.match(styles, /height:\s*calc\(var\(--app-header-height,\s*128px\)\s*-\s*18px\)/);
+  assert.match(header, /className="app-header"/);
+  assert.doesNotMatch(header, /ResizeObserver|getBoundingClientRect/);
+  assert.match(styles, /--app-shell-top-height:\s*128px/);
+  assert.match(styles, /height:\s*var\(--app-shell-top-height\)/);
+  assert.match(styles, /height:\s*calc\(var\(--app-shell-top-height\)\s*-\s*18px\)/);
   assert.match(styles, /\.sidebar \.brand\.brand-button::after\s*\{/);
   assert.match(styles, /background:\s*var\(--md-outline-variant\)/);
   assert.match(styles, /pointer-events:\s*none/);
