@@ -427,3 +427,19 @@ export interface OwnedVideoPerformanceResponse {
   limit_reached?: boolean;
   added_video_id?: string;
 }
+
+/** Actual accumulated inputs and analysis records; not model retraining history. */
+export interface ModelDataProgress {
+  reference: { usable_comments: number; sources: { name: string; count: number }[]; meaning: string };
+  observations: {
+    analyses: number;
+    unique_videos: number;
+    stored_contexts: number;
+    recommendations: number;
+    feedback: number;
+    historical_matched_analyses: number;
+    average_matches: number | null;
+  };
+  daily: { date: string; new_analyses: number; cumulative_analyses: number }[];
+  note: string;
+}

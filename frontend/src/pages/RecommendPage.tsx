@@ -426,6 +426,19 @@ export function RecommendPage() {
           )}
           {error && <div className="result-error">{error}</div>}
 
+          {results && contextSummary && (
+            <section className="pre-llm-evidence" aria-label="AI 앞단 데이터 분석">
+              <h3>LLM 이전 단계 · 이번 추천에 사용한 데이터</h3>
+              <p>코드가 먼저 영상 맥락을 분류하고 기존 댓글 자료에서 관련 사례를 찾아, 그 결과를 AI에 전달했습니다.</p>
+              <div className="pre-llm-tags">
+                <span>분류: {contextSummary.primary_category}</span>
+                <span>주제: {contextSummary.topics.slice(0, 2).join(', ') || '미분류'}</span>
+                <span>형식: {contextSummary.format}</span>
+                <span>과거 댓글 매칭: {contextSummary.historical_match_count.toLocaleString('ko-KR')}개</span>
+                <span>매칭 범위: {contextSummary.historical_coverage === 'matched_legacy_category' ? '관련 장르' : contextSummary.historical_coverage === 'cross_category_reference' ? '다른 장르 참고' : '참고 자료 없음'}</span>
+              </div>
+            </section>
+          )}
           {results && (
             <section>
               <div className="section-h">

@@ -14,6 +14,7 @@ import './styles/creator-seed.css';
 import './styles/about.css';
 import './styles/brand-logo.css';
 import './styles/engagement.css';
+import './styles/model-visibility.css';
 import './styles/material3.css';
 import App from './App.tsx';
 
