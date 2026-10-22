@@ -1,5 +1,6 @@
 import { ArrowRight, KeyRound, LoaderCircle, Lock, Mail, ShieldCheck, UserRound } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   acceptAuthRedirect, changeAccountPassword, recoverAccount, signInAccount, signUpAccount,
