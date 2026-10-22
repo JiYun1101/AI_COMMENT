@@ -531,7 +531,7 @@ export async function getAudienceObserved(
   analysisId?: string | null,
 ): Promise<AudienceObservationReport> {
   const query = new URLSearchParams({ video_id: videoId });
-  if (analysisId) query.set('analysis_id', analysisId);
+  if (analysisId && !cachedAccount()) query.set('analysis_id', analysisId);
   return requestJson<AudienceObservationReport>(
     `${API_BASE}/audience/observed?${query.toString()}`,
     { headers: withRuntimeKeys() },
