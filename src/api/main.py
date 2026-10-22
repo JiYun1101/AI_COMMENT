@@ -46,6 +46,7 @@ from src.storage.published_store import (
     list_legacy_unbound_comments,
     attach_verified_legacy_comment,
 )
+from src.storage.model_progress import model_data_progress
 from src.storage.analysis_store import (
     dashboard_summary,
     get_analysis,
@@ -1309,3 +1310,9 @@ def recommendation_feedback(recommendation_id: str, request: FeedbackRequest):
     if result is None:
         raise HTTPException(status_code=404, detail="추천 댓글을 찾을 수 없습니다.")
     return result
+
+
+@app.get("/model/data-progress", dependencies=[Depends(require_trusted_client)])
+def model_progress_overview():
+    """Show real pre-LLM reference coverage and stored analysis growth."""
+    return model_data_progress()
