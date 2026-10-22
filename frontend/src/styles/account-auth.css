@@ -1,0 +1,43 @@
+
+/* Member accounts are independent of the YouTube demo/personal posting mode. */
+.account-auth-page {
+  flex: 1; display: flex; justify-content: center; align-items: flex-start;
+  padding: 50px 20px 100px; min-width: 0;
+}
+.account-auth-card {
+  width: min(100%, 470px); padding: 34px 36px; background: #fff;
+  border: 1px solid var(--border); border-radius: 17px; box-shadow: var(--shadow-sm);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+}
+.account-auth-icon, .account-identity-avatar {
+  width: 43px; height: 43px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--brand-50); color: var(--brand-600);
+}
+.account-auth-card h1 { font-size: 23px; letter-spacing: -.035em; margin: 0; line-height: 1.35; }
+.account-auth-card > p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--fg2); }
+.account-auth-tabs { display: flex; width: 100%; background: var(--neutral-50); padding: 3px; gap: 3px; border-radius: 9px; margin: 8px 0 4px; }
+.account-auth-tabs button { flex: 1; border: 0; padding: 11px; font-size: 13px; color: var(--fg2); cursor: pointer; background: transparent; border-radius: 7px; font-weight: 600; }
+.account-auth-tabs button.active { background: #fff; color: var(--brand-700); box-shadow: var(--shadow-xs); }
+.account-auth-form { width: 100%; display: flex; flex-direction: column; gap: 17px; margin-top: 6px; }
+.account-auth-form > label { font-size: 12px; font-weight: 650; color: var(--fg2); display: flex; flex-direction: column; gap: 8px; }
+.account-auth-field { min-height: 45px; border: 1px solid var(--border-strong); border-radius: 8px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: var(--fg3); }
+.account-auth-field:focus-within { border-color: var(--brand-500); box-shadow: 0 0 0 3px var(--brand-50); }
+.account-auth-field input { flex: 1; min-width: 0; padding: 12px 0; border: 0; outline: 0; color: var(--fg1); background: transparent; font-size: 13px; }
+.account-auth-submit { width: 100%; justify-content: center; min-height: 44px; margin-top: 3px; }
+.account-auth-link { background: none; border: 0; color: var(--brand-600); text-decoration: underline; font-size: 12px; padding: 5px 0; cursor: pointer; }
+.account-auth-footnote { padding-top: 13px; border-top: 1px solid var(--border); width: 100%; font-size: 11px !important; }
+.account-identity-card { padding: 22px; background: #fff; border: 1px solid var(--border); border-radius: 11px; box-shadow: var(--shadow-xs); margin-bottom: 18px; }
+.account-identity-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 17px; flex-wrap: wrap; }
+.account-identity-headline { flex: 1; min-width: 200px; }
+.account-identity-headline h2 { margin: 5px 0; font-size: 18px; }
+.account-identity-headline p { margin: 0; color: var(--fg2); font-size: 12px; line-height: 1.65; }
+.account-identity-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 7px; }
+.account-identity-check { display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; font-size: 11px; color: var(--brand-700); background: var(--brand-50); border-radius: 50px; }
+.account-nickname-editor { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.account-nickname-editor label { flex: 1; min-width: 170px; font-size: 12px; color: var(--fg2); }
+.account-nickname-editor input { display: block; margin-top: 6px; }
+@media(max-width: 580px) {
+  .account-auth-page { padding: 22px 14px 65px; }
+  .account-auth-card { padding: 24px 19px; }
+  .account-identity-card { padding: 16px; }
+}
