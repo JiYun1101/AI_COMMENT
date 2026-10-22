@@ -163,7 +163,7 @@ export async function signUpAccount(email: string, password: string, nickname: s
   const cleanNick = nickname.trim();
   if (cleanNick.length < 2 || cleanNick.length > 32) throw new Error('닉네임은 2~32자로 입력해주세요.');
   if (password.length < 8) throw new Error('비밀번호는 최소 8자 이상이어야 합니다.');
-  const response = await authFetch<Record<string, unknown>>('/signup', 'POST', {
+  const response = await authFetch<Record<string, unknown>>('/signup?redirect_to=' + encodeURIComponent(window.location.origin + '/account/auth'), 'POST', {
     email: email.trim().toLowerCase(), password,
     data: { nickname: cleanNick },
   });
