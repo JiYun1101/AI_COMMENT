@@ -4,6 +4,7 @@ import { getDashboardSummary, listComments } from '../api/client';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { KpiStrip } from '../components/dashboard/KpiStrip';
+import { ModelDataProgressPanel } from '../components/dashboard/ModelDataProgressPanel';
 import { FilterBar, type DashboardFilters } from '../components/dashboard/FilterBar';
 import { DataTable } from '../components/dashboard/DataTable';
 import type { DashboardComment, DashboardSummary } from '../types/comment';
@@ -146,6 +147,7 @@ export function DashboardPage() {
         />
         <div className="content">
           <KpiStrip summary={summary} loading={summaryLoading} />
+          <ModelDataProgressPanel />
           <FilterBar value={draftFilters} onChange={setDraftFilters} onApply={applyFilters} onReset={resetFilters} />
           {error && <div className="dashboard-state error">{error}</div>}
           <DataTable
