@@ -287,8 +287,15 @@ export async function listPrivateAnalyses(limit: number): Promise<AnalysisSummar
 export async function getPrivateAnalysis(id: string): Promise<AnalysisDetail> {
   const current = (await accountAnalyses()).find(x=>x.local_analysis_id===id);
   if (!current) throw new Error('내 계정에서 분석 기록을 찾지 못했습니다.');
-  const { recommendation_count: _count, average_score: _score, ...summary } = toSummary(current);
-  return { ...summary, recommendations: current.payload.recommendations, context_summary: current.payload.context_summary };
+  const summary = toSummary(current);
+  return {
+    id: summary.id, source_type: summary.source_type, source_text: summary.source_text,
+    youtube_url: summary.youtube_url, video_id: summary.video_id,
+    video_title: summary.video_title, channel: summary.channel,
+    thumbnail_url: summary.thumbnail_url, category: summary.category, created_at: summary.created_at,
+    requested_count: summary.requested_count, additional_context: summary.additional_context,
+    recommendations: current.payload.recommendations, context_summary: current.payload.context_summary,
+  };
 }
 export async function getPrivateDashboardSummary(): Promise<DashboardSummary> {
   const rows = await accountAnalyses();
