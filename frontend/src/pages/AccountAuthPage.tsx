@@ -2,7 +2,7 @@ import { ArrowRight, KeyRound, LoaderCircle, Lock, Mail, ShieldCheck, UserRound 
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  acceptRecoveryRedirect, changeAccountPassword, recoverAccount, signInAccount, signUpAccount,
+  acceptAuthRedirect, changeAccountPassword, recoverAccount, signInAccount, signUpAccount,
 } from '../api/account';
 import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
@@ -22,12 +22,22 @@ export function AccountAuthPage() {
   const [recoveryReady, setRecoveryReady] = useState(false);
 
   useEffect(() => {
-    if (location.pathname !== '/account/reset') return;
-    acceptRecoveryRedirect().then((ok) => {
-      setRecoveryReady(ok);
-      if (!ok) setError('비밀번호 재설정 링크가 만료됐거나 잘못됐습니다. 새 링크를 요청해주세요.');
-    }).catch((cause) => setError(cause instanceof Error ? cause.message : '재설정 링크를 확인하지 못했습니다.'));
-  }, [location.pathname]);
+    if (!window.location.hash.includes('access_token=')) {
+      if (location.pathname === '/account/reset') setError('재설정 링크가 없거나 만료됐습니다. 이메일에서 새 링크를 열어주세요.');
+      return;
+    }
+    acceptAuthRedirect().then((kind) => {
+      if (kind === 'signup') {
+        navigate('/account', { replace: true });
+      } else if (kind === 'recovery') {
+        setView('reset');
+        setRecoveryReady(true);
+        setError('');
+      } else {
+        setError('인증 링크의 형식이 올바르지 않습니다.');
+      }
+    }).catch((cause) => setError(cause instanceof Error ? cause.message : '인증 링크를 확인하지 못했습니다.'));
+  }, [location.pathname, navigate]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
