@@ -5,6 +5,7 @@ import { getAccountMode, getMyVideos, refreshMyVideos, trackMyVideo } from '../a
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { Kpi } from '../components/dashboard/KpiStrip';
+import { VideoReactionComparison } from '../components/dashboard/VideoReactionComparison';
 import { exportVideoBackup, mergeVideoBackup, saveVideoBackup } from '../utils/videoBackup';
 import { extractYouTubeVideoId } from '../utils/youtube';
 import type { OwnedVideoMetric, OwnedVideoPerformanceResponse } from '../types/comment';
@@ -179,6 +180,8 @@ export function MyVideosPage() {
                 <Kpi label="누적 댓글" value={loading ? '…' : format(summary?.total_comments)}
                   sub="공개된 댓글 수 합계" />
               </div>
+
+              {!!data?.items.length && <VideoReactionComparison videos={data.items} />}
 
               {!loading && data && data.items.length === 0 && (
                 <section className="eng-empty">
