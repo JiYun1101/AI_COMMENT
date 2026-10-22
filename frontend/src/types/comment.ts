@@ -182,6 +182,7 @@ export interface RecommendationTrace {
 }
 
 export interface RecommendResponse {
+  private_save_warning?: string;
   analysis_id: string;
   post_text: string;
   resolved_category: ResolvedCategory;
