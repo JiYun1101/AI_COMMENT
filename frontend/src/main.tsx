@@ -8,6 +8,7 @@ import './styles/recommend-loading.css';
 import './styles/trace.css';
 import './styles/completion.css';
 import './styles/account.css';
+import './styles/account-auth.css';
 import './styles/persona.css';
 import './styles/reaction-preview.css';
 import './styles/creator-seed.css';
