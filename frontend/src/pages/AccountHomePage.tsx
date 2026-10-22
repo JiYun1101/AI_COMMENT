@@ -7,6 +7,7 @@ import {
   setAccountMode,
 } from '../api/client';
 import { Header } from '../components/layout/Header';
+import { AccountIdentityCard } from '../components/account/AccountIdentityCard';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import type { YouTubeDemoStatus } from '../types/comment';
 
@@ -44,13 +45,14 @@ export function AccountHomePage() {
     <div className="app">
       <Sidebar current="account" onNav={handleNav} />
       <div className="main">
-        <Header title="계정" subtitle="외부 테스트용 데모 계정 또는 개인 YouTube 계정을 선택합니다." />
+        <Header title="내 계정" subtitle="이메일 로그인 · 계정 프로필 · YouTube 게시 환경 설정" />
 
         <main className="account-page account-home">
+          <AccountIdentityCard />
           <section className="account-intro">
             <div className="account-intro-icon"><ShieldCheck size={20} /></div>
             <div>
-              <h2>게시 계정 선택</h2>
+              <h2>YouTube 게시 환경 선택</h2>
               <p>
                 댓글 추천은 누구나 사용할 수 있습니다. 실제 YouTube 댓글 게시는 기본적으로 공용 데모 채널을 사용하며,
                 개인 계정이 필요한 경우에만 별도 연결할 수 있습니다.
