@@ -222,6 +222,7 @@ export function RecommendPage() {
             },
       );
       setResults(response.recommendations);
+      if (response.private_save_warning) setError('댓글은 생성됐지만 개인 계정에 저장하지 못했습니다: ' + response.private_save_warning);
       setAnalysisId(response.analysis_id);
       setResolvedCategory(response.resolved_category);
       setContextSummary(response.context ?? null);

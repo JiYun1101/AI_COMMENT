@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAccountMode, getSelectedPersona } from '../../api/client';
+import { cachedAccount, subscribeToAccountChange } from '../../api/account';
 import brandLogo from '../../assets/ai-comment-brand-verified.png';
 import { getPersonaLabel } from '../../data/personas';
 
@@ -57,6 +58,10 @@ export function Sidebar({ current, onNav }: SidebarProps) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [member, setMember] = useState(() => cachedAccount());
+  useEffect(() => subscribeToAccountChange(() => setMember(cachedAccount())), []);
+  const memberName = member?.user_metadata?.nickname || member?.email?.split('@')[0] || '게스트';
+  const avatarText = member ? memberName.slice(0, 2).toUpperCase() : 'G';
   const accountMode = getAccountMode();
   const selectedPersona = getSelectedPersona();
   const personaLabel = getPersonaLabel(selectedPersona);
@@ -135,10 +140,10 @@ export function Sidebar({ current, onNav }: SidebarProps) {
         {accountOpen && (
           <div className="account-hub" role="menu" aria-label="계정 메뉴">
             <div className="account-hub-head">
-              <span className="account-hub-avatar">JY</span>
+              <span className="account-hub-avatar">{avatarText}</span>
               <div>
-                <strong>JY workspace</strong>
-                <span>{accountMode === 'personal' ? '개인 계정 사용 중' : '데모 계정 사용 중'}</span>
+                <strong>{member ? memberName + ' workspace' : 'Guest workspace'}</strong>
+                <span>{member ? '회원 로그인됨' : accountMode === 'personal' ? '개인 게시 모드' : '데모 게시 모드'}</span>
               </div>
               <span className="account-hub-status">{personaBadge}</span>
             </div>
@@ -169,14 +174,14 @@ export function Sidebar({ current, onNav }: SidebarProps) {
           aria-label="계정 메뉴 열기"
         >
           <span className="side-account-avatar-wrap">
-            <span className="side-account-avatar">JY</span>
+            <span className="side-account-avatar">{avatarText}</span>
             <span className={`side-account-persona${selectedPersona !== 'none' ? ' active' : ''}`}>
               {personaBadge}
             </span>
           </span>
           <span className="side-account-copy">
-            <strong>JY</strong>
-            <span>{accountMode === 'personal' ? '개인 계정' : '데모 계정'} · {personaLabel}</span>
+            <strong>{memberName}</strong>
+            <span>{member ? '회원 계정' : '비회원'} · {personaLabel}</span>
           </span>
           <ChevronUp className="side-account-chevron" size={16} />
         </button>

@@ -1,3 +1,4 @@
+import { cachedAccount, savePrivateAnalysis, listPrivateAnalyses, getPrivateAnalysis, getPrivateDashboardSummary, listPrivateComments, sendPrivateFeedback } from './account';
 import type {
   AccountMode,
   AnalysisDetail,
@@ -221,11 +222,15 @@ export async function getHealth(): Promise<ServiceHealth> {
 }
 
 export async function recommend(request: RecommendRequest): Promise<RecommendResponse> {
-  return requestJson<RecommendResponse>(
-    `${API_BASE}/recommend`,
+  const signedIn = Boolean(cachedAccount());
+  const response = await requestJson<RecommendResponse>(
+    API_BASE + '/recommend',
     {
       method: 'POST',
-      headers: withRuntimeKeys({ 'Content-Type': 'application/json' }),
+      headers: withRuntimeKeys({
+        'Content-Type': 'application/json',
+        ...(signedIn ? { 'X-AI-Comment-Private-History': '1' } : {}),
+      }),
       body: JSON.stringify({
         ...request,
         persona_id: request.persona_id ?? getSelectedPersona(),
@@ -238,6 +243,15 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     },
     '추천 요청이 실패했습니다',
   );
+  if (signedIn) {
+    try {
+      await savePrivateAnalysis(response, request.post_text || request.youtube_url || '', request.additional_context);
+    } catch (error) {
+      // Generation has succeeded; preserve visible results and disclose failed private persistence.
+      return { ...response, private_save_warning: error instanceof Error ? error.message : '계정 저장 실패' };
+    }
+  }
+  return response;
 }
 
 export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
@@ -250,6 +264,7 @@ export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
 }
 
 export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
+  if (cachedAccount()) return listPrivateAnalyses(limit);
   const params = new URLSearchParams({ limit: String(limit) });
   const body = await requestJson<{ items: AnalysisSummary[] }>(
     `${API_BASE}/analyses?${params.toString()}`,
@@ -260,6 +275,7 @@ export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
 }
 
 export async function getAnalysis(analysisId: string): Promise<AnalysisDetail> {
+  if (cachedAccount()) return getPrivateAnalysis(analysisId);
   return requestJson<AnalysisDetail>(
     `${API_BASE}/analyses/${encodeURIComponent(analysisId)}`,
     undefined,
@@ -277,6 +293,7 @@ export interface CommentFilters {
 }
 
 export async function listComments(filters: CommentFilters = {}): Promise<CommentsResponse> {
+  if (cachedAccount()) return listPrivateComments(filters);
   const params = new URLSearchParams();
   if (filters.query) params.set('query', filters.query);
   if (filters.type) params.set('type', filters.type);
@@ -289,10 +306,12 @@ export async function listComments(filters: CommentFilters = {}): Promise<Commen
 }
 
 export async function getDashboardSummary(): Promise<DashboardSummary> {
+  if (cachedAccount()) return getPrivateDashboardSummary();
   return requestJson<DashboardSummary>(`${API_BASE}/dashboard/summary`, undefined, '대시보드 요약을 불러오지 못했습니다');
 }
 
 export async function sendFeedback(recommendationId: string, useful: boolean): Promise<FeedbackValue> {
+  if (cachedAccount()) return sendPrivateFeedback(recommendationId, useful);
   const body = await requestJson<{ id: string; feedback: FeedbackValue }>(
     `${API_BASE}/recommendations/${encodeURIComponent(recommendationId)}/feedback`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ useful }) },
@@ -512,7 +531,7 @@ export async function getAudienceObserved(
   analysisId?: string | null,
 ): Promise<AudienceObservationReport> {
   const query = new URLSearchParams({ video_id: videoId });
-  if (analysisId) query.set('analysis_id', analysisId);
+  if (analysisId && !cachedAccount()) query.set('analysis_id', analysisId);
   return requestJson<AudienceObservationReport>(
     `${API_BASE}/audience/observed?${query.toString()}`,
     { headers: withRuntimeKeys() },
