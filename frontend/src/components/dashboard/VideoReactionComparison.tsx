@@ -23,6 +23,7 @@ const display = (value: number | null, mode: Mode) =>
 
 export function VideoReactionComparison({ videos }: { videos: OwnedVideoMetric[] }) {
   const [mode, setMode] = useState<Mode>('rate');
+  const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const ranked = useMemo(() => [...videos].sort((first, second) => {
     const a = metric(first, mode);
@@ -32,7 +33,7 @@ export function VideoReactionComparison({ videos }: { videos: OwnedVideoMetric[]
     if (b == null) return -1;
     return b - a || first.title.localeCompare(second.title, 'ko');
   }), [videos, mode]);
-  const top = ranked.slice(0, 8);
+  const top = showAll ? ranked : ranked.slice(0, 8);
   const max = Math.max(0, ...top.map((video) => metric(video, mode) ?? 0));
   const compared = selected.map((id) => videos.find((video) => video.video_id === id)).filter((v): v is OwnedVideoMetric => Boolean(v));
 
@@ -68,6 +69,11 @@ export function VideoReactionComparison({ videos }: { videos: OwnedVideoMetric[]
           );
         })}
       </div>
+      {ranked.length > 8 && (
+        <button type="button" className="btn secondary sm" onClick={() => setShowAll((current) => !current)}>
+          {showAll ? '상위 8개만 보기' : '전체 ' + ranked.length + '개 영상 보기'}
+        </button>
+      )}
       <p className="eng-note">참여율 = (좋아요 + 댓글) ÷ 조회수 × 100. 플랫폼 공식 참여율이나 서로 다른 고유 시청자의 반응 확률이 아닙니다. 좋아요·댓글이 비공개이거나 조회수가 0이면 미측정으로 표시합니다.</p>
       <div className="video-compare-selection">
         <div className="model-subhead"><strong>선택한 영상 상세 비교</strong><small>{selected.length}/3 선택 · 위의 영상 행을 클릭</small></div>
