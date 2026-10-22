@@ -174,10 +174,15 @@ export async function signUpAccount(email: string, password: string, nickname: s
   return 'verify';
 }
 export async function signInAccount(email: string, password: string): Promise<void> {
+  const previousUser = cachedAccount()?.id;
   const result = await authFetch<Record<string, unknown>>('/token?grant_type=password', 'POST', {
     email: email.trim().toLowerCase(), password,
   });
   if (!fromAuthResponse(result)) throw new Error('로그인 세션을 받지 못했습니다.');
+  if (previousUser && previousUser !== cachedAccount()?.id) {
+    for (const key of ['ai-comment.youtube-api-key','ai-comment.openai-api-key','ai-comment.youtube-oauth-client-id','ai-comment.youtube-oauth-client-secret','ai-comment.server-access-token','ai-comment.custom-personas.v1']) localStorage.removeItem(key);
+    localStorage.setItem('ai-comment.account-mode','demo');
+  }
   await ensureAccountProfile();
 }
 export async function signOutAccount(): Promise<void> {
@@ -185,6 +190,7 @@ export async function signOutAccount(): Promise<void> {
   writeSession(null);
   // Credentials and server pairing sessions are browser-scoped; never keep them across accounts.
   for (const key of [
+    'ai-comment.custom-personas.v1', 'ai-comment.persona',
     'ai-comment.youtube-api-key', 'ai-comment.openai-api-key',
     'ai-comment.youtube-oauth-client-id', 'ai-comment.youtube-oauth-client-secret',
     'ai-comment.server-access-token',
@@ -196,11 +202,12 @@ export async function recoverAccount(email: string): Promise<void> {
   const redirect = encodeURIComponent(window.location.origin + '/account/reset');
   await authFetch<Record<string, unknown>>('/recover?redirect_to=' + redirect, 'POST', { email: email.trim().toLowerCase() });
 }
-export async function acceptRecoveryRedirect(): Promise<boolean> {
+export async function acceptAuthRedirect(): Promise<'recovery' | 'signup' | null> {
   const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const accessToken = fragment.get('access_token');
   const refreshToken = fragment.get('refresh_token');
-  if (!accessToken || !refreshToken || fragment.get('type') !== 'recovery') return false;
+  const kind = fragment.get('type');
+  if (!accessToken || !refreshToken || (kind !== 'recovery' && kind !== 'signup' && kind !== 'email')) return null;
   const user = await authFetch<AuthAccount>('/user', 'GET', undefined, accessToken);
   writeSession({
     access_token: accessToken,
@@ -209,7 +216,7 @@ export async function acceptRecoveryRedirect(): Promise<boolean> {
     user,
   });
   window.history.replaceState(window.history.state, '', window.location.pathname);
-  return true;
+  return kind === 'recovery' ? 'recovery' : 'signup';
 }
 export async function changeAccountPassword(password: string): Promise<void> {
   if (password.length < 8) throw new Error('비밀번호는 8자 이상이어야 합니다.');
