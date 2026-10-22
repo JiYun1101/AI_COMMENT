@@ -663,3 +663,12 @@ export async function suggestAutoReply(request: {
     'AI 대댓글 추천에 실패했습니다',
   );
 }
+
+/** Protected aggregated record of inputs used before LLM generation. */
+export async function getModelDataProgress(): Promise<import("../types/comment").ModelDataProgress> {
+  return requestJson<import("../types/comment").ModelDataProgress>(
+    API_BASE + "/model/data-progress",
+    { headers: withRuntimeKeys() },
+    "데이터 모델 현황을 불러오지 못했습니다",
+  );
+}
