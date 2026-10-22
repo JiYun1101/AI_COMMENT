@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import secrets
 import logging
 import os
 import time
@@ -1142,6 +1143,7 @@ def recommend_comment_candidates(
     openai_api_key: str | None = Header(default=None, alias="X-OpenAI-API-Key"),
     openai_model: str | None = Header(default=None, alias="X-OpenAI-Model"),
     account_mode: str = Header(default="demo", alias="X-AI-Comment-Account-Mode"),
+    private_history: str | None = Header(default=None, alias="X-AI-Comment-Private-History"),
 ):
     mode = _normalize_account_mode(account_mode)
     youtube_context = None
@@ -1231,16 +1233,25 @@ def recommend_comment_candidates(
     youtube_data = youtube_context.to_dict() if youtube_context else None
     source_type = "youtube" if youtube_context else "manual"
     source_text = youtube_context.title if youtube_context else (request.post_text or "").strip()
-    analysis_id, stored_recommendations = save_analysis(
-        source_type=source_type,
-        source_text=source_text,
-        category=resolved_category,
-        recommendations=ranked["recommendations"],
-        youtube_context=youtube_data,
-        generation_context=generation_context,
-        requested_count=request.top_k,
-        additional_context=additional_context,
-    )
+    if private_history == "1":
+        # Logged-in users store private recommendations directly under Supabase RLS.
+        # Never write their content into the legacy shared SQLite analysis history.
+        analysis_id = "a_" + secrets.token_hex(8)
+        stored_recommendations = [
+            {**item, "id": "r_" + secrets.token_hex(8)}
+            for item in ranked["recommendations"]
+        ]
+    else:
+        analysis_id, stored_recommendations = save_analysis(
+            source_type=source_type,
+            source_text=source_text,
+            category=resolved_category,
+            recommendations=ranked["recommendations"],
+            youtube_context=youtube_data,
+            generation_context=generation_context,
+            requested_count=request.top_k,
+            additional_context=additional_context,
+        )
 
     return {
         "analysis_id": analysis_id,
