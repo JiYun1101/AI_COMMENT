@@ -11,7 +11,7 @@ type AuthView = 'login' | 'signup' | 'recover' | 'reset';
 export function AccountAuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [view, setView] = useState<AuthView>(location.pathname === '/account/reset' ? 'reset' : 'login');
+  const [view, setView] = useState<AuthView>(location.pathname === '/account/reset' ? 'reset' : new URLSearchParams(location.search).get('view') === 'signup' ? 'signup' : new URLSearchParams(location.search).get('view') === 'recover' ? 'recover' : 'login');
   const [email, setEmail] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
