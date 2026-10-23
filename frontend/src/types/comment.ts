@@ -126,6 +126,23 @@ export interface YouTubeCommentPublishResponse {
   browser_backup_saved?: boolean;
 }
 
+export interface VideoCaptionMoment {
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
+  source: 'captions';
+}
+
+export interface VideoCaptionMomentsResponse {
+  video_id: string;
+  status: 'available' | 'unavailable' | 'fetch_failed';
+  language: string | null;
+  evidence: 'captions_only';
+  frames_analyzed: false;
+  moments: VideoCaptionMoment[];
+  warning: string;
+}
+
 export interface ServiceHealth {
   status: 'ok' | 'degraded' | string;
   message: string;
