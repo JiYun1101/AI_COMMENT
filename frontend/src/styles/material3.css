@@ -287,15 +287,32 @@
   .hd-about-link { min-height: 36px; padding-inline: 11px; font-size: 12px; }
 }
 
-/* Align the sidebar separator with the header's actual bottom border.
-   The header publishes its measured height because subtitles may wrap. */
+/* The home page defines one shared desktop top bar.
+   Route-specific subtitles must NOT resize or move the sidebar logo.
+   Both divider lines share the same fixed bottom edge. */
 @media (min-width: 761px) {
+  .app { --app-shell-top-height: 128px; }
+
+  .app-header {
+    height: var(--app-shell-top-height);
+    min-height: var(--app-shell-top-height);
+    padding-block: 14px;
+    align-items: center;
+  }
+  .app-header .hd-left { min-width: 0; }
+  .app-header .hd-sub {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
   .sidebar { --sidebar-inline-padding: 14px; }
   .sidebar .brand.brand-button {
     position: relative;
-    flex: 0 0 auto;
     box-sizing: border-box;
-    height: calc(var(--app-header-height, 128px) - 18px);
+    flex: 0 0 calc(var(--app-shell-top-height) - 18px);
+    height: calc(var(--app-shell-top-height) - 18px);
     min-height: 0;
     border-bottom: 0;
   }
