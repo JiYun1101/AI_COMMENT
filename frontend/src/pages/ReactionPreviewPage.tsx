@@ -73,7 +73,7 @@ export function ReactionPreviewPage() {
     [reactions],
   );
 
-  const missingSetup = Boolean(health && (!health.youtube.configured || !health.llm.ready));
+  const missingSetup = Boolean(health && (!health.youtube.configured || !health.llm.ready || !health.model.ready || !health.storage.ready));
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
@@ -198,7 +198,7 @@ export function ReactionPreviewPage() {
             {missingSetup && (
               <div className="reaction-readiness">
                 <AlertCircle size={16} />
-                <span>예상 반응 생성은 YouTube·LLM 연결이 필요하지만 실제 댓글 분석은 LLM 없이 할 수 있습니다.</span>
+                <span>예상 반응 생성은 YouTube·LLM·반응 예측 모델·저장소가 준비돼야 하지만 실제 댓글 조회는 LLM·반응 예측 모델 없이도 가능합니다.</span>
                 <button type="button" onClick={() => navigate('/account/connect')}><Settings size={13} /> 계정 설정</button>
               </div>
             )}
