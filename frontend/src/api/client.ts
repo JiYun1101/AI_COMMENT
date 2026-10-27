@@ -545,7 +545,9 @@ export async function saveAudienceSnapshot(
   analysisId?: string | null,
 ): Promise<{ snapshot: AudienceSnapshotSummary; report: AudienceObservationReport }> {
   const query = new URLSearchParams({ video_id: videoId });
-  if (analysisId) query.set('analysis_id', analysisId);
+  // Supabase-private analyses are not present in the server's shared SQLite store.
+  // Store public observations without leaking or referencing private analysis IDs.
+  if (analysisId && !cachedAccount()) query.set('analysis_id', analysisId);
   return requestJson(
     `${API_BASE}/audience/observations?${query.toString()}`,
     { method: 'POST', headers: withRuntimeKeys() },
