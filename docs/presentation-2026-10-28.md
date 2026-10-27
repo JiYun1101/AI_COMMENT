@@ -7,26 +7,26 @@
 
 저장소 루트에서 다음의 **읽기 전용(GET-only) 점검**을 실행:
 
-\`\`\`bash
+```bash
 python scripts/smoke_presentation.py --mode youtube
-\`\`\`
+```
 
 - [BLOCK] 항목 = 해당 모드의 라이브 시연 중단 요인. 현장에서 추가 기능 개발보다 원인을 확인하고 수동 입력 시연으로 전환.
-- [WARN] 항목 = 설명하고 넘어갈 수 있는 제한. 특히 \`영구 보존\` 경고는 **배포/재시작 금지**에 관한 실제 위험.
-- 발표 동선이 **수동 입력만**이면 \`python scripts/smoke_presentation.py --mode manual\`로 평가.
+- [WARN] 항목 = 설명하고 넘어갈 수 있는 제한. 특히 `영구 보존` 경고는 **배포/재시작 금지**에 관한 실제 위험.
+- 발표 동선이 **수동 입력만**이면 `python scripts/smoke_presentation.py --mode manual`로 평가.
 - 서버 연결 토큰을 알고 있고 모델 데이터 API까지 점검할 때는 아래처럼 *터미널 환경변수*로만 전달. 명령행에 키값을 남기지 말 것.
 
-\`\`\`bash
+```bash
 export AI_COMMENT_SERVER_TOKEN="(자신의 서버 연결 토큰)"
 python scripts/smoke_presentation.py --mode youtube
 unset AI_COMMENT_SERVER_TOKEN
-\`\`\`
+```
 
 이 점검은 API 및 프론트엔드 접속, Ranker/LLM/YouTube 연결, 저장소 상태, 선택적으로 인증이 필요한 모델 데이터 API를 점검한다. **회원가입·OAuth 로그인·실제 YouTube 댓글 조회/게시·LLM 생성까지 성공한다고 보증하지 않는다.** 실제 로그인 사용자의 브라우저에서 별도로 수동 확인해야 한다.
 
 ## P0 — 발표 직전 반드시 확인
 
-- [ ] Render 웹 \`https://ai-comment-web.onrender.com\` 접속 및 \`/reaction-preview\`, \`/dashboard\`, \`/account\` 새로고침
+- [ ] Render 웹 `https://ai-comment-web.onrender.com` 접속 및 `/reaction-preview`, `/dashboard`, `/account` 새로고침
 - [ ] 읽기 전용 사전점검의 BLOCK = 0. 프로덕션 서버가 잠자는 동안 첫 요청에 시간이 걸릴 수 있으므로 발표 **직전** 다시 확인
 - [ ] **추천 생성**: 실제 영상 1개로 /videos/preview → /recommend 최종 카드 → 생성 로그 / safety / Ranker 점수 (외부 LLM 비용이 발생할 수 있음)
 - [ ] **예상·실제 비교**: 동일 영상의 /reaction-preview 예상 결과와 실제 댓글 읽기. 실제 댓글이 없으면 "미수집/없음"을 그대로 표시하고 임의 데이터는 넣지 않기
@@ -38,7 +38,7 @@ unset AI_COMMENT_SERVER_TOKEN
 
 ## P1 — 발표가 끝난 뒤 확장할 것
 
-- [ ] Render 실제 서비스에 영구 저장소/백업 설계 및 배포 안전화 (현재 \`docs/persistence-recovery.md\`)
+- [ ] Render 실제 서비스에 영구 저장소/백업 설계 및 배포 안전화 (현재 `docs/persistence-recovery.md`)
 - [ ] Supabase Auth Site URL 및 가입/복구 Redirect URLs, 실제 가입 E2E
 - [ ] YouTube OAuth 멀티회원 격리 및 실제 게시 E2E (게스트/데모/회원 권한 분리)
 - [ ] Ranker 품질 측정 (2026-08-26 검증 F1 0.2819, 실제 반응 성능 주장 금지)
@@ -55,30 +55,30 @@ unset AI_COMMENT_SERVER_TOKEN
 | 시간 | 화면 | 전달 메시지 |
 | --- | --- | --- |
 | 0:00–0:35 | 서비스 개요 | "콘텐츠가 어떤 반응을 얻을지 알고 싶은 창작자"가 고객. 단순 문장 생성 대신 반응 인사이트를 제공 |
-| 0:35–1:25 | 댓글 추천 \`/\` | 입력된 영상 맥락/기존 댓글 자료 → LLM 생성 → Safety·Ranker 선별. **예측 점수는 좋아요 확률이 아님** |
-| 1:25–2:20 | \`/reaction-preview\` | 질문·칭찬·혼란·불만 등 유형의 예상 후보, 같은 영상의 공개 실제 댓글과 비교. 규칙 기반 유형 분류 MVP |
-| 2:20–3:10 | \`/dashboard\` | 모델 앞단 데이터의 출처·검색과 서버의 실제 분석 누적 구분. 기록이 쌓여도 자동 재학습되지는 않음 |
-| 3:10–3:40 | \`/my-videos\` 또는 계정 | 실제 계정 연동돼 있으면 영상별 참여율 비교, 그렇지 않으면 회원별 개인 분석 보관 기능을 *테스트된 수준만* 소개 |
+| 0:35–1:25 | 댓글 추천 `/` | 입력된 영상 맥락/기존 댓글 자료 → LLM 생성 → Safety·Ranker 선별. **예측 점수는 좋아요 확률이 아님** |
+| 1:25–2:20 | `/reaction-preview` | 질문·칭찬·혼란·불만 등 유형의 예상 후보, 같은 영상의 공개 실제 댓글과 비교. 규칙 기반 유형 분류 MVP |
+| 2:20–3:10 | `/dashboard` | 모델 앞단 데이터의 출처·검색과 서버의 실제 분석 누적 구분. 기록이 쌓여도 자동 재학습되지는 않음 |
+| 3:10–3:40 | `/my-videos` 또는 계정 | 실제 계정 연동돼 있으면 영상별 참여율 비교, 그렇지 않으면 회원별 개인 분석 보관 기능을 *테스트된 수준만* 소개 |
 | 3:40–4:00 | 결론 | 예상과 실측 사이의 차이를 줄이는 방향으로 검증·고도화. 한계: 소표본/모델 F1/영구 저장·OAuth 운영 |
 
 ## 상황별 대체 시연
 
 - YouTube API 불가, LLM과 Ranker는 정상: **수동 텍스트 입력 댓글 추천**만 라이브로 보여주고 YouTube 연동/실제 반응은 코드·검증 화면 수준으로 소개.
 - LLM/Ranker 미준비: 무리하게 API 요청을 반복하지 말고 아키텍처·기존 실제 결과 캡처(캡처한 시점 표시)로 전환. *시연 환경 실패*와 *기능 미구현*을 구분할 것.
-- \`/model/data-progress\` 401: 별도의 서버 연결 토큰이 필요할 수 있음. 계정 이메일 로그인만으로 서버 페어링 인증이 해결된다고 말하지 않기.
+- `/model/data-progress` 401: 별도의 서버 연결 토큰이 필요할 수 있음. 계정 이메일 로그인만으로 서버 페어링 인증이 해결된다고 말하지 않기.
 - 회원 가입 메일 지연: 계정 부분은 녹화해 둔 실제 테스트 결과가 있으면 "사전 촬영" 명시, 없으면 구현 사실과 미검증 사항을 설명.
 - 영상 수치가 없는 경우: "미측정" 또는 "데이터 부족" 상태를 설명하고 대체 점수/표본 수를 만들어 내지 않기.
-- 기존 데이터가 중요한 서버: \`main\` 병합이나 Render 자동 배포를 발표 준비 명목으로 실행하지 않기.
+- 기존 데이터가 중요한 서버: `main` 병합이나 Render 자동 배포를 발표 준비 명목으로 실행하지 않기.
 
 ## 참고 근거
 
 - 현재 PR #45: 대댓글 자동 제안·명시적 게시 승인 (실계정 게시 E2E 미검증)
 - 현재 PR #46: 영상별 실제 반응 비교·LLM 앞단 데이터 축적 시각화
 - 현재 PR #47: 회원/프로필/개인 분석 저장 공간 (운영 이메일 링크/YouTube OAuth 격리는 별도)
-- \`README.md\`: 모델/LLM 생성/안전·반응 예측 및 2026-08-26 평가
-- \`docs/member-accounts.md\`: Auth redirect, RLS, 운영 검증 목록
-- \`docs/persistence-recovery.md\`: Render 무료 SQLite 주의 사항
+- `README.md`: 모델/LLM 생성/안전·반응 예측 및 2026-08-26 평가
+- `docs/member-accounts.md`: Auth redirect, RLS, 운영 검증 목록
+- `docs/persistence-recovery.md`: Render 무료 SQLite 주의 사항
 
 ## 사전점검 도구의 제한
 
-\`scripts/smoke_presentation.py\`는 **POST/PUT/PATCH/DELETE를 전혀 호출하지 않으며**, 서버 연결 토큰을 화면에 출력하지 않는다. React UI에서 동작하는 이메일 인증이나 YouTube OAuth, 실제 추천 생성/게시 플로우는 브라우저에서 추가 검증해야 한다.
+`scripts/smoke_presentation.py`는 **POST/PUT/PATCH/DELETE를 전혀 호출하지 않으며**, 서버 연결 토큰을 화면에 출력하지 않는다. React UI에서 동작하는 이메일 인증이나 YouTube OAuth, 실제 추천 생성/게시 플로우는 브라우저에서 추가 검증해야 한다.
