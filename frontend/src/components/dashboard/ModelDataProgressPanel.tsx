@@ -1,6 +1,7 @@
 import { ArrowRight, Database, Layers3, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getModelDataProgress } from '../../api/client';
+import { getModelDataProgress, getStoredApiAccessToken } from '../../api/client';
+import { Link } from 'react-router-dom';
 import type { ModelDataProgress } from '../../types/comment';
 
 const number = (value: number) => value.toLocaleString('ko-KR');
@@ -12,9 +13,16 @@ export function ModelDataProgressPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (!getStoredApiAccessToken()) {
+      setData(null);
+      setError('분석 데이터 조회에는 별도의 서버 연결이 필요합니다. 이메일 회원 로그인과 서버 연결은 서로 다릅니다.');
+      setLoading(false);
+      return;
+    }
     try {
       setData(await getModelDataProgress());
     } catch (cause) {
+      setData(null);
       setError(cause instanceof Error ? cause.message : '모델 데이터 조회 실패');
     } finally {
       setLoading(false);
@@ -40,7 +48,7 @@ export function ModelDataProgressPanel() {
         <div>
           <span className="model-eyebrow"><Database size={15} /> BEFORE THE LLM · DATA FOUNDATION</span>
           <h2>AI가 참고하는 데이터는 어떻게 쌓일까?</h2>
-          <p>영상 특징을 코드로 분류하고 기존 댓글에서 관련 사례를 찾아 LLM에 전달합니다. 아래 수치는 서버에 실제 저장된 기록입니다.</p>
+          <p>영상 특징을 코드로 분류하고 기존 댓글에서 관련 사례를 찾아 LLM에 전달합니다. 아래 수치는 서버 공용 분석 기록 기준이며, 회원별 Supabase 비공개 분석은 포함하지 않습니다.</p>
         </div>
         <button type="button" className="btn secondary sm" disabled={loading} onClick={() => void load()}>
           {loading ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />} 새로고침
@@ -58,7 +66,7 @@ export function ModelDataProgressPanel() {
       </div>
       <p className="model-flow-caption">이후 단계: 안전성 검사 → 별도의 학습된 반응 예측 Ranker → 최종 추천. 앞의 맥락 분류와 댓글 검색은 별도로 재학습되는 신경망이 아닙니다.</p>
 
-      {error && <div className="inline-status error" role="alert">{error} · 서버 연결 상태를 확인해주세요.</div>}
+      {error && <div className="inline-status" role="status">{error} <Link to="/account/connect">서버 연결 설정 확인</Link></div>}
       {loading && !data && <p className="eng-note" role="status">저장된 자료를 확인 중입니다…</p>}
 
       {data && (
