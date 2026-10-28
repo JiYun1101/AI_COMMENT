@@ -124,6 +124,8 @@ export interface YouTubeCommentPublishResponse {
   tracked?: boolean;
   tracking_warning?: string;
   browser_backup_saved?: boolean;
+  cloud_backup_saved?: boolean;
+  cloud_backup_warning?: string;
 }
 
 export interface ServiceHealth {
