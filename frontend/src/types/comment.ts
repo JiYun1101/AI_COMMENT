@@ -133,6 +133,7 @@ export interface ServiceHealth {
   llm: ReadinessComponent;
   youtube: { configured: boolean; oauth?: YouTubeOAuthStatus; demo?: YouTubeDemoStatus };
   storage: { ready: boolean; persistent?: boolean; warning?: string | null };
+  auth?: { mode: 'api_key' | 'loopback_only'; header: string; pairing_available: boolean };
 }
 
 export interface GenerationContextSummary {
