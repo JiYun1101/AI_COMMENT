@@ -208,6 +208,7 @@ export function ModelDataProgressPanel() {
                 <span>공용 분석에서 기존 댓글 매칭</span>
                 <strong>{number(data.observations.historical_matched_analyses)}건</strong>
               </div>
+              <small className="eng-note">공용 서버 지표에 회원별 Supabase 비공개 분석은 포함하지 않습니다.</small>
               <small className="eng-note">매칭 분석당 평균 {data.observations.average_matches == null ? '—' : number(data.observations.average_matches)}개 사례 참조 · 회원별 분석과 별도 집계</small>
             </>
           ) : (
