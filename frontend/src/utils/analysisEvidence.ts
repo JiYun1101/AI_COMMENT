@@ -1,6 +1,34 @@
-import type { AnalysisSummary, PublishedComment } from '../types/comment';
-import type { PrivatePublishedReceipt } from '../api/account';
-import type { PublicMetricRow } from './publicMetricsBackup';
+// Local structural shapes keep this pure calculation independently testable.
+interface AnalysisSnapshot {
+  id: string;
+  created_at: string;
+  source_text: string;
+  video_title: string | null;
+}
+interface OwnerPublishedReceipt {
+  video_id: string;
+  comment_id: string;
+  comment: string;
+  comment_url: string | null;
+  published_at: string;
+  recommendation_id: string | null;
+}
+interface ObservedPublishedComment {
+  video_id: string;
+  comment_id: string;
+  like_count: number | null;
+  reply_count: number | null;
+  status: 'pending' | 'active' | 'missing';
+  public_metric_status?: 'active' | 'unavailable';
+  last_checked_at: string | null;
+}
+interface PublicMetricObservation {
+  video_id: string;
+  comment_id: string;
+  status: 'active' | 'unavailable';
+  like_count: number | null;
+  reply_count: number | null;
+}
 
 export interface EvidenceComment {
   recommendationId: string;
@@ -29,7 +57,7 @@ function dayKey(date: Date): string {
 }
 
 export function analysisGrowth(
-  analyses: AnalysisSummary[],
+  analyses: AnalysisSnapshot[],
   now: Date = new Date(),
 ): { date: string; new_analyses: number; cumulative_analyses: number }[] {
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -54,11 +82,11 @@ export function analysisGrowth(
 }
 
 export function buildOutcomeEvidence(
-  analyses: AnalysisSummary[],
-  receipts: PrivatePublishedReceipt[],
-  published: PublishedComment[],
+  analyses: AnalysisSnapshot[],
+  receipts: OwnerPublishedReceipt[],
+  published: ObservedPublishedComment[],
   recommendations: Array<{analysisId: string; recommendationId: string; comment: string}>,
-  verifiedPublicMetrics: PublicMetricRow[] = [],
+  verifiedPublicMetrics: PublicMetricObservation[] = [],
 ): { publishedCount: number; observedCount: number; positiveCount: number; weighted: EvidenceComment[] } {
   // A posting receipt is account-owned evidence. Never identify ownership from
   // a shared backend /my-comments row by itself.
