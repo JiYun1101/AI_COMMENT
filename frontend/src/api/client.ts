@@ -199,6 +199,18 @@ async function getErrorMessage(res: Response, fallback: string): Promise<string>
   } catch {
     // Ignore invalid/non-JSON bodies and use the fallback.
   }
+  if (res.status === 429) {
+    // Render Free may rate-limit the public edge before FastAPI can return JSON.
+    // This also covers non-JSON gateway responses. Never auto-retry a billable
+    // LLM generation or a potentially side-effectful publishing request.
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const seconds = retryAfterHeader === null ? NaN : Number(retryAfterHeader);
+    const retryHint = Number.isFinite(seconds) && seconds > 0 && seconds <= 3600
+      ? `약 ${Math.ceil(seconds / 60)}분 후`
+      : '잠시 후';
+    return `${fallback}: 요청이 일시적으로 제한됐습니다 (429). ${retryHint} 다시 시도해주세요. ` +
+      'Render 무료 서버·프록시 또는 외부 API의 요청 제한일 수 있습니다. 중복 호출을 피해주세요.';
+  }
   return `${fallback} (${res.status})`;
 }
 
