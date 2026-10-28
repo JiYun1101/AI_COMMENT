@@ -239,6 +239,33 @@ export async function getHealth(): Promise<ServiceHealth> {
   };
 }
 
+/**
+ * Warm the Render Free API using GET requests before sending a billable
+ * recommendation POST. Retries are intentionally limited to read-only health;
+ * a failed generation or YouTube publishing POST must not be replayed.
+ */
+export async function waitForHealthyBackend(
+  onRetry?: (attempt: number, total: number) => void,
+): Promise<ServiceHealth> {
+  const backoffsMs = [8_000, 15_000, 25_000, 30_000];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+    try {
+      return await getHealth();
+    } catch (error) {
+      lastError = error;
+      if (attempt === backoffsMs.length) break;
+      onRetry?.(attempt + 1, backoffsMs.length);
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, backoffsMs[attempt]);
+      });
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('서버 연결을 확인하지 못했습니다. 다시 시도해주세요.');
+}
+
 export async function recommend(request: RecommendRequest): Promise<RecommendResponse> {
   const signedIn = Boolean(cachedAccount());
   const response = await requestJson<RecommendResponse>(
