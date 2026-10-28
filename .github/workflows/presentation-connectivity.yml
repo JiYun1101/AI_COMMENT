@@ -46,6 +46,15 @@ jobs:
               print(f"FAIL {label}: {last_error}", flush=True)
               return False
 
+          def first_attempt(label, url):
+              now = time.monotonic()
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept":"application/json", "User-Agent":"AI-COMMENT-immediate-probe/1.0"}), timeout=35) as response:
+                      print(f"IMMEDIATE {label} HTTP={response.status} seconds={time.monotonic()-now:.2f}", flush=True)
+              except Exception as error:
+                  print(f"IMMEDIATE {label} FAILED {type(error).__name__}: {error} seconds={time.monotonic()-now:.2f}", flush=True)
+          first_attempt("backend", os.environ["API_URL"])
+          first_attempt("presentation proxy", os.environ["WEB_URL"])
           backend_ok = check("backend", os.environ["API_URL"])
           proxy_ok = check("presentation same-origin proxy", os.environ["WEB_URL"])
           if not (backend_ok and proxy_ok):
