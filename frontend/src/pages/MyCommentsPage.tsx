@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
+import { saveVerifiedTakeoutImports, removeVerifiedTakeoutImport } from '../utils/takeoutImportLedger';
 import { cachedAccount, savePrivatePublishedReceipts, listPrivatePublishedReceipts } from '../api/account';
 import { exportPostedBackup, importPostedBackup, readPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
 import { applySavedPublicMetrics, storePublicMetricResponse, removeSavedPublicCommentMetrics } from '../utils/publicMetricsBackup';
@@ -175,6 +176,7 @@ export function MyCommentsPage() {
       const result = await deletePublishedYouTubeComment(item.comment_id);
       if (!result.deleted) throw new Error('YouTube에서 댓글 삭제를 확인하지 못했습니다.');
       removePostedBackupComment(item.comment_id);
+      removeVerifiedTakeoutImport(item.comment_id);
       removeSavedPublicCommentMetrics(item.comment_id);
       setDeletingId(null);
       setEditingId(null);
@@ -261,6 +263,11 @@ export function MyCommentsPage() {
       if (!records.length) throw new Error('복구 가능한 YouTube 댓글 ID를 찾지 못했습니다.');
       let recovered = 0;
       let failed = 0;
+      let storedVerified = 0;
+      const cloudReceipts: Array<{
+        video_id: string; comment_id: string; comment: string;
+        comment_url: string | null; published_at: string; recommendation_id: null;
+      }> = [];
       const bounded = records.slice(0, 150);
       // Batch calls avoid one YouTube API round-trip for each historical comment.
       for (let i = 0; i < bounded.length; i += 30) {
@@ -270,12 +277,37 @@ export function MyCommentsPage() {
         );
         recovered += result.registered_count;
         failed += result.failed_count;
+        // Persist ONLY entries individually verified against the owner's OAuth
+        // channel. Never include raw unverified CSV rows in dashboard totals.
+        if (result.items.length) {
+          storedVerified += saveVerifiedTakeoutImports(result.items, result.owner_channel_id).added;
+          importPostedBackup(result.items.map(item => ({
+            video_id: item.video_id, comment_id: item.comment_id,
+            comment: item.comment, comment_url: item.comment_url,
+            published_at: item.published_at, recommendation_id: null,
+            account_mode: 'personal' as const,
+          })));
+          cloudReceipts.push(...result.items.map(item => ({
+            video_id: item.video_id, comment_id: item.comment_id,
+            comment: item.comment, comment_url: item.comment_url,
+            published_at: item.published_at, recommendation_id: null as null,
+          })));
+        }
         setTakeoutProgress('댓글 본인 확인 ' + Math.min(i + 30, bounded.length) + '/' + bounded.length);
       }
+      let cloudNote = '';
+      if (cloudReceipts.length && cachedAccount()) {
+        try {
+          await savePrivatePublishedReceipts(cloudReceipts);
+          cloudNote = ' 회원 계정에도 게시 영수증을 보관했습니다.';
+        } catch {
+          cloudNote = ' 회원 계정 백업은 실패했지만 브라우저 기록은 보관했습니다.';
+        }
+      }
       await load();
-      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록, 실패 ' + failed + '개.' +
+      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록 (새로 누적 ' + storedVerified + '개), 실패 ' + failed + '개.' +
         (records.length > bounded.length ? ' 150개를 초과한 나머지는 파일을 나누어 등록해주세요.' : '') +
-        ' 영구 DB 미연결 시 서버 재시작으로 다시 사라질 수 있습니다.');
+        ' 대시보드의 기존 댓글 CSV 성과에도 반영됩니다.' + cloudNote);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Takeout 기록 복구에 실패했습니다.');
     } finally {
