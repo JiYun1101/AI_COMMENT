@@ -124,6 +124,8 @@ export interface YouTubeCommentPublishResponse {
   tracked?: boolean;
   tracking_warning?: string;
   browser_backup_saved?: boolean;
+  cloud_backup_saved?: boolean;
+  cloud_backup_warning?: string;
 }
 
 export interface ServiceHealth {
@@ -133,6 +135,7 @@ export interface ServiceHealth {
   llm: ReadinessComponent;
   youtube: { configured: boolean; oauth?: YouTubeOAuthStatus; demo?: YouTubeDemoStatus };
   storage: { ready: boolean; persistent?: boolean; warning?: string | null };
+  auth?: { mode: 'api_key' | 'loopback_only'; header: string; pairing_available: boolean };
 }
 
 export interface GenerationContextSummary {

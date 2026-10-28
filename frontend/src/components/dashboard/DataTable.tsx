@@ -77,7 +77,8 @@ export function DataTable({
           </button>
         </div>
       </div>
-      <table className="table">
+      <div className="dashboard-table-scroll" role="region" aria-label="댓글 목록 표" tabIndex={0}>
+      <table className="table dashboard-comments-table">
         <thead>
           <tr>
             <th style={{ width: 34 }}><Checkbox on={allOn} indeterminate={someOn} onChange={onToggleAll} /></th>
@@ -102,7 +103,7 @@ export function DataTable({
             <tr key={row.id} className={selected.has(row.id) ? 'sel' : ''}>
               <td><Checkbox on={selected.has(row.id)} onChange={() => onToggle(row.id)} /></td>
               <td className="mono muted">{row.id}</td>
-              <td className="content">{row.comment}</td>
+              <td className="dashboard-comment-cell">{row.comment}</td>
               <td><TypeTag type={row.type} /></td>
               <td>
                 <div className="table-source">{row.video_title || '직접 입력'}</div>
@@ -118,6 +119,7 @@ export function DataTable({
           ))}
         </tbody>
       </table>
+      </div>
       <div className="pagination real-pagination">
         <button type="button" className="btn secondary sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>이전</button>
         <span className="pg-info">{page} / {totalPages} · 페이지당 {pageSize}건</span>

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   DEFAULT_OPENAI_MODEL,
   connectServerWithCode,
+  waitForHealthyBackend,
   verifyServerConnection,
   YOUTUBE_OAUTH_REDIRECT_URI,
   disconnectYouTubeOAuth,
@@ -32,6 +33,10 @@ export function AccountPage() {
   const [serverToken, setServerToken] = useState(() => getStoredApiAccessToken());
   const [pairingCode, setPairingCode] = useState('');
   const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [apiRetryAttempt, setApiRetryAttempt] = useState(0);
+  const [apiRetryKey, setApiRetryKey] = useState(0);
+  const [pairingAvailable, setPairingAvailable] = useState<boolean | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverBusy, setServerBusy] = useState(false);
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
@@ -49,6 +54,7 @@ export function AccountPage() {
   const [redirectCopied, setRedirectCopied] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     // The invitation lives in the fragment (never transmitted over HTTP).
     // Remove it from the address bar immediately after reading.
     const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -57,18 +63,69 @@ export function AccountPage() {
       setPairingCode(invite);
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     }
-    verifyServerConnection()
-      .then((result) => setServerStatus(result.connected ? 'connected' : 'disconnected'))
-      .catch(() => setServerStatus('disconnected'));
-    getYouTubeOAuthStatus()
-      .then(setOauthStatus)
-      .catch(() => setOauthStatus(null));
-  }, []);
+    setApiStatus('checking');
+    setApiRetryAttempt(0);
+    setPairingAvailable(null);
+    setServerStatus('checking');
+
+    const checkConnection = async () => {
+      // Render Free's sleeping backend must wake before protected auth checks.
+      // Retried calls here are read-only GET /health; never repeat pairing POST.
+      try {
+        const health = await waitForHealthyBackend((attempt) => {
+          if (!cancelled) setApiRetryAttempt(attempt);
+        });
+        if (cancelled) return;
+        setApiStatus('online');
+        setApiRetryAttempt(0);
+        setPairingAvailable(health.auth?.pairing_available ?? null);
+      } catch {
+        if (!cancelled) {
+          setApiStatus('offline');
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+        return;
+      }
+
+      // A missing admin token means not paired, NOT that the API is offline.
+      const token = getStoredApiAccessToken();
+      if (!token) {
+        if (!cancelled) {
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+        return;
+      }
+      try {
+        const verified = await verifyServerConnection(token);
+        if (cancelled) return;
+        setServerStatus(verified.connected ? 'connected' : 'disconnected');
+        if (verified.connected) {
+          try {
+            const oauth = await getYouTubeOAuthStatus();
+            if (!cancelled) setOauthStatus(oauth);
+          } catch {
+            if (!cancelled) setOauthStatus(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+      }
+    };
+
+    void checkConnection();
+    return () => { cancelled = true; };
+  }, [apiRetryKey]);
 
   const pairServer = async () => {
     setServerBusy(true);
     setServerError(null);
     try {
+      await waitForHealthyBackend();
       const response = await connectServerWithCode(pairingCode);
       setServerToken(response.access_token);
       setPairingCode('');
@@ -86,7 +143,9 @@ export function AccountPage() {
     setServerBusy(true);
     setServerError(null);
     try {
-      await verifyServerConnection(serverToken);
+      await waitForHealthyBackend();
+      const verified = await verifyServerConnection(serverToken);
+      if (!verified.connected) throw new Error('유효하지 않은 관리자 인증 토큰입니다.');
       setStoredApiAccessToken(serverToken);
       setServerStatus('connected');
       markSaved('server');
@@ -175,6 +234,10 @@ export function AccountPage() {
 
   const connectYouTube = async () => {
     setOauthError(null);
+    if (serverStatus !== 'connected') {
+      setOauthError('YouTube OAuth 연결 전에 먼저 위쪽 SERVER CONNECTION에서 관리자 서버 인증을 완료해주세요.');
+      return;
+    }
     setOauthBusy(true);
     let popup: Window | null = null;
     try {
@@ -250,14 +313,34 @@ export function AccountPage() {
                 <div>
                   <span className="credential-kicker">SERVER CONNECTION</span>
                   <h3>서버 연결</h3>
-                  <p>초대 링크를 열면 연결 코드가 자동으로 준비돼요. 연결 버튼을 누르면 서버 인증이 완료됩니다.
-                    관리자 비밀키를 입력하거나 Render 설정을 직접 변경할 필요가 없습니다.</p>
+                  <p>API 접속과 관리자 인증은 별개입니다. 일반적인 영상 조회·댓글 추천은 서버가 온라인이면 사용할 수 있습니다.
+                    스냅샷 저장·모델 데이터 조회 등 보호된 기능은 별도 관리자 연결이 필요합니다.</p>
                 </div>
                 <ShieldCheck size={20} />
               </div>
-              <div className={'server-connection-status ' + serverStatus} role="status">
-                {serverStatus === 'connected' ? '서버 연결됨' : serverStatus === 'checking' ? '서버 확인 중' : '서버 미연결'}
+              <div role="status" className={'server-connection-status ' + (apiStatus === 'online' ? 'connected' : apiStatus === 'checking' ? 'checking' : 'disconnected')}>
+                {apiStatus === 'online' ? 'API 서버 온라인' : apiStatus === 'checking' ? apiRetryAttempt > 0 ? `Render 백엔드 재기동 확인 중 (${apiRetryAttempt}/4)` : 'API 서버 확인 중' : 'API 서버 접속 실패'}
               </div>
+              {apiStatus === 'offline' && (
+                <div className="account-field-note" role="status">
+                  Render 무료 서버가 일시 중지됐거나 프록시 연결에 실패했을 수 있습니다.
+                  <button type="button" className="btn secondary sm" onClick={() => setApiRetryKey((value) => value + 1)}>
+                    API 서버 다시 확인
+                  </button>
+                </div>
+              )}
+              <div className={'server-connection-status ' + serverStatus} role="status">
+                {serverStatus === 'connected' ? '관리자 인증 연결됨' : serverStatus === 'checking' ? '관리자 인증 확인 중' : '관리자 인증 미연결 (일반 API와 별개)'}
+              </div>
+              <p className="account-field-note">관리자 연결은 비공개 초대 코드나 기존 인증 토큰을 가진 소유자만 사용할 수 있습니다.</p>
+              {pairingAvailable === false && (
+                <p className="account-field-note" role="status">
+                  현재 서버에서는 초대 코드 발급 기능이 비활성화돼 있습니다.
+                  아래 ‘기존 서버 토큰으로 연결’을 열어 소유자에게 발급된 인증 토큰으로 연결하세요.
+                  토큰이 없다면 서버 관리자가 Render에서 별도 인증 구성을 해야 합니다.
+                  공개 채팅에 관리자 토큰을 붙여넣지 마세요.
+                </p>
+              )}
               <label className="account-label" htmlFor="server-pairing-code">서버 연결 코드</label>
               <div className="secret-input">
                 <input id="server-pairing-code" type="password" autoComplete="off"
@@ -266,7 +349,7 @@ export function AccountPage() {
               </div>
               <div className="credential-actions">
                 <button type="button" className="btn primary"
-                  disabled={serverBusy || pairingCode.trim().length < 32}
+                  disabled={serverBusy || pairingAvailable === false || pairingCode.trim().length < 32}
                   onClick={() => void pairServer()}>
                   {serverBusy ? <LoaderCircle size={15} className="spin" /> : <Link2 size={15} />}
                   서버 연결하기
@@ -282,7 +365,7 @@ export function AccountPage() {
                 )}
               </div>
               {serverError && <div className="oauth-error" role="alert">{serverError}</div>}
-              <details className="server-advanced">
+              <details className="server-advanced" open={pairingAvailable === false}>
                 <summary>기존 서버 토큰으로 연결</summary>
                 <label className="account-label" htmlFor="api-access-token">Access Token</label>
                 <div className="secret-input">
@@ -394,8 +477,17 @@ export function AccountPage() {
 
               <div className="oauth-status-row">
                 <span className={`oauth-status-dot${oauthStatus?.authorized ? ' connected' : ''}`} />
-                <span>{oauthStatus?.authorized ? 'YouTube 계정 연결됨' : 'YouTube 계정 연결 안 됨'}</span>
+                <span>{serverStatus !== 'connected'
+                  ? '서버 관리자 인증 필요 · YouTube 연결 상태 미확인'
+                  : oauthStatus?.authorized ? 'YouTube 계정 연결됨' : 'YouTube 계정 연결 안 됨'}</span>
               </div>
+              {serverStatus !== 'connected' && (
+                <p className="account-field-note" role="status">
+                  이 기능은 Google OAuth 전에 AI_COMMENT 서버 관리자 인증이 필요합니다.
+                  위쪽 SERVER CONNECTION의 비공개 초대 코드 또는 기존 인증 토큰으로 먼저 연결하세요.
+                  이메일 회원 로그인 및 YouTube Data API Key로는 이 인증을 대신할 수 없습니다.
+                </p>
+              )}
 
               <div className="oauth-fields">
                 <div>
@@ -452,7 +544,7 @@ export function AccountPage() {
                     연결 해제
                   </button>
                 ) : (
-                  <button type="button" className="btn primary" onClick={connectYouTube} disabled={oauthBusy}>
+                  <button type="button" className="btn primary" onClick={connectYouTube} disabled={oauthBusy || serverStatus !== 'connected'}>
                     {oauthBusy ? <LoaderCircle size={14} className="spin" /> : <Link2 size={14} />}
                     YouTube 계정 연결
                   </button>

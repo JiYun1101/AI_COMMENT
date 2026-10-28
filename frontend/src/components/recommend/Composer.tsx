@@ -38,6 +38,7 @@ interface ComposerProps {
   onClearPreview: () => void;
   onSubmit: () => void;
   submitting?: boolean;
+  preparingRecommendation?: boolean;
 }
 
 export function Composer({
@@ -62,6 +63,7 @@ export function Composer({
   onClearPreview,
   onSubmit,
   submitting,
+  preparingRecommendation,
 }: ComposerProps) {
   const inputReady = isRecommendationInputReady({
     mode,
@@ -197,7 +199,7 @@ export function Composer({
         <span className="safety"><Shield size={12} strokeWidth={2} /> 안전 필터 항상 적용</span>
         <button type="button" className="cta" disabled={!canSubmit || submitting} onClick={onSubmit}>
           <Star size={16} strokeWidth={2} />
-          {submitting ? 'LLM 댓글 생성 중…' : '댓글 추천받기'}
+          {preparingRecommendation ? '서버 연결 확인 중…' : submitting ? 'LLM 댓글 생성 중…' : '댓글 추천받기'}
         </button>
       </div>
     </div>

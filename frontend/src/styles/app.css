@@ -591,13 +591,25 @@ button {
 .table tbody tr.sel:hover {
   background: #dfe9fb;
 }
-.table td.content {
+/* Keep the wide 9-column dashboard table scrollable without clipping the
+   comment column. The old "content" class inherited the page's flex layout
+   and max-width: 0 hid the text. */
+.dashboard-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.dashboard-comments-table {
+  min-width: 1320px;
+}
+.dashboard-comments-table td.dashboard-comment-cell {
   color: var(--fg1);
-  max-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 12px 14px;
+  min-width: 300px;
+  max-width: 520px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  line-height: 1.55;
 }
 .table .mono {
   font-family: var(--font-mono);

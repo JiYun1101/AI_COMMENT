@@ -2,7 +2,7 @@ export type ReadinessMode = 'url' | 'manual';
 
 export interface RecommendationHealthLike {
   model: { ready: boolean };
-  llm: { ready: boolean };
+  llm: { ready: boolean; provider?: string };
   youtube: { configured: boolean };
   storage: { ready: boolean };
 }
@@ -16,7 +16,9 @@ export function getRecommendationReadinessMessage(
   if (!health) return null;
   if (!health.storage.ready) return '저장소가 준비되지 않아 추천을 시작할 수 없습니다.';
   if (!health.model.ready) return '반응 예측 모델이 준비되지 않아 추천을 시작할 수 없습니다.';
-  if (!health.llm.ready) return 'LLM 설정이 준비되지 않아 추천을 시작할 수 없습니다.';
+  if (!health.llm.ready) return health.llm.provider === 'ollama_local'
+    ? '서버에 로컬 Ollama 모델이 없습니다. 내 계정 추가하기에서 OpenAI API Key를 저장하고 개인 계정 모드로 전환해주세요.'
+    : 'LLM 설정이 준비되지 않아 추천을 시작할 수 없습니다.';
   if (mode === 'url' && !health.youtube.configured) {
     return 'YouTube API가 설정되지 않았습니다. 직접 입력 모드는 사용할 수 있습니다.';
   }

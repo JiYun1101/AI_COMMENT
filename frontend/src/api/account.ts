@@ -131,7 +131,7 @@ async function token(): Promise<string> {
   if (!updated) throw new Error('로그인이 필요합니다.');
   return updated.access_token;
 }
-async function table<T>(tableName: 'ai_comment_profiles' | 'ai_comment_saved_analyses', suffix: string, method = 'GET', body?: unknown): Promise<T> {
+async function table<T>(tableName: 'ai_comment_profiles' | 'ai_comment_saved_analyses' | 'ai_comment_published_receipts', suffix: string, method = 'GET', body?: unknown): Promise<T> {
   const access = await token();
   const result = await fetch(base + '/rest/v1/' + tableName + suffix, {
     method,
@@ -291,6 +291,23 @@ function toSummary(row: SavedRow): AnalysisSummary {
 export async function listPrivateAnalyses(limit: number): Promise<AnalysisSummary[]> {
   return (await accountAnalyses(limit)).map(toSummary);
 }
+export async function getPrivateAnalysisOverview(limit = 500): Promise<{
+  analyses: AnalysisSummary[];
+  recommendations: Array<{ analysisId: string; recommendationId: string; comment: string }>;
+  limited: boolean;
+}> {
+  const rows = await accountAnalyses(limit);
+  return {
+    analyses: rows.map(toSummary),
+    recommendations: rows.flatMap(row => row.payload.recommendations.map(rec => ({
+      analysisId: row.local_analysis_id,
+      recommendationId: rec.id,
+      comment: rec.comment,
+    }))),
+    limited: rows.length >= Math.min(500, limit),
+  };
+}
+
 export async function getPrivateAnalysis(id: string): Promise<AnalysisDetail> {
   const current = (await accountAnalyses()).find(x=>x.local_analysis_id===id);
   if (!current) throw new Error('내 계정에서 분석 기록을 찾지 못했습니다.');
@@ -348,4 +365,57 @@ export async function sendPrivateFeedback(recommendationId: string, useful: bool
   await table<SavedRow[]>('ai_comment_saved_analyses',
     '?local_analysis_id=eq.'+encodeURIComponent(row.local_analysis_id), 'PATCH',{payload:updated});
   return useful?'useful':'not_useful';
+}
+
+/** Cloud backup for signed-in members; NOT a verified YouTube-ownership ledger.
+ * It contains only publish receipts and never OAuth credentials. Public OAuth
+ * verification is still required before restoring anything to server tracking.
+ */
+export interface PrivatePublishedReceipt {
+  video_id: string;
+  comment_id: string;
+  comment: string;
+  comment_url: string | null;
+  published_at: string;
+  recommendation_id: string | null;
+}
+
+export async function savePrivatePublishedReceipts(
+  receipts: PrivatePublishedReceipt[],
+): Promise<number> {
+  const owner = cachedAccount()?.id;
+  if (!owner) throw new Error('클라우드 백업에는 이메일 계정 로그인이 필요합니다.');
+  if (!receipts.length) return 0;
+  // Bounded and validated receipts prevent accidentally uploading other
+  // browser records or non-comment payloads.
+  if (receipts.length > 500) throw new Error('한 번에 500개 이하의 게시 기록만 백업할 수 있습니다.');
+  for (const row of receipts) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(row.video_id) ||
+      !row.comment_id || row.comment_id.length > 100 ||
+      row.comment.length > 10000 || !Number.isFinite(Date.parse(row.published_at))) {
+      throw new Error('백업할 게시 기록에 올바르지 않은 항목이 있습니다.');
+    }
+  }
+  for (let i = 0; i < receipts.length; i += 50) {
+    await table<unknown[]>('ai_comment_published_receipts',
+      '?on_conflict=user_id,comment_id', 'POST',
+      receipts.slice(i, i + 50).map(row => ({
+        user_id: owner,
+        video_id: row.video_id,
+        comment_id: row.comment_id,
+        comment: row.comment,
+        comment_url: row.comment_url,
+        published_at: row.published_at,
+        recommendation_id: row.recommendation_id,
+      })));
+  }
+  return receipts.length;
+}
+
+export async function listPrivatePublishedReceipts(): Promise<PrivatePublishedReceipt[]> {
+  const owner = cachedAccount()?.id;
+  if (!owner) throw new Error('클라우드 백업을 읽으려면 로그인이 필요합니다.');
+  return table<PrivatePublishedReceipt[]>('ai_comment_published_receipts',
+    '?user_id=eq.' + encodeURIComponent(owner) +
+    '&select=video_id,comment_id,comment,comment_url,published_at,recommendation_id&order=published_at.desc&limit=500');
 }

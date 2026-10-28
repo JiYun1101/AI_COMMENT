@@ -18,14 +18,7 @@ import { Header } from '../components/layout/Header';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import type { AudienceObservationReport, AudienceSnapshotSummary, RecommendResponse, ServiceHealth } from '../types/comment';
 import { extractYouTubeVideoId, isValidYouTubeVideoUrl } from '../utils/youtube';
-
-type IntentKey = 'question' | 'praise' | 'confusion' | 'complaint' | 'purchase' | 'risk' | 'other';
-
-interface IntentDefinition {
-  key: IntentKey;
-  label: string;
-  description: string;
-}
+import { INTENTS, classifyIntent, attachLocalComparison, type IntentKey } from '../utils/audienceComparison';
 
 interface ReactionItem {
   comment: string;
@@ -34,55 +27,15 @@ interface ReactionItem {
   selected: boolean;
 }
 
-const INTENTS: IntentDefinition[] = [
-  { key: 'question', label: '질문', description: '추가 정보나 설명을 요구하는 반응' },
-  { key: 'praise', label: '칭찬', description: '긍정·공감·호감 중심의 반응' },
-  { key: 'confusion', label: '혼란', description: '이해가 어렵거나 맥락이 불분명한 반응' },
-  { key: 'complaint', label: '불만', description: '아쉬움·비판·불편을 드러내는 반응' },
-  { key: 'purchase', label: '구매 의도', description: '가격·구매·출시 여부에 관심을 보이는 반응' },
-  { key: 'risk', label: '리스크', description: '논란·신뢰·안전 이슈로 번질 수 있는 반응' },
-  { key: 'other', label: '기타', description: '분류 규칙에 해당하지 않는 반응' },
-];
-
-function classifyIntent(comment: string, type: string): IntentKey {
-  const text = comment.toLowerCase();
-  if (/(사기|거짓|조작|불법|혐오|신고|논란|위험|허위|과장광고|환불)/i.test(text)) return 'risk';
-  if (/(구매|구입|사고 싶|살까|사야|가격|얼마|출시|재입고|어디서 사|링크 있|예약)/i.test(text)) return 'purchase';
-  if (/(별로|아쉽|실망|불편|비싸|싫|최악|왜 이렇게|문제 있|개선|답답)/i.test(text) || type === 'negative') return 'complaint';
-  if (/(무슨 뜻|이해가 안|이해 안|헷갈|모르겠|차이가 뭐|어떤 의미|설명이 부족|왜 그런)/i.test(text)) return 'confusion';
-  if (comment.includes('?') || type === 'question' || /(궁금|어떻게|왜 |뭐가|언제|어디|누가|인가요)/i.test(text)) return 'question';
-  if (type === 'empathy' || type === 'insight' || /(감사|고마|최고|좋아요|잘\s*봤|응원|유익|도움|재밌|재미있|대박|힐링)/.test(text)) return 'praise';
-  return 'other';
-}
-
 function buildReactionItems(response: RecommendResponse): ReactionItem[] {
-  const traced: ReactionItem[] = (response.trace?.candidates ?? [])
-    .filter((candidate) => candidate.safety === 'passed' && !candidate.duplicate)
-    .sort((a, b) => {
-      if (a.selected !== b.selected) return a.selected ? -1 : 1;
-      return (b.ranker_score ?? -1) - (a.ranker_score ?? -1);
-    })
-    .map((candidate) => ({
-      comment: candidate.comment,
-      intent: classifyIntent(candidate.comment, candidate.type),
-      score: candidate.ranker_score,
-      selected: candidate.selected,
-    }));
-
-  const fallback: ReactionItem[] = response.recommendations.map((item) => ({
+  // The backend's observed comparison uses saved final Top-K, not all
+  // Safety-passed trace candidates. Keep the chart and score cards in sync.
+  return response.recommendations.filter((item) => item.comment.trim()).map((item) => ({
     comment: item.comment,
     intent: classifyIntent(item.comment, item.type),
     score: item.predicted_score,
     selected: true,
   }));
-
-  const seen = new Set<string>();
-  return [...traced, ...fallback].filter((item) => {
-    const key = item.comment.trim();
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function labelFor(key: IntentKey) {
@@ -120,7 +73,7 @@ export function ReactionPreviewPage() {
     [reactions],
   );
 
-  const missingSetup = Boolean(health && (!health.youtube.configured || !health.llm.ready));
+  const missingSetup = Boolean(health && (!health.youtube.configured || !health.llm.ready || !health.model.ready || !health.storage.ready));
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
@@ -157,7 +110,9 @@ export function ReactionPreviewPage() {
     setSavedSnapshot(null);
     try {
       const id = response?.youtube_context?.video_id === videoId ? response.analysis_id : null;
-      setObserved(await getAudienceObserved(videoId, id));
+      const report = await getAudienceObserved(videoId, id);
+      setObserved(response?.youtube_context?.video_id === videoId
+        ? attachLocalComparison(report, response.recommendations) : report);
     } catch (err) {
       setObservationError(err instanceof Error ? err.message : '실제 댓글을 불러오지 못했습니다.');
     } finally {
@@ -172,7 +127,8 @@ export function ReactionPreviewPage() {
     setObservationError(null);
     try {
       const result = await saveAudienceSnapshot(videoId, observed?.analysis_id);
-      setObserved(result.report);
+      setObserved(response?.youtube_context?.video_id === videoId
+        ? attachLocalComparison(result.report, response.recommendations) : result.report);
       setSavedSnapshot(result.snapshot);
     } catch (err) {
       setObservationError(err instanceof Error ? err.message : '실측 기록을 저장하지 못했습니다. 서버 연결을 확인해주세요.');
@@ -199,7 +155,7 @@ export function ReactionPreviewPage() {
             <div>
               <span className="reaction-kicker"><Eye size={14} /> AUDIENCE REACTION PREVIEW</span>
               <h2>이 영상을 본 시청자는<br />어떤 반응을 남길까?</h2>
-              <p>기존 댓글 생성 파이프라인의 Safety 통과 후보를 재사용해 질문·칭찬·혼란·불만·구매 의도·리스크·기타 7개 반응으로 묶어 보여줍니다.</p>
+              <p>기존 댓글 생성 파이프라인의 최종 Top-K 후보를 사용해 질문·칭찬·혼란·불만·구매 의도·리스크·기타 7개 반응으로 묶어 보여줍니다.</p>
             </div>
             <div className="reaction-hero-badge">
               <Activity size={20} />
@@ -242,7 +198,7 @@ export function ReactionPreviewPage() {
             {missingSetup && (
               <div className="reaction-readiness">
                 <AlertCircle size={16} />
-                <span>예상 반응 생성은 YouTube·LLM 연결이 필요하지만 실제 댓글 분석은 LLM 없이 할 수 있습니다.</span>
+                <span>예상 반응 생성은 YouTube·LLM·반응 예측 모델·저장소가 준비돼야 하지만 실제 댓글 조회는 LLM·반응 예측 모델 없이도 가능합니다.</span>
                 <button type="button" onClick={() => navigate('/account/connect')}><Settings size={13} /> 계정 설정</button>
               </div>
             )}
@@ -356,7 +312,7 @@ export function ReactionPreviewPage() {
                 <article className="reaction-summary-card">
                   <span className="reaction-card-kicker"><BarChart3 size={14} /> 분석 후보</span>
                   <strong>{reactions.length}개</strong>
-                  <p>Safety를 통과한 생성 후보를 기준으로 집계했습니다.</p>
+                  <p>Safety와 Ranker를 통과한 최종 Top-K 후보를 집계했습니다.</p>
                   <div className="reaction-mini-status"><CheckCircle2 size={14} /> 기존 Ranker 결과 재사용</div>
                 </article>
                 <article className="reaction-summary-card">
@@ -370,7 +326,7 @@ export function ReactionPreviewPage() {
               <section className="reaction-panel">
                 <div className="reaction-panel-head">
                   <div><span>REACTION MIX</span><h3>예상 반응 분포</h3></div>
-                  <small>확률이 아니라 현재 생성 후보의 구성 비율입니다.</small>
+                  <small>확률이 아니라 현재 최종 Top-K 생성 후보의 구성 비율입니다.</small>
                 </div>
                 <div className="reaction-distribution">
                   {distribution.map((item) => (

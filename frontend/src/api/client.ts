@@ -1,4 +1,4 @@
-import { cachedAccount, savePrivateAnalysis, listPrivateAnalyses, getPrivateAnalysis, getPrivateDashboardSummary, listPrivateComments, sendPrivateFeedback } from './account';
+import { cachedAccount, savePrivatePublishedReceipts, savePrivateAnalysis, listPrivateAnalyses, getPrivateAnalysis, getPrivateDashboardSummary, listPrivateComments, sendPrivateFeedback } from './account';
 import type {
   AccountMode,
   AnalysisDetail,
@@ -23,6 +23,7 @@ import type {
   OwnedVideoPerformanceResponse,
 } from '../types/comment';
 import { applySavedPublicMetrics, type PublicMetricResponse } from '../utils/publicMetricsBackup';
+import { saveGuestBrowserAnalysis, listGuestBrowserAnalyses, getGuestBrowserAnalysis } from '../utils/browserAnalysisHistory';
 import { getCustomPersona } from '../utils/customPersonas';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
@@ -38,8 +39,13 @@ const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client
 const API_ACCESS_TOKEN_STORAGE_KEY = 'ai-comment.server-access-token';
 const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
 const PERSONA_STORAGE_KEY = 'ai-comment.persona';
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
-export const YOUTUBE_OAUTH_REDIRECT_URI = `${API_BASE}/youtube/oauth/callback`;
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
+// Google OAuth needs an absolute https redirect URI. A preview's API_BASE may
+// be the relative same-origin '/api' reverse proxy path.
+export const YOUTUBE_OAUTH_REDIRECT_URI = new URL(
+  `${API_BASE}/youtube/oauth/callback`,
+  typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173',
+).toString();
 
 function getStoredValue(key: string): string {
   if (typeof window === 'undefined') return '';
@@ -138,7 +144,10 @@ export function setStoredOpenAIApiKey(value: string): void {
 }
 
 export function getStoredOpenAIModel(): string {
-  return getStoredValue(OPENAI_MODEL_STORAGE_KEY) || DEFAULT_OPENAI_MODEL;
+  const stored = getStoredValue(OPENAI_MODEL_STORAGE_KEY);
+  // The old UI default is not a documented current API model ID. Keep custom
+  // selections intact, but move this exact legacy default to the current model.
+  return !stored || stored === 'gpt-5.6-luna' ? DEFAULT_OPENAI_MODEL : stored;
 }
 
 export function setStoredOpenAIModel(value: string): void {
@@ -183,6 +192,7 @@ function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, 
     ...(getStoredApiAccessToken() ? { 'X-API-Key': getStoredApiAccessToken() } : {}),
     ...(clientId ? { 'X-YouTube-OAuth-Client-ID': clientId } : {}),
     ...(clientSecret ? { 'X-YouTube-OAuth-Client-Secret': clientSecret } : {}),
+    'X-YouTube-OAuth-Redirect-URI': YOUTUBE_OAUTH_REDIRECT_URI,
   };
 }
 
@@ -192,6 +202,18 @@ async function getErrorMessage(res: Response, fallback: string): Promise<string>
     if (body.detail) return body.detail;
   } catch {
     // Ignore invalid/non-JSON bodies and use the fallback.
+  }
+  if (res.status === 429) {
+    // Render Free may rate-limit the public edge before FastAPI can return JSON.
+    // This also covers non-JSON gateway responses. Never auto-retry a billable
+    // LLM generation or a potentially side-effectful publishing request.
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const seconds = retryAfterHeader === null ? NaN : Number(retryAfterHeader);
+    const retryHint = Number.isFinite(seconds) && seconds > 0 && seconds <= 3600
+      ? `약 ${Math.ceil(seconds / 60)}분 후`
+      : '잠시 후';
+    return `${fallback}: 요청이 일시적으로 제한됐습니다 (429). ${retryHint} 다시 시도해주세요. ` +
+      'Render 무료 서버·프록시 또는 외부 API의 요청 제한일 수 있습니다. 중복 호출을 피해주세요.';
   }
   return `${fallback} (${res.status})`;
 }
@@ -208,17 +230,54 @@ export async function getHealth(): Promise<ServiceHealth> {
     undefined,
     '서비스 상태를 확인하지 못했습니다',
   );
+  // The free Render backend reports its generic Ollama fallback as "ready"
+  // even though there is no local Ollama process. Confirmed by live POST smoke.
+  // Only the presentation environment opts into this stronger UI readiness gate.
+  const usesUnavailableLocalModel =
+    typeof window !== 'undefined'
+    && window.location.hostname !== 'localhost'
+    && window.location.hostname !== '127.0.0.1'
+    && health.llm.provider === 'ollama_local';
+  const hasPersonalLLM = getAccountMode() === 'personal' && Boolean(getStoredOpenAIApiKey());
   return {
     ...health,
-    llm:
-      getAccountMode() === 'personal' && getStoredOpenAIApiKey()
-        ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+    llm: hasPersonalLLM
+      ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+      : usesUnavailableLocalModel
+        ? { ...health.llm, ready: false, missing: ['OpenAI API Key (personal account)'] }
         : health.llm,
     youtube:
       getAccountMode() === 'personal' && getStoredYouTubeApiKey()
         ? { ...health.youtube, configured: true }
         : health.youtube,
   };
+}
+
+/**
+ * Warm the Render Free API using GET requests before sending a billable
+ * recommendation POST. Retries are intentionally limited to read-only health;
+ * a failed generation or YouTube publishing POST must not be replayed.
+ */
+export async function waitForHealthyBackend(
+  onRetry?: (attempt: number, total: number) => void,
+): Promise<ServiceHealth> {
+  const backoffsMs = [8_000, 15_000, 25_000, 30_000];
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+    try {
+      return await getHealth();
+    } catch (error) {
+      lastError = error;
+      if (attempt === backoffsMs.length) break;
+      onRetry?.(attempt + 1, backoffsMs.length);
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, backoffsMs[attempt]);
+      });
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('서버 연결을 확인하지 못했습니다. 다시 시도해주세요.');
 }
 
 export async function recommend(request: RecommendRequest): Promise<RecommendResponse> {
@@ -243,6 +302,11 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     },
     '추천 요청이 실패했습니다',
   );
+  if (!signedIn) {
+    // Render Free's ephemeral SQLite can be lost after sleep/redeploy.
+    // Guest recovery stays on this browser only and cannot masquerade as member data.
+    saveGuestBrowserAnalysis(response, request);
+  }
   if (signedIn) {
     try {
       await savePrivateAnalysis(response, request.post_text || request.youtube_url || '', request.additional_context);
@@ -265,6 +329,10 @@ export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
 
 export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
   if (cachedAccount()) return listPrivateAnalyses(limit);
+  const local = listGuestBrowserAnalyses(limit);
+  // Prefer the immediately available browser copy. It survives Render Free idle
+  // restarts and avoids blocking the dashboard on a cold backend wake-up.
+  if (local.length) return local;
   const params = new URLSearchParams({ limit: String(limit) });
   const body = await requestJson<{ items: AnalysisSummary[] }>(
     `${API_BASE}/analyses?${params.toString()}`,
@@ -276,6 +344,8 @@ export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
 
 export async function getAnalysis(analysisId: string): Promise<AnalysisDetail> {
   if (cachedAccount()) return getPrivateAnalysis(analysisId);
+  const cached = getGuestBrowserAnalysis(analysisId);
+  if (cached) return cached;
   return requestJson<AnalysisDetail>(
     `${API_BASE}/analyses/${encodeURIComponent(analysisId)}`,
     undefined,
@@ -382,7 +452,28 @@ export async function publishYouTubeComment(request: {
   // Save a second receipt outside the server's temporary SQLite database.
   // This is device-local recovery, not an account-wide durable database.
   const saved = backUpPostedComment(posted, request.recommendation_id, mode);
-  return { ...posted, browser_backup_saved: saved };
+  let cloudSaved: boolean | undefined;
+  let cloudWarning: string | undefined;
+  if (mode === 'personal' && posted.posted && posted.comment_id && posted.video_id && cachedAccount()) {
+    try {
+      await savePrivatePublishedReceipts([{
+        video_id: posted.video_id,
+        comment_id: posted.comment_id,
+        comment: posted.comment,
+        comment_url: posted.comment_url || null,
+        published_at: new Date().toISOString(),
+        recommendation_id: request.recommendation_id ?? null,
+      }]);
+      cloudSaved = true;
+    } catch (error) {
+      // Never turn an already-published YouTube comment into a failed POST or
+      // encourage retries. Cloud receipt and server tracking are separate.
+      cloudSaved = false;
+      cloudWarning = error instanceof Error ? error.message : '클라우드 백업 실패';
+    }
+  }
+  return { ...posted, browser_backup_saved: saved,
+    cloud_backup_saved: cloudSaved, cloud_backup_warning: cloudWarning };
 }
 
 
@@ -486,6 +577,14 @@ export async function recoverPublishedBatch(
   owner_channel_id: string;
   registered_count: number;
   failed_count: number;
+  items: Array<{
+    id: string;
+    video_id: string;
+    comment_id: string;
+    comment: string;
+    comment_url: string | null;
+    published_at: string;
+  }>;
   failures: Array<{ comment_id: string; reason: string }>;
   storage_persistent: boolean;
 }> {
@@ -545,7 +644,9 @@ export async function saveAudienceSnapshot(
   analysisId?: string | null,
 ): Promise<{ snapshot: AudienceSnapshotSummary; report: AudienceObservationReport }> {
   const query = new URLSearchParams({ video_id: videoId });
-  if (analysisId) query.set('analysis_id', analysisId);
+  // Supabase-private analyses are not present in the server's shared SQLite store.
+  // Store public observations without leaking or referencing private analysis IDs.
+  if (analysisId && !cachedAccount()) query.set('analysis_id', analysisId);
   return requestJson(
     `${API_BASE}/audience/observations?${query.toString()}`,
     { method: 'POST', headers: withRuntimeKeys() },

@@ -1,6 +1,6 @@
 import { Check, Copy, LoaderCircle, RefreshCw, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { Composer } from '../components/recommend/Composer';
@@ -10,8 +10,11 @@ import { RecommendationTracePanel } from '../components/recommend/Recommendation
 import { TypeTag } from '../components/TypeTag';
 import {
   getAccountMode,
+  getStoredOpenAIApiKey,
+  setAccountMode,
   getAnalysis,
   getHealth,
+  waitForHealthyBackend,
   getVideoPreview,
   getYouTubeOAuthStatus,
   publishYouTubeComment,
@@ -20,6 +23,7 @@ import {
   startYouTubeOAuth,
 } from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
+import { recordSelectedRecommendation } from '../utils/selectionHistory';
 import { isRecommendationInputReady } from '../utils/recommendationInput';
 import { getRecommendationReadinessMessage } from '../utils/readiness';
 import { isValidYouTubeVideoUrl } from '../utils/youtube';
@@ -37,7 +41,8 @@ type Mode = 'url' | 'manual';
 
 export function RecommendPage() {
   const navigate = useNavigate();
-  const [mode, setModeState] = useState<Mode>('url');
+  const location = useLocation();
+  const [mode, setModeState] = useState<Mode>('manual');
   const [url, setUrlState] = useState('');
   const [manual, setManualState] = useState('');
   const [additionalContext, setAdditionalContextState] = useState('');
@@ -49,7 +54,11 @@ export function RecommendPage() {
 
   const [serviceHealth, setServiceHealth] = useState<ServiceHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [healthRetryKey, setHealthRetryKey] = useState(0);
+  const [healthAttempt, setHealthAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [preparingRecommendation, setPreparingRecommendation] = useState(false);
+  const [warmRetryCount, setWarmRetryCount] = useState(0);
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [resolvedCategory, setResolvedCategory] = useState<string | null>(null);
@@ -89,22 +98,42 @@ export function RecommendPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getHealth()
-      .then((health) => {
+    let retryTimer: number | undefined;
+    setServiceHealth(null);
+    setHealthError(null);
+    setHealthAttempt(0);
+
+    // Render Free can take time to wake. Only retry the read-only /health
+    // endpoint; never automatically retry a comment generation or YouTube post.
+    const checkHealth = async (attempt: number): Promise<void> => {
+      try {
+        const health = await getHealth();
         if (cancelled) return;
         setServiceHealth(health);
         setYouTubeOAuth(health.youtube.oauth ?? null);
         setHealthError(null);
-      })
-      .catch((err) => {
+        setHealthAttempt(0);
+      } catch (err) {
         if (cancelled) return;
+        if (attempt < 4) {
+          setHealthAttempt(attempt + 1);
+          const retryDelays = [8_000, 15_000, 25_000, 30_000];
+          retryTimer = window.setTimeout(() => {
+            void checkHealth(attempt + 1);
+          }, retryDelays[attempt]);
+          return;
+        }
         setServiceHealth(null);
         setHealthError(err instanceof Error ? err.message : '서비스 상태를 확인하지 못했습니다.');
-      });
+      }
+    };
+
+    void checkHealth(0);
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, []);
+  }, [healthRetryKey]);
 
   useEffect(() => {
     if (mode !== 'url' || !url.trim() || !urlValid) {
@@ -203,11 +232,23 @@ export function RecommendPage() {
   };
 
   const submit = async () => {
-    if (readinessChecking || readinessMessage || !inputReady) return;
+    if (readinessChecking || readinessMessage || !inputReady || submitting) return;
 
     setSubmitting(true);
+    setPreparingRecommendation(true);
+    setWarmRetryCount(0);
     setError(null);
     try {
+      // Health may have been checked before Render's 15-minute idle sleep.
+      // Wake it again with GET requests, then submit exactly one paid LLM POST.
+      const currentHealth = await waitForHealthyBackend((attempt) => {
+        setWarmRetryCount(attempt);
+      });
+      setServiceHealth(currentHealth);
+      setHealthError(null);
+      const currentReadiness = getRecommendationReadinessMessage(currentHealth, false, mode);
+      if (currentReadiness) throw new Error(currentReadiness);
+      setPreparingRecommendation(false);
       const response = await recommend(
         mode === 'url'
           ? {
@@ -232,6 +273,8 @@ export function RecommendPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
+      setPreparingRecommendation(false);
+      setWarmRetryCount(0);
       setSubmitting(false);
     }
   };
@@ -267,9 +310,16 @@ export function RecommendPage() {
     }
   };
 
+  // Dashboard history rows reopen the persisted analysis in the original viewer.
+  useEffect(() => {
+    const requestedId = new URLSearchParams(location.search).get('analysis');
+    if (requestedId) void loadHistory(requestedId);
+  }, [location.search]);
+
   const copyComment = async (recommendation: CommentRecommendation) => {
     try {
       await navigator.clipboard.writeText(recommendation.comment);
+      recordSelectedRecommendation(recommendation.id);
       setCopiedId(recommendation.id);
       window.setTimeout(() => setCopiedId((current) => (current === recommendation.id ? null : current)), 1500);
     } catch {
@@ -352,12 +402,17 @@ export function RecommendPage() {
         recommendation_id: recommendation.id,
       });
       setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
-      if (!posted.tracked || !posted.browser_backup_saved) {
+      if (!posted.tracked || !posted.browser_backup_saved || posted.cloud_backup_saved === false) {
+        const savedLocation = [
+          posted.browser_backup_saved ? '브라우저 백업 완료' : '브라우저 백업 실패',
+          posted.cloud_backup_saved === true ? 'Supabase 회원 클라우드 영수증 백업 완료'
+            : posted.cloud_backup_saved === false ? '회원 클라우드 백업 실패' : '',
+        ].filter(Boolean).join(' · ');
         setError(
-          '댓글은 YouTube에 게시됐지만 추적 기록이 완전히 저장되지는 않았습니다. ' +
-          (posted.browser_backup_saved
-            ? '이 브라우저의 게시 영수증은 남아 있습니다. 내 댓글 성과에서 복구할 수 있습니다.'
-            : '브라우저 백업도 실패했습니다. 게시된 댓글 주소를 별도로 보관해주세요.'),
+          'YouTube 댓글 게시 자체는 성공했습니다. 다시 게시하지 마세요. ' +
+          (!posted.tracked ? '서버 추적 기록이 정상 저장되지 않았습니다. ' : '') +
+          savedLocation + '. ' +
+          (posted.cloud_backup_warning || '영구 서버 저장소와 OAuth 토큰 보존은 별도 설정이 필요합니다.'),
         );
       }
     } catch (err) {
@@ -379,10 +434,47 @@ export function RecommendPage() {
       <div className="main">
         <Header title="댓글 추천" />
         <div className="recommend">
+          {readinessChecking && healthAttempt > 0 && (
+            <div className="inline-status" role="status">
+              Render 무료 서버가 다시 시작되는 중입니다. 연결을 확인하고 있어요 ({healthAttempt}/4).
+            </div>
+          )}
+          {preparingRecommendation && (
+            <div className="inline-status" role="status">
+              댓글 생성 전 백엔드 연결 확인 중{warmRetryCount > 0 ? ` · 재확인 ${warmRetryCount}/4` : ''}.
+              서버가 잠들어 있었다면 처음 요청이 지연될 수 있습니다.
+            </div>
+          )}
+          {healthError && (
+            <div className="inline-status error" role="alert">
+              백엔드 연결 확인이 실패했습니다: {healthError}
+              <button type="button" className="btn secondary sm"
+                onClick={() => setHealthRetryKey((value) => value + 1)}>
+                <RefreshCw size={14} /> 서버 다시 확인
+              </button>
+            </div>
+          )}
+          {serviceHealth && !serviceHealth.llm.ready && (
+            <div className="inline-status" role="status">
+              {accountMode === 'demo' && getStoredOpenAIApiKey() ? (
+                <button type="button" className="btn secondary sm" onClick={() => {
+                  setAccountMode('personal');
+                  setHealthRetryKey((value) => value + 1);
+                }}>
+                  저장된 OpenAI 키로 개인 모드 사용
+                </button>
+              ) : (
+                <button type="button" className="btn secondary sm" onClick={() => navigate('/account/connect')}>
+                  OpenAI API Key 설정하기
+                </button>
+              )}
+            </div>
+          )}
           {serviceHealth?.storage.persistent === false && (
             <div className="inline-status error" role="alert">
-              현재 서버 저장소가 영구 보존되지 않습니다. 댓글 게시 후 기록을 브라우저에 백업하고,
-              추적을 지속하려면 영구 DB 연결이 필요합니다.
+              현재 서버 SQLite와 OAuth 토큰은 재시작 후 유실될 수 있습니다.
+              개인 계정에 로그인했다면 게시 영수증은 Supabase에도 별도로 백업할 수 있습니다.
+              전체 추적 이력을 영구 보존하려면 서버 저장소 이전이 필요합니다.
             </div>
           )}
           <div className="hero">
@@ -413,6 +505,7 @@ export function RecommendPage() {
             onClearPreview={clearPreview}
             onSubmit={submit}
             submitting={submitting}
+            preparingRecommendation={preparingRecommendation}
           />
 
           {isEmpty && !results && !submitting && <EmptyExamples onPick={pickExample} />}

@@ -1,0 +1,134 @@
+name: Presentation server connectivity (read-only)
+
+on:
+  push:
+    branches: [feature/presentation-preflight-20261027]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proxy-and-backend-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Probe public backend and presentation reverse proxy
+        env:
+          API_URL: https://ai-comment-api-lite.onrender.com/health
+          WEB_URL: https://ai-comment-presentation-20261028.onrender.com/api/health
+          ONE_SHOT_RECOMMEND: ${{ contains(github.event.head_commit.message, 'ONE-SHOT-RECOMMEND') && '1' || '0' }}
+        run: |
+          python - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          def check(label, url):
+              print(f"Checking {label} ...", flush=True)
+              last_error = None
+              # Render Free instances may cold-start; bounded GET retry only.
+              for attempt in range(1, 7):
+                  try:
+                      request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "AI-COMMENT-public-healthcheck/1.0"})
+                      with urllib.request.urlopen(request, timeout=65) as response:
+                          body = response.read(65536)
+                          content_type = response.headers.get("Content-Type", "")
+                          if response.status != 200 or "json" not in content_type.lower():
+                              raise RuntimeError(f"HTTP {response.status}, content-type={content_type}")
+                          result = json.loads(body.decode())
+                          if result.get("message") != "AI Comment Recommender API is running" or result.get("status") not in {"ok", "degraded"}:
+                              raise RuntimeError(f"Unexpected API health schema: keys={list(result)}")
+                          print(f"PASS {label} HTTP 200 status={result['status']} model.ready={result.get('model', {}).get('ready')} llm.ready={result.get('llm', {}).get('ready')} youtube.configured={result.get('youtube', {}).get('configured')} storage.persistent={result.get('storage', {}).get('persistent')}", flush=True)
+                          auth = result.get("auth", {})
+                          print(f"AUTH {label} mode={auth.get('mode')} pairing_available={auth.get('pairing_available')}", flush=True)
+                          return True
+                  except Exception as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                      print(f"Attempt {attempt}/6 {label}: {last_error}", flush=True)
+                      if attempt != 6: time.sleep(8)
+              print(f"FAIL {label}: {last_error}", flush=True)
+              return False
+
+          def first_attempt(label, url):
+              now = time.monotonic()
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept":"application/json", "User-Agent":"AI-COMMENT-immediate-probe/1.0"}), timeout=35) as response:
+                      print(f"IMMEDIATE {label} HTTP={response.status} seconds={time.monotonic()-now:.2f}", flush=True)
+              except Exception as error:
+                  print(f"IMMEDIATE {label} FAILED {type(error).__name__}: {error} seconds={time.monotonic()-now:.2f}", flush=True)
+          first_attempt("backend", os.environ["API_URL"])
+          first_attempt("presentation proxy", os.environ["WEB_URL"])
+          backend_ok = check("backend", os.environ["API_URL"])
+          proxy_ok = check("presentation same-origin proxy", os.environ["WEB_URL"])
+          if not (backend_ok and proxy_ok):
+              sys.exit(1)
+          if os.getenv("ONE_SHOT_RECOMMEND") == "1":
+              print("ONE-SHOT RECOMMEND: sending ONE non-persisted demo POST", flush=True)
+              url = "https://ai-comment-presentation-20261028.onrender.com/api/recommend"
+              body = json.dumps({
+                  "post_text": "AI 에이전트 개발 과정에서 생산성을 높이는 실무 팁을 소개하는 영상입니다. 코드 리뷰와 테스트 자동화가 주요 주제입니다.",
+                  "top_k": 3, "persona_id": "none"
+              }, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(url, data=body, method="POST", headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "X-AI-Comment-Private-History": "1",
+                  "X-AI-Comment-Account-Mode": "demo",
+                  "User-Agent": "AI-COMMENT-one-shot-functional-test",
+              })
+              try:
+                  with urllib.request.urlopen(request, timeout=110) as response:
+                      result = json.loads(response.read(1000000))
+                      recommendations = result.get("recommendations") or []
+                      print("RECOMMEND PASS", response.status,
+                            "count", len(recommendations),
+                            "model", result.get("generation", {}).get("model"), flush=True)
+                      if response.status != 200 or len(recommendations) < 3:
+                          sys.exit(1)
+              except urllib.error.HTTPError as exc:
+                  print("RECOMMEND FAILED HTTP", exc.code,
+                        "Retry-After", exc.headers.get("Retry-After"),
+                        "body", exc.read(400).decode("utf-8", "replace"), flush=True)
+                  sys.exit(1)
+              except Exception as exc:
+                  print("RECOMMEND FAILED", type(exc).__name__, str(exc)[:200], flush=True)
+                  sys.exit(1)
+          PY
+
+      - name: Verify short production URL, SPA route, and backend proxy
+        run: |
+          python - <<'PY'
+          import json, time, urllib.request, urllib.error, sys
+          origin = "https://ai-comment-jy.vercel.app"
+          def fetch(path, expected):
+              error = None
+              for attempt in range(1,5):
+                  try:
+                      request = urllib.request.Request(origin+path, headers={
+                          "Accept":"application/json" if expected == "api" else "text/html",
+                          "User-Agent":"AI-COMMENT-final-release-verification"
+                      })
+                      with urllib.request.urlopen(request, timeout=60) as response:
+                          body=response.read(150000)
+                          code=response.status
+                          content_type=response.headers.get("Content-Type","")
+                          if code != 200:
+                              raise RuntimeError(f"Unexpected HTTP {code}")
+                          if expected == "api":
+                              data=json.loads(body.decode("utf-8"))
+                              if data.get("status") not in ("ok","degraded"):
+                                  raise RuntimeError("Expected API health response")
+                              print("FINAL PASS API",path,"status",data.get("status"), flush=True)
+                          else:
+                              if "html" not in content_type.lower() or b'<div id="root">' not in body:
+                                  raise RuntimeError("Expected compiled Vite SPA HTML")
+                              print("FINAL PASS SPA",path,"status",code,flush=True)
+                          return
+                  except Exception as exc:
+                      error=f"{type(exc).__name__}: {exc}"
+                      print("FINAL RETRY",path,attempt,error[:200],flush=True)
+                      if attempt < 4: time.sleep(10)
+              print("FINAL FAIL",path,error,flush=True)
+              sys.exit(1)
+          fetch("/","spa")
+          fetch("/dashboard","spa")
+          fetch("/api/health","api")
+          PY

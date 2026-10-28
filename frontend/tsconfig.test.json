@@ -13,6 +13,9 @@
     "src/utils/readiness.ts",
     "src/utils/recommendationInput.ts",
     "src/utils/takeoutComments.ts",
-    "src/utils/compactPersona.ts"
+    "src/utils/compactPersona.ts",
+    "src/utils/audienceComparison.ts",
+    "src/utils/analysisEvidence.ts",
+    "src/utils/csvImportDashboard.ts"
   ]
 }

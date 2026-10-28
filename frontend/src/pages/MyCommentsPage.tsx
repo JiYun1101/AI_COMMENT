@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
-import { exportPostedBackup, importPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
+import { saveVerifiedTakeoutImports, removeVerifiedTakeoutImport } from '../utils/takeoutImportLedger';
+import { cachedAccount, savePrivatePublishedReceipts, listPrivatePublishedReceipts } from '../api/account';
+import { exportPostedBackup, importPostedBackup, readPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
 import { applySavedPublicMetrics, storePublicMetricResponse, removeSavedPublicCommentMetrics } from '../utils/publicMetricsBackup';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
@@ -50,6 +52,7 @@ export function MyCommentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [recoveryUrl, setRecoveryUrl] = useState('');
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
   const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -173,6 +176,7 @@ export function MyCommentsPage() {
       const result = await deletePublishedYouTubeComment(item.comment_id);
       if (!result.deleted) throw new Error('YouTube에서 댓글 삭제를 확인하지 못했습니다.');
       removePostedBackupComment(item.comment_id);
+      removeVerifiedTakeoutImport(item.comment_id);
       removeSavedPublicCommentMetrics(item.comment_id);
       setDeletingId(null);
       setEditingId(null);
@@ -259,6 +263,11 @@ export function MyCommentsPage() {
       if (!records.length) throw new Error('복구 가능한 YouTube 댓글 ID를 찾지 못했습니다.');
       let recovered = 0;
       let failed = 0;
+      let storedVerified = 0;
+      const cloudReceipts: Array<{
+        video_id: string; comment_id: string; comment: string;
+        comment_url: string | null; published_at: string; recommendation_id: null;
+      }> = [];
       const bounded = records.slice(0, 150);
       // Batch calls avoid one YouTube API round-trip for each historical comment.
       for (let i = 0; i < bounded.length; i += 30) {
@@ -268,12 +277,37 @@ export function MyCommentsPage() {
         );
         recovered += result.registered_count;
         failed += result.failed_count;
+        // Persist ONLY entries individually verified against the owner's OAuth
+        // channel. Never include raw unverified CSV rows in dashboard totals.
+        if (result.items.length) {
+          storedVerified += saveVerifiedTakeoutImports(result.items, result.owner_channel_id).added;
+          importPostedBackup(result.items.map(item => ({
+            video_id: item.video_id, comment_id: item.comment_id,
+            comment: item.comment, comment_url: item.comment_url,
+            published_at: item.published_at, recommendation_id: null,
+            account_mode: 'personal' as const,
+          })));
+          cloudReceipts.push(...result.items.map(item => ({
+            video_id: item.video_id, comment_id: item.comment_id,
+            comment: item.comment, comment_url: item.comment_url,
+            published_at: item.published_at, recommendation_id: null as null,
+          })));
+        }
         setTakeoutProgress('댓글 본인 확인 ' + Math.min(i + 30, bounded.length) + '/' + bounded.length);
       }
+      let cloudNote = '';
+      if (cloudReceipts.length && cachedAccount()) {
+        try {
+          await savePrivatePublishedReceipts(cloudReceipts);
+          cloudNote = ' 회원 계정에도 게시 영수증을 보관했습니다.';
+        } catch {
+          cloudNote = ' 회원 계정 백업은 실패했지만 브라우저 기록은 보관했습니다.';
+        }
+      }
       await load();
-      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록, 실패 ' + failed + '개.' +
+      setNotice('같은 YouTube 채널로 확인된 과거 댓글 ' + recovered + '개 등록 (새로 누적 ' + storedVerified + '개), 실패 ' + failed + '개.' +
         (records.length > bounded.length ? ' 150개를 초과한 나머지는 파일을 나누어 등록해주세요.' : '') +
-        ' 영구 DB 미연결 시 서버 재시작으로 다시 사라질 수 있습니다.');
+        ' 대시보드의 기존 댓글 CSV 성과에도 반영됩니다.' + cloudNote);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Takeout 기록 복구에 실패했습니다.');
     } finally {
@@ -295,6 +329,52 @@ export function MyCommentsPage() {
       setError(error instanceof Error ? error.message : '이전 기록 연결에 실패했습니다.');
     } finally {
       setRecoveryBusy(false);
+    }
+  };
+
+
+  const uploadCloudReceipts = async () => {
+    if (cloudBusy) return;
+    setCloudBusy(true);
+    setError(null);
+    try {
+      if (!cachedAccount()) throw new Error('Supabase 이메일 계정에 로그인해주세요.');
+      if (!identity?.connected) throw new Error('게시 영수증 백업 전에 본인 YouTube 계정을 연결해 확인해주세요.');
+      const records = readPostedBackup('personal');
+      if (!records.length) {
+        setNotice('백업할 개인 YouTube 게시 영수증이 없습니다.');
+        return;
+      }
+      const count = await savePrivatePublishedReceipts(records.map(({ video_id, comment_id, comment, comment_url, published_at, recommendation_id }) =>
+        ({ video_id, comment_id, comment, comment_url, published_at, recommendation_id })));
+      setNotice('내 Supabase 계정에 게시 영수증 ' + count + '개를 별도로 백업했습니다. 서버 OAuth 토큰이나 지표 이력은 포함되지 않습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '게시 영수증 클라우드 백업에 실패했습니다.');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const downloadCloudReceipts = async () => {
+    if (cloudBusy) return;
+    setCloudBusy(true);
+    setError(null);
+    try {
+      const records = await listPrivatePublishedReceipts();
+      if (!records.length) {
+        setNotice('내 Supabase 계정에 저장된 게시 영수증이 없습니다.');
+        return;
+      }
+      // Private backup is only a self-saved receipt, not evidence that this
+      // browser currently owns the YouTube channel. Server restoration still
+      // requires independently verified OAuth.
+      const count = importPostedBackup(records.map(row => ({ ...row, account_mode: 'personal' as const })));
+      await load();
+      setNotice('Supabase의 게시 영수증 ' + count + '개를 브라우저에 가져왔습니다. 서버에 다시 추적하려면 YouTube 계정 본인 인증이 필요합니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '게시 영수증 클라우드 복원에 실패했습니다.');
+    } finally {
+      setCloudBusy(false);
     }
   };
 
@@ -367,6 +447,18 @@ export function MyCommentsPage() {
                 </button>
               )}
               <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              {accountMode === 'personal' && cachedAccount() && (
+                <>
+                  <button type="button" className="btn secondary" disabled={cloudBusy || !identity?.connected}
+                    onClick={() => void uploadCloudReceipts()}>
+                    {cloudBusy ? '처리 중...' : 'Supabase에 게시 기록 백업'}
+                  </button>
+                  <button type="button" className="btn secondary" disabled={cloudBusy}
+                    onClick={() => void downloadCloudReceipts()}>
+                    {cloudBusy ? '처리 중...' : '내 계정 클라우드 백업 가져오기'}
+                  </button>
+                </>
+              )}
               {accountMode === 'personal' && (
                 <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
                   Google Takeout 댓글 CSV 가져오기
@@ -396,7 +488,7 @@ export function MyCommentsPage() {
             )}
             <p className="eng-muted" style={{ fontSize: 12 }}>
               YouTube에 게시된 댓글은 다시 조회할 수 있어도 삭제된 AI 추천 점수나 분석 기록까지 자동 복구되지는 않습니다.
-              기기 간 영구 보존은 별도의 영구 DB가 필요합니다.
+              이메일 회원은 Supabase에 게시 영수증을 별도로 백업할 수 있지만, 서버의 OAuth 토큰·추적 측정 이력은 여전히 비영구적입니다.
             </p>
           </section>
 
