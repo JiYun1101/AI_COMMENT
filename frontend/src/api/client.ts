@@ -226,11 +226,20 @@ export async function getHealth(): Promise<ServiceHealth> {
     undefined,
     '서비스 상태를 확인하지 못했습니다',
   );
+  // The free Render backend reports its generic Ollama fallback as "ready"
+  // even though there is no local Ollama process. Confirmed by live POST smoke.
+  // Only the presentation environment opts into this stronger UI readiness gate.
+  const usesUnavailableLocalModel =
+    typeof window !== 'undefined'
+    && window.location.hostname === 'ai-comment-presentation-20261028.onrender.com'
+    && health.llm.provider === 'ollama_local';
+  const hasPersonalLLM = getAccountMode() === 'personal' && Boolean(getStoredOpenAIApiKey());
   return {
     ...health,
-    llm:
-      getAccountMode() === 'personal' && getStoredOpenAIApiKey()
-        ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+    llm: hasPersonalLLM
+      ? { ...health.llm, ready: true, provider: 'openai_responses_api', model: getStoredOpenAIModel(), missing: [] }
+      : usesUnavailableLocalModel
+        ? { ...health.llm, ready: false, missing: ['OpenAI API Key (personal account)'] }
         : health.llm,
     youtube:
       getAccountMode() === 'personal' && getStoredYouTubeApiKey()
