@@ -36,6 +36,8 @@ jobs:
                           if result.get("message") != "AI Comment Recommender API is running" or result.get("status") not in {"ok", "degraded"}:
                               raise RuntimeError(f"Unexpected API health schema: keys={list(result)}")
                           print(f"PASS {label} HTTP 200 status={result['status']} model.ready={result.get('model', {}).get('ready')} llm.ready={result.get('llm', {}).get('ready')} youtube.configured={result.get('youtube', {}).get('configured')} storage.persistent={result.get('storage', {}).get('persistent')}", flush=True)
+                          auth = result.get("auth", {})
+                          print(f"AUTH {label} mode={auth.get('mode')} pairing_available={auth.get('pairing_available')}", flush=True)
                           return True
                   except Exception as exc:
                       last_error = f"{type(exc).__name__}: {exc}"
