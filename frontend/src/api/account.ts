@@ -291,6 +291,23 @@ function toSummary(row: SavedRow): AnalysisSummary {
 export async function listPrivateAnalyses(limit: number): Promise<AnalysisSummary[]> {
   return (await accountAnalyses(limit)).map(toSummary);
 }
+export async function getPrivateAnalysisOverview(limit = 500): Promise<{
+  analyses: AnalysisSummary[];
+  recommendations: Array<{ analysisId: string; recommendationId: string; comment: string }>;
+  limited: boolean;
+}> {
+  const rows = await accountAnalyses(limit);
+  return {
+    analyses: rows.map(toSummary),
+    recommendations: rows.flatMap(row => row.payload.recommendations.map(rec => ({
+      analysisId: row.local_analysis_id,
+      recommendationId: rec.id,
+      comment: rec.comment,
+    }))),
+    limited: rows.length >= Math.min(500, limit),
+  };
+}
+
 export async function getPrivateAnalysis(id: string): Promise<AnalysisDetail> {
   const current = (await accountAnalyses()).find(x=>x.local_analysis_id===id);
   if (!current) throw new Error('내 계정에서 분석 기록을 찾지 못했습니다.');
