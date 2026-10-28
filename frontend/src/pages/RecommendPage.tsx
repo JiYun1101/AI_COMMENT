@@ -49,6 +49,8 @@ export function RecommendPage() {
 
   const [serviceHealth, setServiceHealth] = useState<ServiceHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [healthRetryKey, setHealthRetryKey] = useState(0);
+  const [healthAttempt, setHealthAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
@@ -89,22 +91,41 @@ export function RecommendPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getHealth()
-      .then((health) => {
+    let retryTimer: number | undefined;
+    setServiceHealth(null);
+    setHealthError(null);
+    setHealthAttempt(0);
+
+    // Render Free can take time to wake. Only retry the read-only /health
+    // endpoint; never automatically retry a comment generation or YouTube post.
+    const checkHealth = async (attempt: number): Promise<void> => {
+      try {
+        const health = await getHealth();
         if (cancelled) return;
         setServiceHealth(health);
         setYouTubeOAuth(health.youtube.oauth ?? null);
         setHealthError(null);
-      })
-      .catch((err) => {
+        setHealthAttempt(0);
+      } catch (err) {
         if (cancelled) return;
+        if (attempt < 3) {
+          setHealthAttempt(attempt + 1);
+          retryTimer = window.setTimeout(() => {
+            void checkHealth(attempt + 1);
+          }, (attempt + 1) * 5_000);
+          return;
+        }
         setServiceHealth(null);
         setHealthError(err instanceof Error ? err.message : '서비스 상태를 확인하지 못했습니다.');
-      });
+      }
+    };
+
+    void checkHealth(0);
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, []);
+  }, [healthRetryKey]);
 
   useEffect(() => {
     if (mode !== 'url' || !url.trim() || !urlValid) {
@@ -384,6 +405,20 @@ export function RecommendPage() {
       <div className="main">
         <Header title="댓글 추천" />
         <div className="recommend">
+          {readinessChecking && healthAttempt > 0 && (
+            <div className="inline-status" role="status">
+              Render 서버가 준비 중일 수 있어 연결을 다시 확인하고 있습니다. 재확인 {healthAttempt}/3
+            </div>
+          )}
+          {healthError && (
+            <div className="inline-status error" role="alert">
+              백엔드 연결 확인이 실패했습니다: {healthError}
+              <button type="button" className="btn secondary sm"
+                onClick={() => setHealthRetryKey((value) => value + 1)}>
+                <RefreshCw size={14} /> 서버 다시 확인
+              </button>
+            </div>
+          )}
           {serviceHealth?.storage.persistent === false && (
             <div className="inline-status error" role="alert">
               현재 서버 SQLite와 OAuth 토큰은 재시작 후 유실될 수 있습니다.
