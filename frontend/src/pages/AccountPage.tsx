@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   DEFAULT_OPENAI_MODEL,
   connectServerWithCode,
+  getHealth,
   verifyServerConnection,
   YOUTUBE_OAUTH_REDIRECT_URI,
   disconnectYouTubeOAuth,
@@ -32,6 +33,7 @@ export function AccountPage() {
   const [serverToken, setServerToken] = useState(() => getStoredApiAccessToken());
   const [pairingCode, setPairingCode] = useState('');
   const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverBusy, setServerBusy] = useState(false);
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
@@ -57,6 +59,9 @@ export function AccountPage() {
       setPairingCode(invite);
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     }
+    getHealth()
+      .then(() => setApiStatus('online'))
+      .catch(() => setApiStatus('offline'));
     verifyServerConnection()
       .then((result) => setServerStatus(result.connected ? 'connected' : 'disconnected'))
       .catch(() => setServerStatus('disconnected'));
@@ -250,14 +255,21 @@ export function AccountPage() {
                 <div>
                   <span className="credential-kicker">SERVER CONNECTION</span>
                   <h3>서버 연결</h3>
-                  <p>초대 링크를 열면 연결 코드가 자동으로 준비돼요. 연결 버튼을 누르면 서버 인증이 완료됩니다.
-                    관리자 비밀키를 입력하거나 Render 설정을 직접 변경할 필요가 없습니다.</p>
+                  <p>API 접속과 관리자 인증은 별개입니다. 일반적인 영상 조회·댓글 추천은 서버가 온라인이면 사용할 수 있습니다.
+                    스냅샷 저장·모델 데이터 조회 등 보호된 기능은 별도 관리자 연결이 필요합니다.</p>
                 </div>
                 <ShieldCheck size={20} />
               </div>
-              <div className={'server-connection-status ' + serverStatus} role="status">
-                {serverStatus === 'connected' ? '서버 연결됨' : serverStatus === 'checking' ? '서버 확인 중' : '서버 미연결'}
+              <div role="status" className={'server-connection-status ' + (apiStatus === 'online' ? 'connected' : apiStatus === 'checking' ? 'checking' : 'disconnected')}>
+                {apiStatus === 'online' ? 'API 서버 온라인' : apiStatus === 'checking' ? 'API 서버 확인 중' : 'API 서버 접속 실패'}
               </div>
+              {apiStatus === 'offline' && (
+                <p className="account-field-note">서버가 일시 중지되었거나 프록시 응답에 문제가 있을 수 있습니다. 화면을 새로고침해 다시 확인해주세요.</p>
+              )}
+              <div className={'server-connection-status ' + serverStatus} role="status">
+                {serverStatus === 'connected' ? '관리자 인증 연결됨' : serverStatus === 'checking' ? '관리자 인증 확인 중' : '관리자 인증 미연결 (일반 API와 별개)'}
+              </div>
+              <p className="account-field-note">관리자 연결은 비공개 초대 코드나 기존 인증 토큰을 가진 소유자만 사용할 수 있습니다.</p>
               <label className="account-label" htmlFor="server-pairing-code">서버 연결 코드</label>
               <div className="secret-input">
                 <input id="server-pairing-code" type="password" autoComplete="off"
