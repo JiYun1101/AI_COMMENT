@@ -1,4 +1,4 @@
-import { cachedAccount, savePrivateAnalysis, listPrivateAnalyses, getPrivateAnalysis, getPrivateDashboardSummary, listPrivateComments, sendPrivateFeedback } from './account';
+import { cachedAccount, savePrivatePublishedReceipts, savePrivateAnalysis, listPrivateAnalyses, getPrivateAnalysis, getPrivateDashboardSummary, listPrivateComments, sendPrivateFeedback } from './account';
 import type {
   AccountMode,
   AnalysisDetail,
@@ -388,7 +388,28 @@ export async function publishYouTubeComment(request: {
   // Save a second receipt outside the server's temporary SQLite database.
   // This is device-local recovery, not an account-wide durable database.
   const saved = backUpPostedComment(posted, request.recommendation_id, mode);
-  return { ...posted, browser_backup_saved: saved };
+  let cloudSaved: boolean | undefined;
+  let cloudWarning: string | undefined;
+  if (mode === 'personal' && posted.posted && posted.comment_id && posted.video_id && cachedAccount()) {
+    try {
+      await savePrivatePublishedReceipts([{
+        video_id: posted.video_id,
+        comment_id: posted.comment_id,
+        comment: posted.comment,
+        comment_url: posted.comment_url || null,
+        published_at: new Date().toISOString(),
+        recommendation_id: request.recommendation_id ?? null,
+      }]);
+      cloudSaved = true;
+    } catch (error) {
+      // Never turn an already-published YouTube comment into a failed POST or
+      // encourage retries. Cloud receipt and server tracking are separate.
+      cloudSaved = false;
+      cloudWarning = error instanceof Error ? error.message : '클라우드 백업 실패';
+    }
+  }
+  return { ...posted, browser_backup_saved: saved,
+    cloud_backup_saved: cloudSaved, cloud_backup_warning: cloudWarning };
 }
 
 
