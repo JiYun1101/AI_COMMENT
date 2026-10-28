@@ -33,3 +33,9 @@ test('model and LLM readiness block recommendation before submit', () => {
 test('health request failure blocks recommendation with a connection message', () => {
   assert.match(getRecommendationReadinessMessage(null, true, 'manual'), /백엔드 연결/);
 });
+
+test('presentational Render rejects unavailable Ollama and recommends a usable personal OpenAI key', () => {
+  const health = { ...ready, llm: { ready: false, provider: 'ollama_local' } };
+  assert.match(getRecommendationReadinessMessage(health, false, 'manual'), /Ollama/);
+  assert.match(getRecommendationReadinessMessage(health, false, 'manual'), /OpenAI API Key/);
+});
