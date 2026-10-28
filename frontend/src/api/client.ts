@@ -235,7 +235,8 @@ export async function getHealth(): Promise<ServiceHealth> {
   // Only the presentation environment opts into this stronger UI readiness gate.
   const usesUnavailableLocalModel =
     typeof window !== 'undefined'
-    && window.location.hostname === 'ai-comment-presentation-20261028.onrender.com'
+    && window.location.hostname !== 'localhost'
+    && window.location.hostname !== '127.0.0.1'
     && health.llm.provider === 'ollama_local';
   const hasPersonalLLM = getAccountMode() === 'personal' && Boolean(getStoredOpenAIApiKey());
   return {
