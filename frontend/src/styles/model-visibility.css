@@ -190,3 +190,31 @@
   .model-evidence-row { grid-template-columns: minmax(0, 1fr) 58px 18px; gap: 8px; }
   .model-evidence-track { display: none; }
 }
+
+
+/* Google Takeout CSV evidence: independent from generated recommendations. */
+.imported-csv-panel { margin-top: 0; }
+.imported-csv-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.imported-csv-actions > a, .imported-csv-actions > button { white-space: nowrap; }
+.imported-csv-summary {
+  margin: 16px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--fg2);
+}
+.imported-csv-summary strong { color: var(--fg1); }
+.imported-csv-list { display: grid; gap: 8px; margin-top: 12px; }
+.imported-csv-list .model-subhead { margin-bottom: 5px; }
+.imported-csv-panel .model-evidence-text strong { word-break: break-word; overflow-wrap: anywhere; }
+@media (max-width: 680px) {
+  .imported-csv-actions { width: 100%; justify-content: flex-start; }
+  .imported-csv-actions > a, .imported-csv-actions > button { font-size: 11px; }
+}
