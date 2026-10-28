@@ -1,5 +1,6 @@
 import type { AnalysisSummary, PublishedComment } from '../types/comment';
 import type { PrivatePublishedReceipt } from '../api/account';
+import type { PublicMetricRow } from './publicMetricsBackup';
 
 export interface EvidenceComment {
   recommendationId: string;
@@ -57,12 +58,14 @@ export function buildOutcomeEvidence(
   receipts: PrivatePublishedReceipt[],
   published: PublishedComment[],
   recommendations: Array<{analysisId: string; recommendationId: string; comment: string}>,
+  verifiedPublicMetrics: PublicMetricRow[] = [],
 ): { publishedCount: number; observedCount: number; positiveCount: number; weighted: EvidenceComment[] } {
   // A posting receipt is account-owned evidence. Never identify ownership from
   // a shared backend /my-comments row by itself.
   const analysisById = new Map(analyses.map(row => [row.id, row]));
   const validRecommendations = new Map(recommendations.map(r => [r.recommendationId, r]));
   const metrics = new Map(published.map(row => [row.video_id+':'+row.comment_id, row]));
+  const publicMetrics = new Map(verifiedPublicMetrics.map(row => [row.video_id+':'+row.comment_id, row]));
   const items: EvidenceComment[] = [];
   const seen = new Set<string>();
 
@@ -77,8 +80,10 @@ export function buildOutcomeEvidence(
     const active = Boolean(observed && (observed.public_metric_status === 'active'
       || (!observed.public_metric_status && observed.status === 'active'))
       && observed.last_checked_at);
-    const likes = active ? observed?.like_count ?? null : null;
-    const replies = active ? observed?.reply_count ?? null : null;
+    const live = publicMetrics.get(receipt.video_id+':'+receipt.comment_id);
+    const publicActive = live?.status === 'active';
+    const likes = publicActive ? live.like_count : active ? observed?.like_count ?? null : null;
+    const replies = publicActive ? live.reply_count : active ? observed?.reply_count ?? null : null;
     const measured = likes !== null || replies !== null;
     items.push({
       recommendationId: receipt.recommendation_id,
