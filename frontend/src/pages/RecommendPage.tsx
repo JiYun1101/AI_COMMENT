@@ -1,6 +1,6 @@
 import { Check, Copy, LoaderCircle, RefreshCw, Send, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarKey } from '../components/layout/Sidebar';
 import { Header } from '../components/layout/Header';
 import { Composer } from '../components/recommend/Composer';
@@ -40,6 +40,7 @@ type Mode = 'url' | 'manual';
 
 export function RecommendPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [mode, setModeState] = useState<Mode>('manual');
   const [url, setUrlState] = useState('');
   const [manual, setManualState] = useState('');
@@ -307,6 +308,12 @@ export function RecommendPage() {
       setError(err instanceof Error ? err.message : '분석 기록을 불러오지 못했습니다.');
     }
   };
+
+  // Dashboard history rows reopen the persisted analysis in the original viewer.
+  useEffect(() => {
+    const requestedId = new URLSearchParams(location.search).get('analysis');
+    if (requestedId) void loadHistory(requestedId);
+  }, [location.search]);
 
   const copyComment = async (recommendation: CommentRecommendation) => {
     try {
