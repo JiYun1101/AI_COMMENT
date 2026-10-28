@@ -23,6 +23,7 @@ import type {
   OwnedVideoPerformanceResponse,
 } from '../types/comment';
 import { applySavedPublicMetrics, type PublicMetricResponse } from '../utils/publicMetricsBackup';
+import { saveGuestBrowserAnalysis, listGuestBrowserAnalyses, getGuestBrowserAnalysis } from '../utils/browserAnalysisHistory';
 import { getCustomPersona } from '../utils/customPersonas';
 import { backUpPostedComment, backUpServerComments, mergePostedBackup, readPostedBackup } from '../utils/publishedLedger';
 
@@ -300,6 +301,11 @@ export async function recommend(request: RecommendRequest): Promise<RecommendRes
     },
     '추천 요청이 실패했습니다',
   );
+  if (!signedIn) {
+    // Render Free's ephemeral SQLite can be lost after sleep/redeploy.
+    // Guest recovery stays on this browser only and cannot masquerade as member data.
+    saveGuestBrowserAnalysis(response, request);
+  }
   if (signedIn) {
     try {
       await savePrivateAnalysis(response, request.post_text || request.youtube_url || '', request.additional_context);
@@ -322,6 +328,10 @@ export async function getVideoPreview(url: string): Promise<VideoPreviewData> {
 
 export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
   if (cachedAccount()) return listPrivateAnalyses(limit);
+  const local = listGuestBrowserAnalyses(limit);
+  // Prefer the immediately available browser copy. It survives Render Free idle
+  // restarts and avoids blocking the dashboard on a cold backend wake-up.
+  if (local.length) return local;
   const params = new URLSearchParams({ limit: String(limit) });
   const body = await requestJson<{ items: AnalysisSummary[] }>(
     `${API_BASE}/analyses?${params.toString()}`,
@@ -333,6 +343,8 @@ export async function listAnalyses(limit = 3): Promise<AnalysisSummary[]> {
 
 export async function getAnalysis(analysisId: string): Promise<AnalysisDetail> {
   if (cachedAccount()) return getPrivateAnalysis(analysisId);
+  const cached = getGuestBrowserAnalysis(analysisId);
+  if (cached) return cached;
   return requestJson<AnalysisDetail>(
     `${API_BASE}/analyses/${encodeURIComponent(analysisId)}`,
     undefined,
