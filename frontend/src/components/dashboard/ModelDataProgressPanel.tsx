@@ -11,6 +11,7 @@ import type { AnalysisSummary, ModelDataProgress, PublishedComment } from '../..
 import type { PublicMetricRow } from '../../utils/publicMetricsBackup';
 import { storePublicMetricResponse } from '../../utils/publicMetricsBackup';
 import { analysisGrowth, buildOutcomeEvidence } from '../../utils/analysisEvidence';
+import { listGuestBrowserAnalyses } from '../../utils/browserAnalysisHistory';
 
 const number = (value: number) => value.toLocaleString('ko-KR');
 const shortDate = (value: string) => {
@@ -27,6 +28,7 @@ export function ModelDataProgressPanel() {
   const [published, setPublished] = useState<PublishedComment[]>([]);
   const [publicMetrics, setPublicMetrics] = useState<PublicMetricRow[]>([]);
   const [isMember, setIsMember] = useState(false);
+  const [isBrowserGuest, setIsBrowserGuest] = useState(false);
   const [historyReady, setHistoryReady] = useState(false);
   const [limited, setLimited] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,7 @@ export function ModelDataProgressPanel() {
     setMetricError(null);
     const member = Boolean(cachedAccount());
     setIsMember(member);
+    setIsBrowserGuest(!member && listGuestBrowserAnalyses(1).length > 0);
     let canShowHistory = false;
     try {
       if (member) {
@@ -98,8 +101,8 @@ export function ModelDataProgressPanel() {
   useEffect(() => { void load(); }, [load]);
 
   const daily = useMemo(
-    () => (!isMember && data?.daily.length ? data.daily : analysisGrowth(analyses)),
-    [data, analyses, isMember],
+    () => (!isMember && !isBrowserGuest && data?.daily.length ? data.daily : analysisGrowth(analyses)),
+    [data, analyses, isMember, isBrowserGuest],
   );
   const chart = useMemo(() => {
     const maximum = Math.max(1, ...daily.map(point => point.cumulative_analyses));
@@ -115,9 +118,11 @@ export function ModelDataProgressPanel() {
     () => buildOutcomeEvidence(analyses, receipts, published, recommendations, publicMetrics),
     [analyses, receipts, published, recommendations, publicMetrics],
   );
-  const total = isMember ? analyses.length : data?.observations.stored_contexts ?? analyses.length;
+  const total = isMember || isBrowserGuest ? analyses.length : data?.observations.stored_contexts ?? analyses.length;
   const totalRecommendations = isMember
-    ? recommendations.length : data?.observations.recommendations ?? analyses.reduce((sum, item)=>sum+item.recommendation_count, 0);
+    ? recommendations.length : isBrowserGuest
+      ? analyses.reduce((sum, item)=>sum+item.recommendation_count, 0)
+      : data?.observations.recommendations ?? analyses.reduce((sum, item)=>sum+item.recommendation_count, 0);
   const new14 = daily.reduce((sum, item)=>sum + item.new_analyses, 0);
   const recent = useMemo(() => [...analyses].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,6), [analyses]);
 
@@ -147,7 +152,7 @@ export function ModelDataProgressPanel() {
           <span className="model-eyebrow"><Database size={15} /> BEFORE THE LLM · DATA FOUNDATION</span>
           <h2>AI가 참고하는 데이터는 어떻게 쌓일까?</h2>
           <p>실제 추천 분석 기록과 게시 댓글의 관측 반응을 구분해 보여줍니다.
-            {isMember ? ' 로그인한 내 계정의 비공개 분석 기준입니다.' : ' 현재 서버의 공용 분석 기준이며, 무료 서버 재시작 시 이전 기록이 사라질 수 있습니다.'}
+            {isMember ? ' 로그인한 내 계정의 비공개 분석 기준입니다.' : isBrowserGuest ? ' 이 브라우저에 보관된 최근 분석 기록 기준입니다. 다른 기기와 자동 동기화되지 않습니다.' : ' 현재 서버의 공용 분석 기준이며, 무료 서버 재시작 시 이전 기록이 사라질 수 있습니다.'}
           </p>
         </div>
         <button type="button" className="btn secondary sm" disabled={loading} onClick={() => void load()}>
@@ -169,7 +174,7 @@ export function ModelDataProgressPanel() {
       {loading && !historyReady && <p className="eng-note" role="status">분석 이력과 게시 성과를 불러오는 중…</p>}
 
       <div className="model-metrics">
-        <div><span>누적 분석</span><strong>{historyReady ? number(total) : '—'}<small>회</small></strong><em>{isMember ? '내 계정 저장 기록' : '공용 서버 저장 기록'}</em></div>
+        <div><span>누적 분석</span><strong>{historyReady ? number(total) : '—'}<small>회</small></strong><em>{isMember ? '내 계정 저장 기록' : isBrowserGuest ? '브라우저 최근 기록 · 최대 40건' : '공용 서버 저장 기록'}</em></div>
         <div><span>생성된 추천 후보</span><strong>{historyReady ? number(totalRecommendations) : '—'}<small>개</small></strong><em>성공적으로 저장된 분석 기준</em></div>
         <div><span>실제 게시한 추천</span><strong>{isMember ? number(outcome.publishedCount) : '—'}<small>건</small></strong><em>내 계정 게시 영수증과 추천 ID 연결</em></div>
         <div><span>반응이 확인된 게시 댓글</span><strong>{isMember ? number(outcome.positiveCount) : '—'}<small>건</small></strong><em>좋아요 또는 답글 1개 이상 · 측정 {number(outcome.observedCount)}건</em></div>
@@ -220,7 +225,7 @@ export function ModelDataProgressPanel() {
       </div>
 
       <div className="model-recent">
-        <div className="model-subhead"><strong>최근 분석 내역</strong><small>{isMember ? '내 계정 저장 기록' : '공용 서버 최신 기록'} · 최신 6건</small></div>
+        <div className="model-subhead"><strong>최근 분석 내역</strong><small>{isMember ? '내 계정 저장 기록' : isBrowserGuest ? '이 브라우저 저장 기록' : '공용 서버 최신 기록'} · 최신 6건</small></div>
         {recent.length ? (
           <div className="model-recent-list">
             {recent.map(item => (
@@ -274,7 +279,7 @@ export function ModelDataProgressPanel() {
         )}
       </div>
       <p className="model-safety-note"><strong>데이터 누적 ≠ 자동 학습.</strong> 분석 기록과 실제 게시 반응은 별도로 저장·표시됩니다. 기존 반응 예측 Ranker의 모델 가중치는 이 화면의 관찰 성과에 따라 자동 갱신되지 않습니다.
-      {isMember ? ' 비공개 분석과 게시 영수증은 해당 로그인 계정 기준입니다.' : ' 공용 기록은 Render 무료 서버 재시작 시 유실될 수 있습니다. 지속 저장하려면 계정 로그인을 사용하세요.'}</p>
+      {isMember ? ' 비공개 분석과 게시 영수증은 해당 로그인 계정 기준입니다.' : isBrowserGuest ? ' 게스트 분석은 현재 브라우저에 최대 40개 보관되며 다른 기기에는 공유되지 않습니다. 영구 보존하려면 계정 로그인을 사용하세요.' : ' 공용 기록은 Render 무료 서버 재시작 시 유실될 수 있습니다. 지속 저장하려면 계정 로그인을 사용하세요.'}</p>
     </section>
   );
 }
