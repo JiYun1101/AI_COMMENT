@@ -443,6 +443,13 @@ export function RecommendPage() {
               </button>
             </div>
           )}
+          {serviceHealth && !serviceHealth.llm.ready && (
+            <div className="inline-status" role="status">
+              <button type="button" className="btn secondary sm" onClick={() => navigate('/account/connect')}>
+                OpenAI API Key 설정하기
+              </button>
+            </div>
+          )}
           {serviceHealth?.storage.persistent === false && (
             <div className="inline-status error" role="alert">
               현재 서버 SQLite와 OAuth 토큰은 재시작 후 유실될 수 있습니다.
