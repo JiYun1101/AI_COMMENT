@@ -12,6 +12,7 @@ import {
   getAccountMode,
   getAnalysis,
   getHealth,
+  waitForHealthyBackend,
   getVideoPreview,
   getYouTubeOAuthStatus,
   publishYouTubeComment,
@@ -37,7 +38,7 @@ type Mode = 'url' | 'manual';
 
 export function RecommendPage() {
   const navigate = useNavigate();
-  const [mode, setModeState] = useState<Mode>('url');
+  const [mode, setModeState] = useState<Mode>('manual');
   const [url, setUrlState] = useState('');
   const [manual, setManualState] = useState('');
   const [additionalContext, setAdditionalContextState] = useState('');
@@ -52,6 +53,8 @@ export function RecommendPage() {
   const [healthRetryKey, setHealthRetryKey] = useState(0);
   const [healthAttempt, setHealthAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [preparingRecommendation, setPreparingRecommendation] = useState(false);
+  const [warmRetryCount, setWarmRetryCount] = useState(0);
   const [results, setResults] = useState<CommentRecommendation[] | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [resolvedCategory, setResolvedCategory] = useState<string | null>(null);
@@ -108,11 +111,12 @@ export function RecommendPage() {
         setHealthAttempt(0);
       } catch (err) {
         if (cancelled) return;
-        if (attempt < 3) {
+        if (attempt < 4) {
           setHealthAttempt(attempt + 1);
+          const retryDelays = [8_000, 15_000, 25_000, 30_000];
           retryTimer = window.setTimeout(() => {
             void checkHealth(attempt + 1);
-          }, (attempt + 1) * 5_000);
+          }, retryDelays[attempt]);
           return;
         }
         setServiceHealth(null);
@@ -224,11 +228,23 @@ export function RecommendPage() {
   };
 
   const submit = async () => {
-    if (readinessChecking || readinessMessage || !inputReady) return;
+    if (readinessChecking || readinessMessage || !inputReady || submitting) return;
 
     setSubmitting(true);
+    setPreparingRecommendation(true);
+    setWarmRetryCount(0);
     setError(null);
     try {
+      // Health may have been checked before Render's 15-minute idle sleep.
+      // Wake it again with GET requests, then submit exactly one paid LLM POST.
+      const currentHealth = await waitForHealthyBackend((attempt) => {
+        setWarmRetryCount(attempt);
+      });
+      setServiceHealth(currentHealth);
+      setHealthError(null);
+      const currentReadiness = getRecommendationReadinessMessage(currentHealth, false, mode);
+      if (currentReadiness) throw new Error(currentReadiness);
+      setPreparingRecommendation(false);
       const response = await recommend(
         mode === 'url'
           ? {
@@ -253,6 +269,8 @@ export function RecommendPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     } finally {
+      setPreparingRecommendation(false);
+      setWarmRetryCount(0);
       setSubmitting(false);
     }
   };
@@ -407,7 +425,13 @@ export function RecommendPage() {
         <div className="recommend">
           {readinessChecking && healthAttempt > 0 && (
             <div className="inline-status" role="status">
-              Render 서버가 준비 중일 수 있어 연결을 다시 확인하고 있습니다. 재확인 {healthAttempt}/3
+              Render 무료 서버가 다시 시작되는 중입니다. 연결을 확인하고 있어요 ({healthAttempt}/4).
+            </div>
+          )}
+          {preparingRecommendation && (
+            <div className="inline-status" role="status">
+              댓글 생성 전 백엔드 연결 확인 중{warmRetryCount > 0 ? ` · 재확인 ${warmRetryCount}/4` : ''}.
+              서버가 잠들어 있었다면 처음 요청이 지연될 수 있습니다.
             </div>
           )}
           {healthError && (
@@ -454,6 +478,7 @@ export function RecommendPage() {
             onClearPreview={clearPreview}
             onSubmit={submit}
             submitting={submitting}
+            preparingRecommendation={preparingRecommendation}
           />
 
           {isEmpty && !results && !submitting && <EmptyExamples onPick={pickExample} />}
