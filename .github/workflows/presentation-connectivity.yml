@@ -17,6 +17,7 @@ jobs:
         env:
           API_URL: https://ai-comment-api-lite.onrender.com/health
           WEB_URL: https://ai-comment-presentation-20261028.onrender.com/api/health
+          ONE_SHOT_RECOMMEND: ${{ contains(github.event.head_commit.message, 'ONE-SHOT-RECOMMEND') && '1' || '0' }}
         run: |
           python - <<'PY'
           import json, os, sys, time, urllib.error, urllib.request
@@ -59,4 +60,35 @@ jobs:
           proxy_ok = check("presentation same-origin proxy", os.environ["WEB_URL"])
           if not (backend_ok and proxy_ok):
               sys.exit(1)
+          if os.getenv("ONE_SHOT_RECOMMEND") == "1":
+              print("ONE-SHOT RECOMMEND: sending ONE non-persisted demo POST", flush=True)
+              url = "https://ai-comment-presentation-20261028.onrender.com/api/recommend"
+              body = json.dumps({
+                  "post_text": "AI 에이전트 개발 과정에서 생산성을 높이는 실무 팁을 소개하는 영상입니다. 코드 리뷰와 테스트 자동화가 주요 주제입니다.",
+                  "top_k": 3, "persona_id": "none"
+              }, ensure_ascii=False).encode("utf-8")
+              request = urllib.request.Request(url, data=body, method="POST", headers={
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "X-AI-Comment-Private-History": "1",
+                  "X-AI-Comment-Account-Mode": "demo",
+                  "User-Agent": "AI-COMMENT-one-shot-functional-test",
+              })
+              try:
+                  with urllib.request.urlopen(request, timeout=110) as response:
+                      result = json.loads(response.read(1000000))
+                      recommendations = result.get("recommendations") or []
+                      print("RECOMMEND PASS", response.status,
+                            "count", len(recommendations),
+                            "model", result.get("generation", {}).get("model"), flush=True)
+                      if response.status != 200 or len(recommendations) < 3:
+                          sys.exit(1)
+              except urllib.error.HTTPError as exc:
+                  print("RECOMMEND FAILED HTTP", exc.code,
+                        "Retry-After", exc.headers.get("Retry-After"),
+                        "body", exc.read(400).decode("utf-8", "replace"), flush=True)
+                  sys.exit(1)
+              except Exception as exc:
+                  print("RECOMMEND FAILED", type(exc).__name__, str(exc)[:200], flush=True)
+                  sys.exit(1)
           PY
