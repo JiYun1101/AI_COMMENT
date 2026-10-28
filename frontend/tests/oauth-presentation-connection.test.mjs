@@ -19,7 +19,8 @@ test('Google OAuth redirect is absolute even when preview API uses a same-origin
 
 test('OAuth UI cannot start without private server pairing and does not mask HTTP 401 as YouTube disconnected', () => {
   const page = read('src/pages/AccountPage.tsx');
-  assert.match(page, /if \(result\.connected\) \{[\s\S]*?setOauthStatus\(await getYouTubeOAuthStatus\(\)\)/);
+  assert.match(page, /if \(verified\.connected\) \{[\s\S]*?await getYouTubeOAuthStatus\(\)/);
+  assert.match(page, /if \(!token\) \{[\s\S]*?setServerStatus\('disconnected'\)/);
   assert.match(page, /if \(serverStatus !== 'connected'\)/);
   assert.match(page, /disabled=\{oauthBusy \|\| serverStatus !== 'connected'\}/);
   assert.match(page, /서버 관리자 인증 필요 · YouTube 연결 상태 미확인/);
