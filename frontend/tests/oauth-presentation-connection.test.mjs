@@ -24,4 +24,8 @@ test('OAuth UI cannot start without private server pairing and does not mask HTT
   assert.match(page, /disabled=\{oauthBusy \|\| serverStatus !== 'connected'\}/);
   assert.match(page, /서버 관리자 인증 필요 · YouTube 연결 상태 미확인/);
   assert.match(page, /이메일 회원 로그인 및 YouTube Data API Key로는 이 인증을 대신할 수 없습니다/);
+  assert.match(page, /health\.auth\?\.pairing_available/);
+  assert.match(page, /현재 서버에서는 초대 코드 발급 기능이 비활성화돼 있습니다/);
+  assert.match(page, /disabled=\{serverBusy \|\| pairingAvailable === false/);
+
 });
