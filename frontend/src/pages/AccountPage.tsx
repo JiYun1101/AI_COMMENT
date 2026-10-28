@@ -63,11 +63,22 @@ export function AccountPage() {
       .then(() => setApiStatus('online'))
       .catch(() => setApiStatus('offline'));
     verifyServerConnection()
-      .then((result) => setServerStatus(result.connected ? 'connected' : 'disconnected'))
-      .catch(() => setServerStatus('disconnected'));
-    getYouTubeOAuthStatus()
-      .then(setOauthStatus)
-      .catch(() => setOauthStatus(null));
+      .then(async (result) => {
+        setServerStatus(result.connected ? 'connected' : 'disconnected');
+        // This is a protected owner endpoint. Do not call it while unauthenticated
+        // and then misleadingly render 'not connected' for a 401 response.
+        if (result.connected) {
+          try {
+            setOauthStatus(await getYouTubeOAuthStatus());
+          } catch {
+            setOauthStatus(null);
+          }
+        }
+      })
+      .catch(() => {
+        setServerStatus('disconnected');
+        setOauthStatus(null);
+      });
   }, []);
 
   const pairServer = async () => {
@@ -91,7 +102,8 @@ export function AccountPage() {
     setServerBusy(true);
     setServerError(null);
     try {
-      await verifyServerConnection(serverToken);
+      const verified = await verifyServerConnection(serverToken);
+      if (!verified.connected) throw new Error('유효하지 않은 관리자 인증 토큰입니다.');
       setStoredApiAccessToken(serverToken);
       setServerStatus('connected');
       markSaved('server');
@@ -180,6 +192,10 @@ export function AccountPage() {
 
   const connectYouTube = async () => {
     setOauthError(null);
+    if (serverStatus !== 'connected') {
+      setOauthError('YouTube OAuth 연결 전에 먼저 위쪽 SERVER CONNECTION에서 관리자 서버 인증을 완료해주세요.');
+      return;
+    }
     setOauthBusy(true);
     let popup: Window | null = null;
     try {
@@ -406,8 +422,17 @@ export function AccountPage() {
 
               <div className="oauth-status-row">
                 <span className={`oauth-status-dot${oauthStatus?.authorized ? ' connected' : ''}`} />
-                <span>{oauthStatus?.authorized ? 'YouTube 계정 연결됨' : 'YouTube 계정 연결 안 됨'}</span>
+                <span>{serverStatus !== 'connected'
+                  ? '서버 관리자 인증 필요 · YouTube 연결 상태 미확인'
+                  : oauthStatus?.authorized ? 'YouTube 계정 연결됨' : 'YouTube 계정 연결 안 됨'}</span>
               </div>
+              {serverStatus !== 'connected' && (
+                <p className="account-field-note" role="status">
+                  이 기능은 Google OAuth 전에 AI_COMMENT 서버 관리자 인증이 필요합니다.
+                  위쪽 SERVER CONNECTION의 비공개 초대 코드 또는 기존 인증 토큰으로 먼저 연결하세요.
+                  이메일 회원 로그인 및 YouTube Data API Key로는 이 인증을 대신할 수 없습니다.
+                </p>
+              )}
 
               <div className="oauth-fields">
                 <div>
@@ -464,7 +489,7 @@ export function AccountPage() {
                     연결 해제
                   </button>
                 ) : (
-                  <button type="button" className="btn primary" onClick={connectYouTube} disabled={oauthBusy}>
+                  <button type="button" className="btn primary" onClick={connectYouTube} disabled={oauthBusy || serverStatus !== 'connected'}>
                     {oauthBusy ? <LoaderCircle size={14} className="spin" /> : <Link2 size={14} />}
                     YouTube 계정 연결
                   </button>
