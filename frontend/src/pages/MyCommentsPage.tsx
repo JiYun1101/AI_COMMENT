@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { claimLegacyPublishedHistory, getAccountMode, getAuthenticatedYouTubeIdentity, listMyComments, recoverPublishedBatch, recoverPublishedComment, refreshMyComments, lookupPublicCommentMetrics, editPublishedYouTubeComment, deletePublishedYouTubeComment, type AuthenticatedYouTubeIdentity } from '../api/client';
 import { parseTakeoutCommentsCsv } from '../utils/takeoutComments';
-import { exportPostedBackup, importPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
+import { cachedAccount, savePrivatePublishedReceipts, listPrivatePublishedReceipts } from '../api/account';
+import { exportPostedBackup, importPostedBackup, readPostedBackup, updatePostedBackupText, removePostedBackupComment } from '../utils/publishedLedger';
 import { applySavedPublicMetrics, storePublicMetricResponse, removeSavedPublicCommentMetrics } from '../utils/publicMetricsBackup';
 import { TypeTag } from '../components/TypeTag';
 import { Kpi } from '../components/dashboard/KpiStrip';
@@ -50,6 +51,7 @@ export function MyCommentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [recoveryUrl, setRecoveryUrl] = useState('');
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [identity, setIdentity] = useState<AuthenticatedYouTubeIdentity | null>(null);
   const [takeoutProgress, setTakeoutProgress] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -298,6 +300,52 @@ export function MyCommentsPage() {
     }
   };
 
+
+  const uploadCloudReceipts = async () => {
+    if (cloudBusy) return;
+    setCloudBusy(true);
+    setError(null);
+    try {
+      if (!cachedAccount()) throw new Error('Supabase 이메일 계정에 로그인해주세요.');
+      if (!identity?.connected) throw new Error('게시 영수증 백업 전에 본인 YouTube 계정을 연결해 확인해주세요.');
+      const records = readPostedBackup('personal');
+      if (!records.length) {
+        setNotice('백업할 개인 YouTube 게시 영수증이 없습니다.');
+        return;
+      }
+      const count = await savePrivatePublishedReceipts(records.map(({ video_id, comment_id, comment, comment_url, published_at, recommendation_id }) =>
+        ({ video_id, comment_id, comment, comment_url, published_at, recommendation_id })));
+      setNotice('내 Supabase 계정에 게시 영수증 ' + count + '개를 별도로 백업했습니다. 서버 OAuth 토큰이나 지표 이력은 포함되지 않습니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '게시 영수증 클라우드 백업에 실패했습니다.');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const downloadCloudReceipts = async () => {
+    if (cloudBusy) return;
+    setCloudBusy(true);
+    setError(null);
+    try {
+      const records = await listPrivatePublishedReceipts();
+      if (!records.length) {
+        setNotice('내 Supabase 계정에 저장된 게시 영수증이 없습니다.');
+        return;
+      }
+      // Private backup is only a self-saved receipt, not evidence that this
+      // browser currently owns the YouTube channel. Server restoration still
+      // requires independently verified OAuth.
+      const count = importPostedBackup(records.map(row => ({ ...row, account_mode: 'personal' as const })));
+      await load();
+      setNotice('Supabase의 게시 영수증 ' + count + '개를 브라우저에 가져왔습니다. 서버에 다시 추적하려면 YouTube 계정 본인 인증이 필요합니다.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '게시 영수증 클라우드 복원에 실패했습니다.');
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const handleNav = (key: SidebarKey) => {
     if (key === 'comments') navigate('/');
     if (key === 'dashboard') navigate('/dashboard');
@@ -367,6 +415,18 @@ export function MyCommentsPage() {
                 </button>
               )}
               <button type="button" className="btn secondary" onClick={exportPostedBackup}>게시 기록 JSON 백업</button>
+              {accountMode === 'personal' && cachedAccount() && (
+                <>
+                  <button type="button" className="btn secondary" disabled={cloudBusy || !identity?.connected}
+                    onClick={() => void uploadCloudReceipts()}>
+                    {cloudBusy ? '처리 중...' : 'Supabase에 게시 기록 백업'}
+                  </button>
+                  <button type="button" className="btn secondary" disabled={cloudBusy}
+                    onClick={() => void downloadCloudReceipts()}>
+                    {cloudBusy ? '처리 중...' : '내 계정 클라우드 백업 가져오기'}
+                  </button>
+                </>
+              )}
               {accountMode === 'personal' && (
                 <label className="btn secondary" style={{ cursor: recoveryBusy ? 'not-allowed' : 'pointer' }}>
                   Google Takeout 댓글 CSV 가져오기
@@ -396,7 +456,7 @@ export function MyCommentsPage() {
             )}
             <p className="eng-muted" style={{ fontSize: 12 }}>
               YouTube에 게시된 댓글은 다시 조회할 수 있어도 삭제된 AI 추천 점수나 분석 기록까지 자동 복구되지는 않습니다.
-              기기 간 영구 보존은 별도의 영구 DB가 필요합니다.
+              이메일 회원은 Supabase에 게시 영수증을 별도로 백업할 수 있지만, 서버의 OAuth 토큰·추적 측정 이력은 여전히 비영구적입니다.
             </p>
           </section>
 
