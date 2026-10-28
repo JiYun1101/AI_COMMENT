@@ -1,0 +1,51 @@
+name: Presentation server connectivity (read-only)
+
+on:
+  push:
+    branches: [feature/presentation-preflight-20261027]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proxy-and-backend-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - name: Probe public backend and presentation reverse proxy
+        env:
+          API_URL: https://ai-comment-api-lite.onrender.com/health
+          WEB_URL: https://ai-comment-presentation-20261028.onrender.com/api/health
+        run: |
+          python - <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          def check(label, url):
+              print(f"Checking {label} ...", flush=True)
+              last_error = None
+              # Render Free instances may cold-start; bounded GET retry only.
+              for attempt in range(1, 7):
+                  try:
+                      request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "AI-COMMENT-public-healthcheck/1.0"})
+                      with urllib.request.urlopen(request, timeout=65) as response:
+                          body = response.read(65536)
+                          content_type = response.headers.get("Content-Type", "")
+                          if response.status != 200 or "json" not in content_type.lower():
+                              raise RuntimeError(f"HTTP {response.status}, content-type={content_type}")
+                          result = json.loads(body.decode())
+                          if result.get("message") != "AI Comment Recommender API is running" or result.get("status") not in {"ok", "degraded"}:
+                              raise RuntimeError(f"Unexpected API health schema: keys={list(result)}")
+                          print(f"PASS {label} HTTP 200 status={result['status']} model.ready={result.get('model', {}).get('ready')} llm.ready={result.get('llm', {}).get('ready')} youtube.configured={result.get('youtube', {}).get('configured')} storage.persistent={result.get('storage', {}).get('persistent')}", flush=True)
+                          return True
+                  except Exception as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                      print(f"Attempt {attempt}/6 {label}: {last_error}", flush=True)
+                      if attempt != 6: time.sleep(8)
+              print(f"FAIL {label}: {last_error}", flush=True)
+              return False
+
+          backend_ok = check("backend", os.environ["API_URL"])
+          proxy_ok = check("presentation same-origin proxy", os.environ["WEB_URL"])
+          if not (backend_ok and proxy_ok):
+              sys.exit(1)
+          PY
