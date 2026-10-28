@@ -39,7 +39,12 @@ const API_ACCESS_TOKEN_STORAGE_KEY = 'ai-comment.server-access-token';
 const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
 const PERSONA_STORAGE_KEY = 'ai-comment.persona';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
-export const YOUTUBE_OAUTH_REDIRECT_URI = `${API_BASE}/youtube/oauth/callback`;
+// Google OAuth needs an absolute https redirect URI. A preview's API_BASE may
+// be the relative same-origin '/api' reverse proxy path.
+export const YOUTUBE_OAUTH_REDIRECT_URI = new URL(
+  `${API_BASE}/youtube/oauth/callback`,
+  typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173',
+).toString();
 
 function getStoredValue(key: string): string {
   if (typeof window === 'undefined') return '';
@@ -183,6 +188,7 @@ function withYouTubeOAuth(headers: Record<string, string> = {}): Record<string, 
     ...(getStoredApiAccessToken() ? { 'X-API-Key': getStoredApiAccessToken() } : {}),
     ...(clientId ? { 'X-YouTube-OAuth-Client-ID': clientId } : {}),
     ...(clientSecret ? { 'X-YouTube-OAuth-Client-Secret': clientSecret } : {}),
+    'X-YouTube-OAuth-Redirect-URI': YOUTUBE_OAUTH_REDIRECT_URI,
   };
 }
 
