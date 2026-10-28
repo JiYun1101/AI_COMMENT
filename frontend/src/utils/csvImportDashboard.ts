@@ -1,4 +1,4 @@
-import { outcomeWeight } from './analysisEvidence';
+import { outcomeWeight } from './analysisEvidence.js';
 
 export interface CsvOwnerRow {
   video_id: string;
