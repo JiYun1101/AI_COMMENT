@@ -92,3 +92,43 @@ jobs:
                   print("RECOMMEND FAILED", type(exc).__name__, str(exc)[:200], flush=True)
                   sys.exit(1)
           PY
+
+      - name: Verify short production URL, SPA route, and backend proxy
+        run: |
+          python - <<'PY'
+          import json, time, urllib.request, urllib.error, sys
+          origin = "https://ai-comment-jy.vercel.app"
+          def fetch(path, expected):
+              error = None
+              for attempt in range(1,5):
+                  try:
+                      request = urllib.request.Request(origin+path, headers={
+                          "Accept":"application/json" if expected == "api" else "text/html",
+                          "User-Agent":"AI-COMMENT-final-release-verification"
+                      })
+                      with urllib.request.urlopen(request, timeout=60) as response:
+                          body=response.read(150000)
+                          code=response.status
+                          content_type=response.headers.get("Content-Type","")
+                          if code != 200:
+                              raise RuntimeError(f"Unexpected HTTP {code}")
+                          if expected == "api":
+                              data=json.loads(body.decode("utf-8"))
+                              if data.get("status") not in ("ok","degraded"):
+                                  raise RuntimeError("Expected API health response")
+                              print("FINAL PASS API",path,"status",data.get("status"), flush=True)
+                          else:
+                              if "html" not in content_type.lower() or b'<div id="root">' not in body:
+                                  raise RuntimeError("Expected compiled Vite SPA HTML")
+                              print("FINAL PASS SPA",path,"status",code,flush=True)
+                          return
+                  except Exception as exc:
+                      error=f"{type(exc).__name__}: {exc}"
+                      print("FINAL RETRY",path,attempt,error[:200],flush=True)
+                      if attempt < 4: time.sleep(10)
+              print("FINAL FAIL",path,error,flush=True)
+              sys.exit(1)
+          fetch("/","spa")
+          fetch("/dashboard","spa")
+          fetch("/api/health","api")
+          PY
