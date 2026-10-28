@@ -23,6 +23,7 @@ import {
   startYouTubeOAuth,
 } from '../api/client';
 import { formatCategoryLabel } from '../utils/category';
+import { recordSelectedRecommendation } from '../utils/selectionHistory';
 import { isRecommendationInputReady } from '../utils/recommendationInput';
 import { getRecommendationReadinessMessage } from '../utils/readiness';
 import { isValidYouTubeVideoUrl } from '../utils/youtube';
@@ -318,6 +319,7 @@ export function RecommendPage() {
   const copyComment = async (recommendation: CommentRecommendation) => {
     try {
       await navigator.clipboard.writeText(recommendation.comment);
+      recordSelectedRecommendation(recommendation.id);
       setCopiedId(recommendation.id);
       window.setTimeout(() => setCopiedId((current) => (current === recommendation.id ? null : current)), 1500);
     } catch {
