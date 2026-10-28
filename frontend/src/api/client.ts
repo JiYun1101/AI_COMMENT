@@ -38,7 +38,7 @@ const YOUTUBE_OAUTH_CLIENT_SECRET_STORAGE_KEY = 'ai-comment.youtube-oauth-client
 const API_ACCESS_TOKEN_STORAGE_KEY = 'ai-comment.server-access-token';
 const ACCOUNT_MODE_STORAGE_KEY = 'ai-comment.account-mode';
 const PERSONA_STORAGE_KEY = 'ai-comment.persona';
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
 // Google OAuth needs an absolute https redirect URI. A preview's API_BASE may
 // be the relative same-origin '/api' reverse proxy path.
 export const YOUTUBE_OAUTH_REDIRECT_URI = new URL(
@@ -143,7 +143,10 @@ export function setStoredOpenAIApiKey(value: string): void {
 }
 
 export function getStoredOpenAIModel(): string {
-  return getStoredValue(OPENAI_MODEL_STORAGE_KEY) || DEFAULT_OPENAI_MODEL;
+  const stored = getStoredValue(OPENAI_MODEL_STORAGE_KEY);
+  // The old UI default is not a documented current API model ID. Keep custom
+  // selections intact, but move this exact legacy default to the current model.
+  return !stored || stored === 'gpt-5.6-luna' ? DEFAULT_OPENAI_MODEL : stored;
 }
 
 export function setStoredOpenAIModel(value: string): void {
