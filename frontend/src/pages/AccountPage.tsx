@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   DEFAULT_OPENAI_MODEL,
   connectServerWithCode,
-  getHealth,
+  waitForHealthyBackend,
   verifyServerConnection,
   YOUTUBE_OAUTH_REDIRECT_URI,
   disconnectYouTubeOAuth,
@@ -34,6 +34,8 @@ export function AccountPage() {
   const [pairingCode, setPairingCode] = useState('');
   const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [apiRetryAttempt, setApiRetryAttempt] = useState(0);
+  const [apiRetryKey, setApiRetryKey] = useState(0);
   const [pairingAvailable, setPairingAvailable] = useState<boolean | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverBusy, setServerBusy] = useState(false);
@@ -52,6 +54,7 @@ export function AccountPage() {
   const [redirectCopied, setRedirectCopied] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     // The invitation lives in the fragment (never transmitted over HTTP).
     // Remove it from the address bar immediately after reading.
     const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -60,35 +63,69 @@ export function AccountPage() {
       setPairingCode(invite);
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     }
-    getHealth()
-      .then((health) => {
+    setApiStatus('checking');
+    setApiRetryAttempt(0);
+    setPairingAvailable(null);
+    setServerStatus('checking');
+
+    const checkConnection = async () => {
+      // Render Free's sleeping backend must wake before protected auth checks.
+      // Retried calls here are read-only GET /health; never repeat pairing POST.
+      try {
+        const health = await waitForHealthyBackend((attempt) => {
+          if (!cancelled) setApiRetryAttempt(attempt);
+        });
+        if (cancelled) return;
         setApiStatus('online');
+        setApiRetryAttempt(0);
         setPairingAvailable(health.auth?.pairing_available ?? null);
-      })
-      .catch(() => setApiStatus('offline'));
-    verifyServerConnection()
-      .then(async (result) => {
-        setServerStatus(result.connected ? 'connected' : 'disconnected');
-        // This is a protected owner endpoint. Do not call it while unauthenticated
-        // and then misleadingly render 'not connected' for a 401 response.
-        if (result.connected) {
+      } catch {
+        if (!cancelled) {
+          setApiStatus('offline');
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+        return;
+      }
+
+      // A missing admin token means not paired, NOT that the API is offline.
+      const token = getStoredApiAccessToken();
+      if (!token) {
+        if (!cancelled) {
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+        return;
+      }
+      try {
+        const verified = await verifyServerConnection(token);
+        if (cancelled) return;
+        setServerStatus(verified.connected ? 'connected' : 'disconnected');
+        if (verified.connected) {
           try {
-            setOauthStatus(await getYouTubeOAuthStatus());
+            const oauth = await getYouTubeOAuthStatus();
+            if (!cancelled) setOauthStatus(oauth);
           } catch {
-            setOauthStatus(null);
+            if (!cancelled) setOauthStatus(null);
           }
         }
-      })
-      .catch(() => {
-        setServerStatus('disconnected');
-        setOauthStatus(null);
-      });
-  }, []);
+      } catch {
+        if (!cancelled) {
+          setServerStatus('disconnected');
+          setOauthStatus(null);
+        }
+      }
+    };
+
+    void checkConnection();
+    return () => { cancelled = true; };
+  }, [apiRetryKey]);
 
   const pairServer = async () => {
     setServerBusy(true);
     setServerError(null);
     try {
+      await waitForHealthyBackend();
       const response = await connectServerWithCode(pairingCode);
       setServerToken(response.access_token);
       setPairingCode('');
@@ -106,6 +143,7 @@ export function AccountPage() {
     setServerBusy(true);
     setServerError(null);
     try {
+      await waitForHealthyBackend();
       const verified = await verifyServerConnection(serverToken);
       if (!verified.connected) throw new Error('유효하지 않은 관리자 인증 토큰입니다.');
       setStoredApiAccessToken(serverToken);
@@ -281,10 +319,15 @@ export function AccountPage() {
                 <ShieldCheck size={20} />
               </div>
               <div role="status" className={'server-connection-status ' + (apiStatus === 'online' ? 'connected' : apiStatus === 'checking' ? 'checking' : 'disconnected')}>
-                {apiStatus === 'online' ? 'API 서버 온라인' : apiStatus === 'checking' ? 'API 서버 확인 중' : 'API 서버 접속 실패'}
+                {apiStatus === 'online' ? 'API 서버 온라인' : apiStatus === 'checking' ? apiRetryAttempt > 0 ? `Render 백엔드 재기동 확인 중 (${apiRetryAttempt}/4)` : 'API 서버 확인 중' : 'API 서버 접속 실패'}
               </div>
               {apiStatus === 'offline' && (
-                <p className="account-field-note">서버가 일시 중지되었거나 프록시 응답에 문제가 있을 수 있습니다. 화면을 새로고침해 다시 확인해주세요.</p>
+                <div className="account-field-note" role="status">
+                  Render 무료 서버가 일시 중지됐거나 프록시 연결에 실패했을 수 있습니다.
+                  <button type="button" className="btn secondary sm" onClick={() => setApiRetryKey((value) => value + 1)}>
+                    API 서버 다시 확인
+                  </button>
+                </div>
               )}
               <div className={'server-connection-status ' + serverStatus} role="status">
                 {serverStatus === 'connected' ? '관리자 인증 연결됨' : serverStatus === 'checking' ? '관리자 인증 확인 중' : '관리자 인증 미연결 (일반 API와 별개)'}
