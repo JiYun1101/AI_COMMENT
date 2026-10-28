@@ -34,6 +34,7 @@ export function AccountPage() {
   const [pairingCode, setPairingCode] = useState('');
   const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [pairingAvailable, setPairingAvailable] = useState<boolean | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverBusy, setServerBusy] = useState(false);
   const [youtubeKey, setYoutubeKey] = useState(() => getStoredYouTubeApiKey());
@@ -60,7 +61,10 @@ export function AccountPage() {
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     }
     getHealth()
-      .then(() => setApiStatus('online'))
+      .then((health) => {
+        setApiStatus('online');
+        setPairingAvailable(health.auth?.pairing_available ?? null);
+      })
       .catch(() => setApiStatus('offline'));
     verifyServerConnection()
       .then(async (result) => {
@@ -286,6 +290,14 @@ export function AccountPage() {
                 {serverStatus === 'connected' ? '관리자 인증 연결됨' : serverStatus === 'checking' ? '관리자 인증 확인 중' : '관리자 인증 미연결 (일반 API와 별개)'}
               </div>
               <p className="account-field-note">관리자 연결은 비공개 초대 코드나 기존 인증 토큰을 가진 소유자만 사용할 수 있습니다.</p>
+              {pairingAvailable === false && (
+                <p className="account-field-note" role="status">
+                  현재 서버에서는 초대 코드 발급 기능이 비활성화돼 있습니다.
+                  아래 ‘기존 서버 토큰으로 연결’을 열어 소유자에게 발급된 인증 토큰으로 연결하세요.
+                  토큰이 없다면 서버 관리자가 Render에서 별도 인증 구성을 해야 합니다.
+                  공개 채팅에 관리자 토큰을 붙여넣지 마세요.
+                </p>
+              )}
               <label className="account-label" htmlFor="server-pairing-code">서버 연결 코드</label>
               <div className="secret-input">
                 <input id="server-pairing-code" type="password" autoComplete="off"
@@ -294,7 +306,7 @@ export function AccountPage() {
               </div>
               <div className="credential-actions">
                 <button type="button" className="btn primary"
-                  disabled={serverBusy || pairingCode.trim().length < 32}
+                  disabled={serverBusy || pairingAvailable === false || pairingCode.trim().length < 32}
                   onClick={() => void pairServer()}>
                   {serverBusy ? <LoaderCircle size={15} className="spin" /> : <Link2 size={15} />}
                   서버 연결하기
@@ -310,7 +322,7 @@ export function AccountPage() {
                 )}
               </div>
               {serverError && <div className="oauth-error" role="alert">{serverError}</div>}
-              <details className="server-advanced">
+              <details className="server-advanced" open={pairingAvailable === false}>
                 <summary>기존 서버 토큰으로 연결</summary>
                 <label className="account-label" htmlFor="api-access-token">Access Token</label>
                 <div className="secret-input">
