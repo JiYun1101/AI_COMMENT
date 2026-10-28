@@ -352,12 +352,17 @@ export function RecommendPage() {
         recommendation_id: recommendation.id,
       });
       setPublishedUrls((current) => ({ ...current, [recommendation.id]: posted.comment_url }));
-      if (!posted.tracked || !posted.browser_backup_saved) {
+      if (!posted.tracked || !posted.browser_backup_saved || posted.cloud_backup_saved === false) {
+        const savedLocation = [
+          posted.browser_backup_saved ? '브라우저 백업 완료' : '브라우저 백업 실패',
+          posted.cloud_backup_saved === true ? 'Supabase 회원 클라우드 영수증 백업 완료'
+            : posted.cloud_backup_saved === false ? '회원 클라우드 백업 실패' : '',
+        ].filter(Boolean).join(' · ');
         setError(
-          '댓글은 YouTube에 게시됐지만 추적 기록이 완전히 저장되지는 않았습니다. ' +
-          (posted.browser_backup_saved
-            ? '이 브라우저의 게시 영수증은 남아 있습니다. 내 댓글 성과에서 복구할 수 있습니다.'
-            : '브라우저 백업도 실패했습니다. 게시된 댓글 주소를 별도로 보관해주세요.'),
+          'YouTube 댓글 게시 자체는 성공했습니다. 다시 게시하지 마세요. ' +
+          (!posted.tracked ? '서버 추적 기록이 정상 저장되지 않았습니다. ' : '') +
+          savedLocation + '. ' +
+          (posted.cloud_backup_warning || '영구 서버 저장소와 OAuth 토큰 보존은 별도 설정이 필요합니다.'),
         );
       }
     } catch (err) {
@@ -381,8 +386,9 @@ export function RecommendPage() {
         <div className="recommend">
           {serviceHealth?.storage.persistent === false && (
             <div className="inline-status error" role="alert">
-              현재 서버 저장소가 영구 보존되지 않습니다. 댓글 게시 후 기록을 브라우저에 백업하고,
-              추적을 지속하려면 영구 DB 연결이 필요합니다.
+              현재 서버 SQLite와 OAuth 토큰은 재시작 후 유실될 수 있습니다.
+              개인 계정에 로그인했다면 게시 영수증은 Supabase에도 별도로 백업할 수 있습니다.
+              전체 추적 이력을 영구 보존하려면 서버 저장소 이전이 필요합니다.
             </div>
           )}
           <div className="hero">
