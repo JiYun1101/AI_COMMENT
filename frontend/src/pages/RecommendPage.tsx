@@ -10,6 +10,8 @@ import { RecommendationTracePanel } from '../components/recommend/Recommendation
 import { TypeTag } from '../components/TypeTag';
 import {
   getAccountMode,
+  getStoredOpenAIApiKey,
+  setAccountMode,
   getAnalysis,
   getHealth,
   waitForHealthyBackend,
@@ -445,9 +447,18 @@ export function RecommendPage() {
           )}
           {serviceHealth && !serviceHealth.llm.ready && (
             <div className="inline-status" role="status">
-              <button type="button" className="btn secondary sm" onClick={() => navigate('/account/connect')}>
-                OpenAI API Key 설정하기
-              </button>
+              {accountMode === 'demo' && getStoredOpenAIApiKey() ? (
+                <button type="button" className="btn secondary sm" onClick={() => {
+                  setAccountMode('personal');
+                  setHealthRetryKey((value) => value + 1);
+                }}>
+                  저장된 OpenAI 키로 개인 모드 사용
+                </button>
+              ) : (
+                <button type="button" className="btn secondary sm" onClick={() => navigate('/account/connect')}>
+                  OpenAI API Key 설정하기
+                </button>
+              )}
             </div>
           )}
           {serviceHealth?.storage.persistent === false && (
