@@ -576,6 +576,14 @@ export async function recoverPublishedBatch(
   owner_channel_id: string;
   registered_count: number;
   failed_count: number;
+  items: Array<{
+    id: string;
+    video_id: string;
+    comment_id: string;
+    comment: string;
+    comment_url: string | null;
+    published_at: string;
+  }>;
   failures: Array<{ comment_id: string; reason: string }>;
   storage_persistent: boolean;
 }> {
