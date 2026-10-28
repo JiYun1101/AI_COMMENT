@@ -12,6 +12,7 @@ import type { PublicMetricRow } from '../../utils/publicMetricsBackup';
 import { storePublicMetricResponse } from '../../utils/publicMetricsBackup';
 import { analysisGrowth, buildOutcomeEvidence } from '../../utils/analysisEvidence';
 import { listGuestBrowserAnalyses } from '../../utils/browserAnalysisHistory';
+import { listSelectedRecommendationIds } from '../../utils/selectionHistory';
 
 const number = (value: number) => value.toLocaleString('ko-KR');
 const shortDate = (value: string) => {
@@ -25,6 +26,7 @@ export function ModelDataProgressPanel() {
   const [analyses, setAnalyses] = useState<AnalysisSummary[]>([]);
   const [recommendations, setRecommendations] = useState<Array<{ analysisId: string; recommendationId: string; comment: string }>>([]);
   const [receipts, setReceipts] = useState<PrivatePublishedReceipt[]>([]);
+  const [selectedCopies, setSelectedCopies] = useState(0);
   const [published, setPublished] = useState<PublishedComment[]>([]);
   const [publicMetrics, setPublicMetrics] = useState<PublicMetricRow[]>([]);
   const [isMember, setIsMember] = useState(false);
@@ -43,6 +45,7 @@ export function ModelDataProgressPanel() {
     const member = Boolean(cachedAccount());
     setIsMember(member);
     setIsBrowserGuest(!member && listGuestBrowserAnalyses(1).length > 0);
+    setSelectedCopies(listSelectedRecommendationIds().length);
     let canShowHistory = false;
     try {
       if (member) {
@@ -247,6 +250,7 @@ export function ModelDataProgressPanel() {
           <small>게시 영수증 + 공개 좋아요·답글 기반 · 모델 학습 가중치 아님</small>
         </div>
         <div className="model-outcome-kpis">
+          <span>복사한 추천 <b>{number(selectedCopies)}건</b></span>
           <span>게시 확인 <b>{number(outcome.publishedCount)}건</b></span>
           <span>반응 측정 <b>{number(outcome.observedCount)}건</b></span>
           <span>긍정 반응 발생 <b>{number(outcome.positiveCount)}건</b></span>
@@ -273,6 +277,7 @@ export function ModelDataProgressPanel() {
             ))}
           </div>
         ) : <p className="eng-note">{isMember ? '추천 댓글을 실제 게시한 기록이 생기면 여기에 연결됩니다. 반응 확인 전에는 성과가 있다고 가정하지 않습니다.' : '회원 로그인 후 게시한 추천 댓글을 안전하게 계정과 연결할 수 있습니다.'}</p>}
+        <p className="eng-note">복사한 댓글은 이용자가 후보를 선택한 신호지만 실제 게시나 성과로 간주하지 않습니다. 게시 영수증과 공개 반응이 확인된 댓글에만 아래 관찰 가중치를 적용합니다.</p>
         <p className="eng-note">표시 가중치 = 1 + 0.25 × log₂(1+좋아요) + 0.5 × log₂(1+답글), 최대 3배. 실제 게시 확인만으로는 1.00배이며, 반응이 미측정인 경우 성과가 아닌 게시 기록으로만 표시합니다. 이 수치는 관찰 결과를 살펴보기 위한 상대 지표이며 추천 모델을 자동으로 재학습하지 않습니다.</p>
         {isMember && receipts.length > 0 && (!getStoredApiAccessToken() || !getStoredYouTubeApiKey()) && (
           <p className="eng-note">공개 반응을 새로 측정하려면 <Link to="/account/connect">서버 연결과 YouTube Data API Key</Link>가 필요합니다. 계정에 저장된 분석·게시 기록 조회는 별도로 동작합니다.</p>
